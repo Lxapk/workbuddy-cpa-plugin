@@ -63,6 +63,124 @@ func forceStream(body []byte) ([]byte, error) {
 // It mirrors what a client library would do: concatenate delta.content, keep the
 // first frame's envelope fields, take the last finish_reason, and carry the usage
 // block from whichever frame supplied it.
+// toolCallAccumulator rebuilds tool calls that arrived split across frames.
+//
+// A streamed tool call is not sent whole. The first frame carries the id and the
+// function name, and the arguments arrive in pieces:
+//
+//	{"index":0,"id":"call_x","function":{"name":"get_weather","arguments":""}}
+//	{"index":0,"function":{"arguments":"{\"city\""}}
+//	{"index":0,"function":{"arguments":":\"Hangzhou\"}"}}
+//
+// Keeping only the last frame (what a plain overwrite does) loses the id, the name
+// and most of the arguments, so a folded response reaches the client with an
+// unusable tool call. Everything is therefore merged per index, and the argument
+// pieces are concatenated in arrival order.
+type toolCallAccumulator struct {
+	order []int
+	calls map[int]map[string]any
+}
+
+// newToolCallAccumulator prepares an empty accumulator.
+func newToolCallAccumulator() *toolCallAccumulator {
+	return &toolCallAccumulator{calls: map[int]map[string]any{}}
+}
+
+// merge folds one frame's tool_calls array into the accumulator.
+func (accumulator *toolCallAccumulator) merge(raw json.RawMessage) {
+	var calls []struct {
+		Index    *int            `json:"index"`
+		ID       string          `json:"id"`
+		Type     string          `json:"type"`
+		Function json.RawMessage `json:"function"`
+	}
+	if errUnmarshal := json.Unmarshal(raw, &calls); errUnmarshal != nil {
+		return
+	}
+	for position, call := range calls {
+		// Frames that omit index still address distinct calls by their position in
+		// the array, which is what the upstream means by sending them separately.
+		index := position
+		if call.Index != nil {
+			index = *call.Index
+		}
+		target, okTarget := accumulator.calls[index]
+		if !okTarget {
+			target = map[string]any{"index": index, "function": map[string]any{}}
+			accumulator.calls[index] = target
+			accumulator.order = append(accumulator.order, index)
+		}
+		if call.ID != "" {
+			target["id"] = call.ID
+		}
+		if call.Type != "" {
+			target["type"] = call.Type
+		}
+		if len(call.Function) == 0 {
+			continue
+		}
+		var function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}
+		if errUnmarshal := json.Unmarshal(call.Function, &function); errUnmarshal != nil {
+			continue
+		}
+		existing, _ := target["function"].(map[string]any)
+		if existing == nil {
+			existing = map[string]any{}
+		}
+		if function.Name != "" {
+			existing["name"] = function.Name
+		}
+		if function.Arguments != "" {
+			// Arguments are a JSON string that arrives in pieces; append, do not
+			// replace, or every piece but the last is lost.
+			previous, _ := existing["arguments"].(string)
+			existing["arguments"] = previous + function.Arguments
+		}
+		target["function"] = existing
+	}
+}
+
+// json returns the accumulated calls in the order they first appeared.
+func (accumulator *toolCallAccumulator) json() (json.RawMessage, bool) {
+	if len(accumulator.order) == 0 {
+		return nil, false
+	}
+	out := make([]map[string]any, 0, len(accumulator.order))
+	for _, index := range accumulator.order {
+		call := accumulator.calls[index]
+		if call == nil {
+			continue
+		}
+		// A call with no id cannot be referenced by a later tool result; drop it
+		// rather than emit something the client cannot answer.
+		if id, _ := call["id"].(string); strings.TrimSpace(id) == "" {
+			continue
+		}
+		if function, okFunction := call["function"].(map[string]any); okFunction {
+			if _, okName := function["name"]; !okName {
+				function["name"] = ""
+			}
+			if _, okArguments := function["arguments"]; !okArguments {
+				function["arguments"] = ""
+			}
+		}
+		out = append(out, call)
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	encoded, errMarshal := json.Marshal(out)
+	if errMarshal != nil {
+		return nil, false
+	}
+	return encoded, true
+}
+
+// aggregateStreamToCompletion folds a sequence of OpenAI SSE frames into one
+// non-streaming chat.completion response.
 func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 	type delta struct {
 		Role             string          `json:"role,omitempty"`
@@ -78,7 +196,7 @@ func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 		object    = "chat.completion"
 		content   strings.Builder
 		reasoning strings.Builder
-		toolCalls json.RawMessage
+		toolCalls = newToolCallAccumulator()
 		finish    string
 		usage     json.RawMessage
 		sawFrame  bool
@@ -127,7 +245,7 @@ func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 			content.WriteString(choice.Delta.Content)
 			reasoning.WriteString(choice.Delta.ReasoningContent)
 			if len(choice.Delta.ToolCalls) > 0 && string(choice.Delta.ToolCalls) != "null" {
-				toolCalls = choice.Delta.ToolCalls
+				toolCalls.merge(choice.Delta.ToolCalls)
 			}
 			if choice.FinishReason != "" {
 				finish = choice.FinishReason
@@ -147,8 +265,8 @@ func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 	if reasoning.Len() > 0 {
 		message["reasoning_content"] = reasoning.String()
 	}
-	if len(toolCalls) > 0 {
-		message["tool_calls"] = toolCalls
+	if accumulated, okCalls := toolCalls.json(); okCalls {
+		message["tool_calls"] = accumulated
 	}
 
 	choices := []map[string]any{{

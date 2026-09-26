@@ -631,7 +631,56 @@ curl -N http://127.0.0.1:8317/v1/chat/completions \
 
 `data:` 前缀和 SSE 空行由 CPA 负责添加。
 
+### 流式 tool_calls 分片被覆盖（v0.13.33 修复）
+
+**排查依据**：反编译 `AI 聚合网关_0.1.18.apk`（`d2/C0490f.java` 的折叠累加器）。
+
+**流式 `tool_calls` 不是整条发来的**，而是分片：
+
+```
+{"index":0,"id":"call_x","function":{"name":"get_weather","arguments":""}}
+{"index":0,"function":{"arguments":"{\"city\""}}
+{"index":0,"function":{"arguments":":\"Hangzhou\"}"}}
+```
+
+**旧实现**：
+
+```go
+if len(choice.Delta.ToolCalls) > 0 {
+    toolCalls = choice.Delta.ToolCalls     // 整体覆盖
+}
+```
+
+**每一帧都覆盖前一帧** → **只留下最后一帧的碎片**：
+
+| 字段 | 修复前 | 修复后 |
+|---|---|---|
+| `id` | ❌ 丢失（首帧才有） | ✅ `call_x` |
+| `name` | ❌ 丢失 | ✅ `get_weather` |
+| `arguments` | ❌ 只剩最后一片 | ✅ 完整拼接 |
+
+**影响面**：走**折叠路径**的请求（非流式客户端 + 上游不支持非流式时），
+**返回的 `tool_calls` 是残缺的** —— 客户端拿到后无法解析参数、无法回填结果。
+
+**修复**：按参考实现的 `toolCallAccumulator`：
+
+- **按 `index` 建槽**（并行调用各自独立，不互相覆盖）
+- **`arguments` 拼接**而非替换
+- **`id` / `name` / `type` 首帧写入后保留**
+- **没有 `id` 的调用丢弃**（客户端无法为它回填 `tool_call_id`）
+
+**实测**：
+
+```
+非流式 + 工具调用（走折叠）
+  finish_reason: tool_calls
+  tool_call id='call_00_b69TzN5rveKloqZClDDu7062'  name='get_weather'
+    arguments='{"city": "Hangzhou"}'          ← 完整
+```
+
 ### tool 对断裂：修补 + 对称裁剪（v0.13.32 修复）
+
+
 
 **用户的真实场景**：请求体 **650KB**（完整会话历史），报错
 
