@@ -131,6 +131,8 @@ var requestContentPhrases = []string{
 	"please start a new conversation",
 	"request illegal",
 	"invalid_request_error",
+	"non-stream chat request is currently not supported",
+	"non-stream chat request",
 }
 
 // isRequestContentFailure reports whether the message describes a malformed
@@ -199,15 +201,16 @@ func executorExecute(request []byte) ([]byte, error) {
 		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errChat.Error()))
 		return errorEnvelope("upstream_error", errChat.Error(), 502), nil
 	}
-	if status >= 400 {
-		// The interceptor will not see this exchange, so classify and park here.
-		reportExecutorFailure(creds, model, status, respBody)
-	}
 
 	// The provider rejects non-streaming chat requests outright
 	// ({"code":11101,"msg":"Non-stream chat request is currently not supported"}).
 	// Satisfy the client by streaming upstream and folding the frames back into
 	// a single chat.completion.
+	//
+	// Checked before the failure report: this 4xx describes what the endpoint
+	// supports, not what state the credential is in, and the fold below answers
+	// the request successfully. Reporting it first counted a pass as a failure,
+	// and three passes parked the account.
 	if isNonStreamUnsupported(status, respBody) {
 		streamBody, errForce := forceStream(upstreamBody)
 		if errForce != nil {
@@ -221,9 +224,11 @@ func executorExecute(request []byte) ([]byte, error) {
 			return nil
 		})
 		if errStream != nil {
+			reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errStream.Error()))
 			return errorEnvelope("upstream_error", errStream.Error(), 502), nil
 		}
 		if len(frames) == 0 {
+			reportExecutorFailure(creds, model, http.StatusBadGateway, []byte("上游未返回任何内容"))
 			return errorEnvelope("upstream_error", "上游未返回任何内容", 502), nil
 		}
 		aggregated := aggregateStreamToCompletion(frames, req.Model)
@@ -236,6 +241,11 @@ func executorExecute(request []byte) ([]byte, error) {
 				"aggregated":      true,
 			},
 		})
+	}
+
+	if status >= 400 {
+		// The interceptor will not see this exchange, so classify and park here.
+		reportExecutorFailure(creds, model, status, respBody)
 	}
 
 	return okEnvelope(pluginapi.ExecutorResponse{

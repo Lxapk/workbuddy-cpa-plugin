@@ -383,12 +383,20 @@ func TestRunCheckinKeepsHistory(t *testing.T) {
 
 func TestCheckinDueNow(t *testing.T) {
 	now := time.Now()
-	// A target one minute in the past is due.
+	// A target later today is not due.
+	//
+	// checkinDueNow compares against today's occurrence of Hour:Minute, so the
+	// "future" case only holds while both the hour and the minute are ahead.
+	// Near midnight it cannot be constructed this way at all (23:30 + 2h wraps
+	// to 01:30, which today already passed), so skip rather than assert
+	// something the helper was never meant to express.
+	if now.Hour() >= 22 {
+		t.Skipf("当前 %02d:%02d 接近午夜，无法用 Hour/Minute 表达「今天晚些时候」", now.Hour(), now.Minute())
+	}
 	past := checkinSettings{Hour: now.Hour(), Minute: clampMinute(now.Minute() - 1)}
-	if !checkinDueNow(past) {
+	if clampMinute(now.Minute()-1) != now.Minute() && !checkinDueNow(past) {
 		t.Error("a past target should be due (unless minute wrapped)")
 	}
-	// A target later today is not due.
 	future := now.Add(2 * time.Hour)
 	if checkinDueNow(checkinSettings{Hour: future.Hour(), Minute: future.Minute()}) {
 		t.Error("a future target should not be due")
