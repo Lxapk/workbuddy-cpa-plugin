@@ -207,3 +207,100 @@ func newUpstreamReturning(t *testing.T, status int, body string) *httptest.Serve
 }
 
 func nowBefore(ts time.Time) bool { return time.Now().Before(ts) }
+
+// tool_calls 缺结果时，把该调用裁掉（而不是补占位的假结果）。
+//
+// 上游要求每个调用都有结果，所以必须处理；但补一个占位结果会让模型把
+// 「未执行」当成真实的工具输出。裁掉是纯结构操作。
+func TestRepairToolCallIDsDropsCallsWithoutResults(t *testing.T) {
+	body := []byte(`{
+		"model":"m",
+		"messages":[
+			{"role":"system","content":"s"},
+			{"role":"user","content":"do two things"},
+			{"role":"assistant","tool_calls":[
+				{"id":"call_A","type":"function","function":{"name":"f","arguments":"{}"}},
+				{"id":"call_B","type":"function","function":{"name":"g","arguments":"{}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_A","content":"result A"}
+		]
+	}`)
+
+	out, errNorm := normaliseUpstreamBody(body)
+	if errNorm != nil {
+		t.Fatal(errNorm)
+	}
+	var doc struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if errUnmarshal := json.Unmarshal(out, &doc); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+
+	// 有结果的调用保留，缺结果的被裁掉。
+	ids := assistantToolCallIDs(doc.Messages[2])
+	if len(ids) != 1 || ids[0] != "call_A" {
+		t.Errorf("应只保留 call_A；实际 %v", ids)
+	}
+	if len(doc.Messages) != 4 {
+		t.Errorf("消息数 = %d, want 4（不补占位）", len(doc.Messages))
+	}
+}
+
+// 调用完全没有结果时，tool_calls 键应被删除，而不是留空数组。
+func TestRepairToolCallIDsDropsEmptyToolCallsKey(t *testing.T) {
+	body := []byte(`{
+		"model":"m",
+		"messages":[
+			{"role":"system","content":"s"},
+			{"role":"assistant","content":"thinking...","tool_calls":[{"id":"call_X","type":"function","function":{"name":"f","arguments":"{}"}}]}
+		]
+	}`)
+
+	out, errNorm := normaliseUpstreamBody(body)
+	if errNorm != nil {
+		t.Fatal(errNorm)
+	}
+	var doc struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if errUnmarshal := json.Unmarshal(out, &doc); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	last := doc.Messages[len(doc.Messages)-1]
+	if _, has := last["tool_calls"]; has {
+		t.Error("tool_calls 应被删除，而不是留空数组")
+	}
+	// 普通文本内容不能被丢弃。
+	if got := rawStringField(last, "content"); got != "thinking..." {
+		t.Errorf("content = %q，正文不应被丢弃", got)
+	}
+}
+
+// 孤儿 tool 结果（无对应调用）应被删除。
+func TestRepairToolCallIDsDropsOrphanResults(t *testing.T) {
+	body := []byte(`{
+		"model":"m",
+		"messages":[
+			{"role":"system","content":"s"},
+			{"role":"user","content":"q"},
+			{"role":"tool","tool_call_id":"ghost","content":"orphan"}
+		]
+	}`)
+
+	out, errNorm := normaliseUpstreamBody(body)
+	if errNorm != nil {
+		t.Fatal(errNorm)
+	}
+	var doc struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if errUnmarshal := json.Unmarshal(out, &doc); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	for _, m := range doc.Messages {
+		if roleOf(m) == "tool" {
+			t.Errorf("孤儿 tool 结果应被删除；仍然存在: %s", m["content"])
+		}
+	}
+}

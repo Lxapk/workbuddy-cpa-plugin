@@ -60,7 +60,9 @@ func normaliseUpstreamBody(body []byte) ([]byte, error) {
 	if repackToolResults(messages) {
 		changed = true
 	}
-	if repairToolCallIDs(messages) {
+	var repaired bool
+	messages, repaired = repairToolCallIDs(messages)
+	if repaired {
 		changed = true
 	}
 	if ensureLeadingSystemMessage(&messages) {
@@ -79,47 +81,81 @@ func normaliseUpstreamBody(body []byte) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
-// repairToolCallIDs re-links tool results to the calls they answer.
+// repairToolCallIDs makes the tool_call_id pairings self-consistent.
 //
 // The upstream validates the pairing and rejects the whole conversation with
 //
 //	tool calls and tool results do not match, please start a new conversation and retry
 //
 // when it does not hold. repackToolResults only fixes *adjacency*; the ids have to
-// line up as well, and clients get them wrong in three ways:
+// line up as well, and clients get them wrong in four ways:
 //
 //  1. a tool result whose tool_call_id matches no call in the preceding assistant
 //     turn (a stale id, or one from a conversation branch that was edited)
 //  2. a tool result with no tool_call_id at all
-//  3. an assistant turn carrying tool_calls whose results never arrive
+//  3. an assistant turn carrying tool_calls that never receive a result — the
+//     normal shape when the user interrupted the run, or when a transcript is
+//     persisted mid-turn
+//  4. a tool result arriving with nothing to answer (orphan)
 //
-// Case 1 is repaired by pointing the result at the unmatched call still awaiting
-// one, in order. Case 2 gets the same id. Case 3 is reported as an unrepairable
-// mismatch, because inventing a result would put words in the tool's mouth.
+// Cases 1 and 2 are repaired by pointing the result at the unmatched call still
+// awaiting one, in order: the content is real, only the link was wrong.
 //
-// The error is retryable on a different account — it is a property of the
-// request, not of the credential — so callers must not count it against account
-// health. Returns whether anything was rewritten.
-func repairToolCallIDs(messages []map[string]json.RawMessage) bool {
+// Cases 3 and 4 are resolved by *dropping* the unpaired side rather than inventing
+// a counterpart. The upstream wants a result for every call, so case 3 has to be
+// resolved, and a placeholder result would be shown to the model as if the tool
+// had produced it — removing the call is a purely structural edit. Case 4 has
+// nowhere to attach, so removing the result is the only option that leaves a valid
+// conversation.
+//
+// Both sides are trimmed against one shared id set, so no edit here can leave a
+// half-pair behind. Returns whether anything was rewritten.
+func repairToolCallIDs(messages []map[string]json.RawMessage) ([]map[string]json.RawMessage, bool) {
 	if len(messages) < 2 {
-		return false
+		return messages, false
 	}
-	changed := false
 
-	// Ids offered by the most recent assistant turn, in order.
+	// First pass: link results to the calls they answer (cases 1 and 2).
+	linked, relinked := linkToolResultsToCalls(messages)
+
+	// Second pass: keep only the ids present on both sides (cases 3 and 4).
+	callIDs := collectAssistantToolCallIDs(linked)
+	resultIDs := collectToolResultIDs(linked)
+	keep := make(map[string]bool, len(callIDs))
+	for id := range callIDs {
+		if resultIDs[id] {
+			keep[id] = true
+		}
+	}
+
+	trimmed, trimmedAny := trimUnpairedToolMessages(linked, keep)
+	return trimmed, relinked || trimmedAny
+}
+
+// linkToolResultsToCalls points each result at an unanswered call, in order.
+//
+// A result that already names a live, unanswered call is left alone. A result with
+// a stale or missing id is re-pointed at the first call still awaiting one; the
+// content came from a real execution, so keeping it is right.
+//
+// Reports whether any id was rewritten. The caller needs this: a rewrite here does
+// not change how many ids are paired, so the trim pass reports "nothing to do" and
+// the whole normalisation would otherwise be skipped as a no-op, silently dropping
+// the repair.
+func linkToolResultsToCalls(messages []map[string]json.RawMessage) ([]map[string]json.RawMessage, bool) {
 	var pending []string
 	answered := map[string]bool{}
+	relinked := false
 
-	for _, message := range messages {
+	for index := range messages {
+		message := messages[index]
 		switch roleOf(message) {
 		case "assistant":
 			pending = assistantToolCallIDs(message)
 			answered = make(map[string]bool, len(pending))
 		case "tool":
 			if len(pending) == 0 {
-				// No call to answer; the upstream will reject this. Moving it
-				// would not help and dropping it would lose content, so leave it
-				// for the error path to report.
+				// Case 4; handled by the trim pass.
 				continue
 			}
 			current := toolResultID(message)
@@ -127,7 +163,6 @@ func repairToolCallIDs(messages []map[string]json.RawMessage) bool {
 				answered[current] = true
 				continue
 			}
-			// Case 1 or 2: link to the first call still awaiting a result.
 			next := ""
 			for _, id := range pending {
 				if !answered[id] {
@@ -136,17 +171,119 @@ func repairToolCallIDs(messages []map[string]json.RawMessage) bool {
 				}
 			}
 			if next == "" {
-				// Every call already has a result; a duplicate is not something
-				// to guess at.
 				continue
 			}
 			if setToolResultID(message, next) {
 				answered[next] = true
-				changed = true
+				relinked = true
 			}
 		}
 	}
-	return changed
+	return messages, relinked
+}
+
+// collectAssistantToolCallIDs gathers every id declared by an assistant turn.
+func collectAssistantToolCallIDs(messages []map[string]json.RawMessage) map[string]bool {
+	out := map[string]bool{}
+	for _, message := range messages {
+		if roleOf(message) != "assistant" {
+			continue
+		}
+		for _, id := range assistantToolCallIDs(message) {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// collectToolResultIDs gathers every id named by a tool result.
+func collectToolResultIDs(messages []map[string]json.RawMessage) map[string]bool {
+	out := map[string]bool{}
+	for _, message := range messages {
+		if roleOf(message) != "tool" {
+			continue
+		}
+		if id := toolResultID(message); id != "" {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// trimUnpairedToolMessages drops calls without results and results without calls.
+//
+// Both sides work against one shared keep set, so they cannot end up half-paired: a
+// result survives only if its call does, and a call only if its result does. An
+// assistant turn left with no calls keeps its other fields (content, reasoning) and
+// simply loses the tool_calls key, so ordinary text is not discarded.
+func trimUnpairedToolMessages(messages []map[string]json.RawMessage, keep map[string]bool) ([]map[string]json.RawMessage, bool) {
+	changed := false
+	out := make([]map[string]json.RawMessage, 0, len(messages))
+
+	for _, message := range messages {
+		switch roleOf(message) {
+		case "assistant":
+			rawCalls, okCalls := message["tool_calls"]
+			if !okCalls {
+				out = append(out, message)
+				continue
+			}
+			var calls []map[string]json.RawMessage
+			if errUnmarshal := json.Unmarshal(rawCalls, &calls); errUnmarshal != nil {
+				out = append(out, message)
+				continue
+			}
+			kept := make([]map[string]json.RawMessage, 0, len(calls))
+			for _, call := range calls {
+				if keep[rawStringField(call, "id")] {
+					kept = append(kept, call)
+				}
+			}
+			if len(kept) == len(calls) {
+				out = append(out, message)
+				continue
+			}
+			changed = true
+			if len(kept) == 0 {
+				// No calls survive: drop the key rather than leave an empty array,
+				// which is itself a malformed assistant turn.
+				delete(message, "tool_calls")
+				out = append(out, message)
+				continue
+			}
+			encoded, errMarshal := json.Marshal(kept)
+			if errMarshal != nil {
+				out = append(out, message)
+				continue
+			}
+			message["tool_calls"] = encoded
+			out = append(out, message)
+		case "tool":
+			if keep[toolResultID(message)] {
+				out = append(out, message)
+				continue
+			}
+			// A result whose call is gone cannot be answered; keeping it is what
+			// the upstream reports as a mismatch.
+			changed = true
+		default:
+			out = append(out, message)
+		}
+	}
+	return out, changed
+}
+
+// rawStringField reads a string field from a decoded object, empty when absent.
+func rawStringField(object map[string]json.RawMessage, field string) string {
+	raw, okField := object[field]
+	if !okField {
+		return ""
+	}
+	var value string
+	if errUnmarshal := json.Unmarshal(raw, &value); errUnmarshal != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 // assistantToolCallIDs reads the ids of an assistant turn's tool_calls, in order.
