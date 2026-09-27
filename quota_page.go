@@ -55,7 +55,9 @@ func handleQuotaRequest(req pluginapi.ManagementRequest) (managementResponse, bo
 				Body:       mustJSON(map[string]any{"error": "POST required"}),
 			}, true
 		}
-		results, errRefresh := runQuotaRefresh("manual")
+		// ?uid= narrows the refresh to one account; omitted means the whole pool.
+		uid := strings.TrimSpace(req.Query.Get("uid"))
+		results, errRefresh := runQuotaRefreshFor("manual", uid)
 		if errRefresh != nil {
 			return managementResponse{
 				StatusCode: http.StatusConflict,

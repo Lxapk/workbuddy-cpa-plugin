@@ -24,6 +24,8 @@ const uiCSS = `
   --purple-soft: #efedff;
   --warn: #e5a12d;
   --warn-soft: #fdf3e2;
+  --ok: #1eb787;
+  --ok-soft: #e4f7ef;
   --danger: #d95c51;
   --danger-soft: #fdf0ee;
   --bg: #fafbf8;
@@ -176,6 +178,45 @@ pre.log {
   font-size: .76rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
 }
 details > summary { cursor: pointer; margin-top: 8px; }
+/* ---------- usage trend ---------- */
+.trend { padding: 4px 0 0; color: var(--text); }
+.trend-svg { display: block; width: 100%; height: auto; max-height: 200px; }
+.trend-ok { fill: var(--ok); }
+.trend-bad { fill: var(--danger); }
+.trend-legend { display: flex; gap: 14px; align-items: center; margin-top: 8px; }
+.trend-legend i.sw {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-right: 5px; vertical-align: -1px;
+}
+.trend-legend .sw-ok { background: var(--ok); }
+.trend-legend .sw-bad { background: var(--danger); }
+.trend-note { margin-left: auto; opacity: .75; }
+/* ---------- toasts ---------- */
+/* Fixed to the corner so a notice never reflows the page or moves the control the
+   operator is about to click again. */
+#toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  pointer-events: none; max-width: min(420px, calc(100vw - 32px));
+}
+.toast {
+  pointer-events: auto;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 9px; padding: 9px 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  font-size: .82rem; line-height: 1.5;
+  animation: toast-in .18s ease-out;
+  transition: opacity .25s ease, transform .25s ease;
+}
+.toast.ok { border-left-color: var(--ok); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.bad { border-left-color: var(--danger); }
+.toast.leaving { opacity: 0; transform: translateY(6px); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; transition: none; }
+}
 /* ---------- panels/radio groups ---------- */
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel-2); }
 .seg button { border-radius: 0; background: transparent; color: var(--text); font-weight: 620; padding: 7px 13px; }
@@ -196,6 +237,11 @@ function showTab(id, btn) {
   if (panel) panel.classList.add('active');
   if (btn) btn.classList.add('active');
   try { localStorage.setItem('workbuddy-panel-tab', id); } catch (e) {}
+  // The usage tab's chart is only fetched while it is visible, so switching to it
+  // has to ask for the data rather than waiting for the next tick.
+  if (id === 'tab-usage' && typeof refreshUsageTrend === 'function') {
+    refreshUsageTrend();
+  }
 }
 function restoreTab() {
   var saved = '';

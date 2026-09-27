@@ -72,10 +72,23 @@ func mainPageScript() string {
     });
   }
 
+  // esc escapes a value for interpolation into HTML.
+  //
+  // All five characters matter: escaping only <, > and & leaves a value free to
+  // close the attribute it sits in (a quote) or to start a new one. Values here
+  // come from the upstream, so "it is only a uid" is not a guarantee.
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  // escapeHTML used to be a second implementation of the same thing, and the two
+  // drifted: some callbacks used one, some the other, so a fix to one silently
+  // left half the page unescaped. It now delegates, so there is a single place to
+  // get this right.
+  function escapeHTML(v) {
+    return esc(v);
   }
 
   function msgSet(id, text, cls) {
@@ -368,6 +381,23 @@ func mainPageScript() string {
     return !!panel && panel.classList.contains('active');
   }
 
+  // refreshUsageTrend pulls the per-day totals and draws them.
+  //
+  // Only fetched while the usage tab is on screen: the trend covers a week and
+  // changes slowly, so asking for it while the operator is looking at accounts
+  // would be pure noise on the management API.
+  function refreshUsageTrend() {
+    if (!key() || !usageTabVisible()) return;
+    call(BASE + '/status').then(function (d) {
+      renderUsageTrend(d && d.usage_daily);
+    }).catch(function () { /* transient; the next tick retries */ });
+  }
+
+  function usageTabVisible() {
+    var panel = document.getElementById('tab-usage');
+    return !!(panel && panel.classList.contains('active'));
+  }
+
   function pollAccounts() {
     if (!key() || !accountsTabVisible()) return;
     call(BASE + '/accounts').then(function (d) {
@@ -398,7 +428,10 @@ func mainPageScript() string {
 
   function startAutoRefresh() {
     if (autoRefreshTimer) return;
-    autoRefreshTimer = setInterval(pollAccounts, AUTO_REFRESH_MS);
+    autoRefreshTimer = setInterval(function () {
+      pollAccounts();
+      refreshUsageTrend();
+    }, AUTO_REFRESH_MS);
   }
 
   // ---- growth tasks ----------------------------------------------------
@@ -533,13 +566,277 @@ func mainPageScript() string {
     });
   }
 
-  // escapeHTML mirrors the server-side html.EscapeString for values that arrive
-  // as JSON and are interpolated into markup.
-  function escapeHTML(v) {
-    return String(v == null ? '' : v)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  // Delegated click handling for the account table.
+  //
+  // The rows used to carry inline onclick attributes built by string concatenation
+  // on the server, which put the uid inside a JavaScript string literal inside an
+  // HTML attribute: escaping for HTML was not enough, a quote in the uid would end
+  // the literal and the attribute. Reading the value from a data attribute keeps
+  // the data out of code entirely.
+  // runAccountCheckin signs in the single account behind a row button.
+  //
+  // The per-account button exists so an operator does not have to sign in the
+  // whole pool (and wait for its upstream traffic) to test one credential.
+  window.runAccountCheckin = function (uid, button) {
+    if (!uid) return;
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '签到中';
+    }
+    call('/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
+      .then(function (data) {
+        var accounts = (data && data.accounts) || [];
+        var hit = accounts[0] || {};
+        var message = hit.error ? ('失败：' + hit.error)
+                                : ('完成' + (hit.message ? '（' + hit.message + '）' : ''));
+        toast(message, hit.error ? 'bad' : 'ok');
+      })
+      .catch(function (err) { toast('签到失败：' + err.message, 'bad'); })
+      .then(function () {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+  };
+
+  // runAccountQuota refreshes one account's credit reading.
+  window.runAccountQuota = function (uid, button) {
+    if (!uid) return;
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '查询中';
+    }
+    call('/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
+      .then(function (data) {
+        var results = (data && data.results) || [];
+        var hit = results[0] || {};
+        var message = hit.error ? ('积分查询失败：' + hit.error)
+                                : ('剩余积分 ' + (hit.credits != null ? hit.credits : '未知'));
+        toast(message, hit.error ? 'bad' : 'ok');
+      })
+      .catch(function (err) { toast('积分查询失败：' + err.message, 'bad'); })
+      .then(function () {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+  };
+
+  // toast shows a short, self-dismissing notice in the corner.
+  //
+  // Actions used to report themselves by writing a line of text and then calling
+  // location.reload(). That reload cost the operator their scroll position and the
+  // tab they were on, and it happened even when the action failed. A toast reports
+  // the outcome without moving anything.
+  function toast(text, kind) {
+    if (!text) return;
+    var host = document.getElementById('toasts');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toasts';
+      document.body.appendChild(host);
+    }
+    var node = document.createElement('div');
+    node.className = 'toast ' + (kind === 'bad' ? 'bad' : kind === 'warn' ? 'warn' : 'ok');
+    // textContent, not innerHTML: the message can carry upstream wording.
+    node.textContent = text;
+    host.appendChild(node);
+    // Errors linger longer than successes — they carry something to read.
+    var life = kind === 'bad' ? 6000 : 3600;
+    setTimeout(function () {
+      node.classList.add('leaving');
+      setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 250);
+    }, life);
   }
+
+  // renderUsageTrend draws one bar per day: failures stacked on successes.
+  //
+  // A day with no traffic is drawn as an empty slot rather than filled in with a
+  // zero-height bar, so a quiet weekend does not read as a provider outage. The
+  // scale always includes zero and is taken from the busiest day, which keeps the
+  // bars comparable to each other rather than to an arbitrary ceiling.
+  function renderUsageTrend(days) {
+    var host = document.getElementById('usageTrend');
+    if (!host) return;
+
+    if (!days || !days.length) {
+      host.innerHTML = '<div class="empty">还没有调用记录。发起一次请求后这里会显示每日用量。</div>';
+      return;
+    }
+
+    var maxCalls = 0;
+    for (var i = 0; i < days.length; i++) {
+      if (days[i].calls > maxCalls) maxCalls = days[i].calls;
+    }
+    if (maxCalls <= 0) {
+      host.innerHTML = '<div class="empty">还没有调用记录。</div>';
+      return;
+    }
+
+    var width = 640;
+    var height = 150;
+    var padLeft = 34;
+    var padBottom = 22;
+    var padTop = 10;
+    var plotWidth = width - padLeft;
+    var plotHeight = height - padBottom - padTop;
+    var slot = plotWidth / days.length;
+    var barWidth = Math.max(6, Math.min(38, slot * 0.56));
+
+    var parts = [];
+    parts.push('<svg viewBox="0 0 ' + width + ' ' + height + '" class="trend-svg" role="img" ' +
+      'aria-label="最近用量趋势">');
+
+    // Horizontal gridlines at 0 / half / full, labelled with the call count.
+    for (var g = 0; g <= 2; g++) {
+      var value = Math.round(maxCalls * g / 2);
+      var y = padTop + plotHeight - (plotHeight * g / 2);
+      parts.push('<line x1="' + padLeft + '" y1="' + y + '" x2="' + width + '" y2="' + y +
+        '" stroke="currentColor" stroke-opacity="' + (g === 0 ? '.22' : '.10') + '" stroke-width="1"/>');
+      parts.push('<text x="' + (padLeft - 6) + '" y="' + (y + 3.5) + '" text-anchor="end" ' +
+        'font-size="10" fill="currentColor" fill-opacity=".55">' + value + '</text>');
+    }
+
+    for (var d = 0; d < days.length; d++) {
+      var day = days[d];
+      var total = Number(day.calls) || 0;
+      var failed = Math.min(Number(day.failed) || 0, total);
+      var okPart = total - failed;
+
+      var x = padLeft + slot * d + (slot - barWidth) / 2;
+      var fullHeight = plotHeight * (total / maxCalls);
+      var okHeight = total > 0 ? fullHeight * (okPart / total) : 0;
+      var failedHeight = fullHeight - okHeight;
+
+      var baseY = padTop + plotHeight;
+      var label = day.date + '：' + total + ' 次调用';
+      if (failed > 0) label += '，失败 ' + failed + ' 次';
+      parts.push('<g><title>' + esc(label) + '</title>');
+
+      // Success block sits on the baseline; failures stack on top of it, so the
+      // total height stays proportional and the failure share reads at a glance.
+      if (okHeight > 0) {
+        parts.push('<rect x="' + x + '" y="' + (baseY - okHeight) + '" width="' + barWidth +
+          '" height="' + okHeight + '" rx="2" class="trend-ok"/>');
+      }
+      if (failedHeight > 0) {
+        parts.push('<rect x="' + x + '" y="' + (baseY - fullHeight) + '" width="' + barWidth +
+          '" height="' + failedHeight + '" rx="2" class="trend-bad"/>');
+      }
+      if (total === 0) {
+        parts.push('<rect x="' + x + '" y="' + (baseY - 2) + '" width="' + barWidth +
+          '" height="2" rx="1" fill="currentColor" fill-opacity=".16"/>');
+      }
+      parts.push('</g>');
+
+      // Day label: month-day, with the year only when it is not the current one.
+      // A full ISO date under every bar is unreadable at phone widths.
+      var parts0 = String(day.date).split('-');
+      var shortLabel = parts0.length === 3 ? (parts0[1] + '-' + parts0[2]) : day.date;
+      parts.push('<text x="' + (padLeft + slot * d + slot / 2) + '" y="' + (height - 6) +
+        '" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".6">' +
+        esc(shortLabel) + '</text>');
+    }
+
+    parts.push('</svg>');
+    host.innerHTML = parts.join('');
+  }
+
+  document.addEventListener('click', function (ev) {
+    var node = ev.target;
+    while (node && node !== document) {
+      if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
+        ev.preventDefault();
+        toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-task-toggle')) {
+        ev.preventDefault();
+        toggleAccountTask(node.getAttribute('data-uid'), node.getAttribute('data-action'));
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-account-checkin')) {
+        ev.preventDefault();
+        runAccountCheckin(node.getAttribute('data-uid'), node);
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-account-quota')) {
+        ev.preventDefault();
+        runAccountQuota(node.getAttribute('data-uid'), node);
+        return;
+      }
+      node = node.parentNode;
+    }
+  });
+
+  // applyAccountFilter hides rows that do not match the search box and the status
+  // select.
+  //
+  // Filtering is done by toggling display on the existing rows rather than
+  // re-rendering: the page is rebuilt by the server, so re-rendering here would
+  // mean duplicating that markup in JavaScript.
+  function applyAccountFilter() {
+    var box = document.getElementById('accountFilter');
+    var statusSel = document.getElementById('accountStatusFilter');
+    if (!box && !statusSel) return;
+
+    var needle = box ? box.value.trim().toLowerCase() : '';
+    var wantStatus = statusSel ? statusSel.value : '';
+    var shown = 0;
+    var total = 0;
+
+    var tables = document.querySelectorAll('[data-account-table]');
+    for (var t = 0; t < tables.length; t++) {
+      var rows = tables[t].querySelectorAll('tbody tr');
+      var visibleInTable = 0;
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        // Skip the "no accounts here" placeholder row.
+        if (row.getAttribute('data-placeholder') === '1') {
+          continue;
+        }
+        total++;
+        var haystack = (row.getAttribute('data-search') || '').toLowerCase();
+        var matchesText = !needle || haystack.indexOf(needle) !== -1;
+        var matchesStatus = !wantStatus || row.getAttribute('data-status') === wantStatus;
+        var visible = matchesText && matchesStatus;
+        row.hidden = !visible;
+        if (visible) {
+          shown++;
+          visibleInTable++;
+        }
+      }
+      // Hide the group heading and table when nothing under it matches, so an
+      // empty realm does not leave a header hanging.
+      var group = tables[t].closest('[data-account-group]');
+      if (group) {
+        group.hidden = visibleInTable === 0;
+      }
+    }
+
+    var count = document.getElementById('accountFilterCount');
+    if (count) {
+      count.textContent = (needle || wantStatus) ? ('显示 ' + shown + ' / ' + total) : '';
+    }
+  }
+
+  document.addEventListener('input', function (ev) {
+    if (ev.target && (ev.target.id === 'accountFilter' || ev.target.id === 'accountStatusFilter')) {
+      applyAccountFilter();
+    }
+  });
+
+  document.addEventListener('change', function (ev) {
+    if (ev.target && ev.target.id === 'accountStatusFilter') {
+      applyAccountFilter();
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', applyAccountFilter);
 
   document.addEventListener('DOMContentLoaded', function () {
     refreshKeyState();

@@ -12,6 +12,24 @@ import (
 )
 
 // renderTaskPage builds the task centre tab content.
+// renderUsageTrend draws the last few days of traffic as a bar chart.
+//
+// The chart is filled in by JavaScript rather than rendered here: the table below
+// it refreshes on a timer, and a server-rendered chart would freeze at page load
+// while the numbers next to it moved. Hand-drawn SVG rather than a charting
+// library — the panel is embedded and stays dependency-free.
+func renderUsageTrend() string {
+	var b strings.Builder
+	b.WriteString(`<div class="card"><h2>用量趋势 <span class="hint">最近 7 天，按天汇总</span></h2>`)
+	b.WriteString(`<div id="usageTrend" class="trend"><div class="empty">正在加载…</div></div>`)
+	b.WriteString(`<div class="muted small trend-legend">`)
+	b.WriteString(`<span><i class="sw sw-ok"></i>成功</span>`)
+	b.WriteString(`<span><i class="sw sw-bad"></i>失败</span>`)
+	b.WriteString(`<span class="trend-note">仅统计经本插件转发的调用</span>`)
+	b.WriteString(`</div></div>`)
+	return b.String()
+}
+
 func renderTaskPage() string {
 	// Populate the task engine with the current account list first, otherwise
 	// a freshly started plugin shows an empty task table.
@@ -72,7 +90,7 @@ func renderTaskPage() string {
 				action = "disable"
 			}
 			b.WriteString(`<td><span class="` + btnCls + `" style="cursor:pointer" ` +
-				`onclick="toggleAccountTask('` + html.EscapeString(uid) + `','` + action + `')">` +
+				`data-task-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + action + `">` +
 				enableText + `</span></td>`)
 			if queuedFlag || inflight > 0 {
 				b.WriteString(`<td colspan="3"><span class="pill warn">` + map[bool]string{true: "排队中", false: "运行中"}[queuedFlag] + `</span></td>`)
@@ -200,6 +218,27 @@ func renderMainPage() string {
 	b.WriteString(`<input type="hidden" id="accountsSignature" value="` + html.EscapeString(accountsSignature(accounts)) + `">`)
 	b.WriteString(`<div class="muted small" id="accountsStamp"></div>`)
 	b.WriteString(`<div class="muted small" id="accountMsg"></div>`)
+	if len(accounts) > 0 {
+		// Filter bar. Rendering is client-side because the list is already on the
+		// page: a round trip per keystroke would be slower and would lose the
+		// focus that the operator is typing into.
+		b.WriteString(`<div class="row" style="margin:.4rem 0 .6rem;gap:.4rem;flex-wrap:wrap">`)
+		b.WriteString(`<input type="search" id="accountFilter" placeholder="搜索账号 / UID / 备注" ` +
+			`style="flex:1;min-width:180px" autocomplete="off">`)
+		b.WriteString(`<select id="accountStatusFilter">`)
+		for _, option := range []struct{ value, label string }{
+			{"", "全部状态"},
+			{"usable", "仅可用"},
+			{"cooling", "仅冷却中"},
+			{"disabled", "仅已停用"},
+			{"expired", "仅凭据异常"},
+		} {
+			b.WriteString(`<option value="` + option.value + `">` + option.label + `</option>`)
+		}
+		b.WriteString(`</select>`)
+		b.WriteString(`<span class="muted small" id="accountFilterCount"></span>`)
+		b.WriteString(`</div>`)
+	}
 	if len(accounts) == 0 {
 		// Distinguish "the host could not be read" from "there really is no
 		// account". Reporting the latter while the former is true sends the
@@ -353,6 +392,7 @@ func renderMainPage() string {
 	stat("输入 Tokens", totals.TotalPrompt)
 	stat("输出 Tokens", totals.TotalCompletion)
 	b.WriteString(`</div>`)
+	b.WriteString(renderUsageTrend())
 	b.WriteString(`<div class="card"><h2>最近调用</h2>`)
 	if len(recentCalls) == 0 {
 		b.WriteString(`<div class="empty">暂无调用记录。</div>`)
@@ -385,7 +425,6 @@ func renderMainPage() string {
 
 	// ---------------- tab: tasks ----------------
 	b.WriteString(renderTaskPage())
-
 	// ---------------- tab: settings ----------------
 	b.WriteString(`<div id="tab-settings" class="panel">`)
 	b.WriteString(`<div class="card"><h2>管理密钥 <span class="hint">仅保存在本机浏览器</span></h2>`)
@@ -808,7 +847,7 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		return b.String()
 	}
 
-	b.WriteString(`<table><thead><tr>`)
+	b.WriteString(`<table data-account-table="1"><thead><tr>`)
 	b.WriteString(`<th>账号</th><th>UID</th><th class="num">积分</th><th>到期</th><th>状态</th><th>操作</th></tr></thead><tbody>`)
 	for _, a := range accounts {
 		pillClass, statusText := "ok", "可用"
@@ -835,6 +874,22 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		if a.CreditsKnown {
 			cv = fmt.Sprint(a.Credits)
 		}
+
+		// Status bucket for the filter select. Derived from the same cases the
+		// pill uses, so the two can never disagree about what an account is.
+		filterStatus := "usable"
+		switch {
+		case a.AutoDisabled || a.DisabledByUser || a.Disabled:
+			filterStatus = "disabled"
+		case a.Expired || a.CreditsExpired:
+			filterStatus = "expired"
+		case !a.CooldownUntil.IsZero() && time.Now().Before(a.CooldownUntil):
+			filterStatus = "cooling"
+		}
+		searchText := strings.Join([]string{
+			a.Label, a.UID, a.AuthIndex, a.Variant, a.DisabledReason, a.Reason, statusText,
+		}, " ")
+
 		expiry, expiryClass := "—", "muted"
 		switch {
 		case a.CreditsExpired:
@@ -844,7 +899,8 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		case a.CreditsExpireAt > 0:
 			expiry, expiryClass = fmt.Sprintf("%d 天后", a.CreditsExpireDays), "muted"
 		}
-		b.WriteString(`<tr><td><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
+		b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">` +
+			`<td><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
 		b.WriteString(`<td><code>` + html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `</code></td>`)
 		b.WriteString(`<td class="num">` + html.EscapeString(cv) + `</td>`)
 		b.WriteString(`<td class="` + expiryClass + `">` + html.EscapeString(expiry) + `</td>`)
@@ -855,13 +911,26 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		b.WriteString(`</td>`)
 
 		uid := firstNonEmpty(a.UID, a.AuthIndex)
+		// Each row carries the realm so a per-account action can be routed to the
+		// right upstream: the two realms expose different features (no check-in
+		// internationally), and a request sent to the wrong one fails in a way
+		// that looks like an account problem.
+		rowAction := ""
 		if a.DisabledByUser || a.Disabled || a.AutoDisabled {
-			b.WriteString(`<td><button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
-				`onclick="toggleAccount('` + html.EscapeString(uid) + `','enable','` + html.EscapeString(a.AuthIndex) + `')">启用</button></td>`)
+			rowAction = "enable"
 		} else {
-			b.WriteString(`<td><button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
-				`onclick="toggleAccount('` + html.EscapeString(uid) + `','disable','` + html.EscapeString(a.AuthIndex) + `')">禁用</button></td>`)
+			rowAction = "disable"
 		}
+		b.WriteString(`<td style="white-space:nowrap">` +
+			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
+			`data-account-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + rowAction +
+			`" data-auth-index="` + html.EscapeString(a.AuthIndex) + `">` +
+			map[bool]string{true: "启用", false: "禁用"}[rowAction == "enable"] + `</button> ` +
+			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
+			`data-account-checkin="1" data-uid="` + html.EscapeString(uid) + `" data-variant="` + html.EscapeString(a.Variant) + `">签到</button> ` +
+			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
+			`data-account-quota="1" data-uid="` + html.EscapeString(uid) + `" data-variant="` + html.EscapeString(a.Variant) + `">积分</button>` +
+			`</td>`)
 		b.WriteString(`</tr>`)
 	}
 	b.WriteString(`</tbody></table>`)

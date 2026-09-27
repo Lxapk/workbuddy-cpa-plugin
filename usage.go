@@ -45,6 +45,68 @@ type callLog struct {
 	totalCompl  int64
 	todayCalls  int64
 	todayDate   string
+	// daily keeps one bucket per calendar day so the panel can show a trend.
+	//
+	// The running totals answer "how much in total" but not "is it getting
+	// worse", which is the question an operator actually has when a provider
+	// starts throttling. Only the last few days are kept: enough to draw a week
+	// of bars, bounded so the history cannot grow without limit.
+	daily []dailyUsage
+}
+
+// dailyUsage is one day of accounting.
+type dailyUsage struct {
+	Date       string `json:"date"`
+	Calls      int64  `json:"calls"`
+	Failed     int64  `json:"failed"`
+	Prompt     int64  `json:"prompt_tokens"`
+	Completion int64  `json:"completion_tokens"`
+}
+
+// dailyUsageKept is how many days the trend covers. A week fits the panel without
+// horizontal scrolling on a phone.
+const dailyUsageKept = 7
+
+// rollDaily folds one call into the day bucket, creating it when the date changes.
+//
+// Called with the lock held. Days with no traffic are not synthesised: the panel
+// shows gaps as gaps, and inventing zeros would make a quiet weekend look like a
+// provider outage.
+func (l *callLog) rollDaily(rec callRecord) {
+	day := rec.StartedAt.Format("2006-01-02")
+	if day == "" || rec.StartedAt.IsZero() {
+		day = time.Now().Format("2006-01-02")
+	}
+
+	last := -1
+	if len(l.daily) > 0 {
+		last = len(l.daily) - 1
+	}
+	if last < 0 || l.daily[last].Date != day {
+		l.daily = append(l.daily, dailyUsage{Date: day})
+		last = len(l.daily) - 1
+		if len(l.daily) > dailyUsageKept {
+			l.daily = l.daily[len(l.daily)-dailyUsageKept:]
+			last = len(l.daily) - 1
+		}
+	}
+
+	bucket := &l.daily[last]
+	bucket.Calls++
+	if rec.Error != "" || rec.StatusCode >= 400 {
+		bucket.Failed++
+	}
+	bucket.Prompt += rec.PromptTokens
+	bucket.Completion += rec.CompletionTokens
+}
+
+// dailyUsage returns a copy of the per-day trend, oldest first.
+func (l *callLog) dailyUsage() []dailyUsage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]dailyUsage, len(l.daily))
+	copy(out, l.daily)
+	return out
 }
 
 func newCallLog(max int) *callLog {
@@ -81,6 +143,8 @@ func (l *callLog) add(rec callRecord) {
 		l.todayCalls = 0
 	}
 	l.todayCalls++
+
+	l.rollDaily(rec)
 }
 
 func (l *callLog) recent(limit int) []callRecord {

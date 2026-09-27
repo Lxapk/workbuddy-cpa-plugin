@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,16 +98,43 @@ func workBuddyRegionForCredentials(creds *workBuddyCredentials) string {
 // always agree on which credentials exist, and applies the version selector so
 // 「国内版」/「国际版」 scope the refresh without re-labelling anything.
 func fetchQuotaForAccounts() ([]quotaRefreshResult, error) {
+	return fetchQuotaForAccountsFiltered("")
+}
+
+// fetchQuotaForAccountsFiltered queries every actionable account, or only the one
+// whose uid matches when filterUID is non-empty.
+//
+// The whole-pool refresh is the common case, but a single account needs to be
+// checkable on its own: when one credential is suspected of being stale, waiting
+// for a full sweep (and its upstream traffic) to answer the question is wasteful,
+// and the per-row button in the panel would otherwise have to re-fetch everyone.
+func fetchQuotaForAccountsFiltered(filterUID string) ([]quotaRefreshResult, error) {
 	accounts, errCollect := collectActionableAccounts()
 	if errCollect != nil {
 		return nil, errCollect
 	}
 
+	filterUID = strings.TrimSpace(filterUID)
 	results := make([]quotaRefreshResult, 0, len(accounts))
 	for _, account := range accounts {
+		if filterUID != "" && !accountMatchesUID(account, filterUID) {
+			continue
+		}
 		results = append(results, fetchQuotaOne(account))
 	}
 	return results, nil
+}
+
+// accountMatchesUID reports whether an account is the one the caller named.
+//
+// The uid is the natural key in the panel, but an account that has not finished
+// its first metadata fetch has no uid yet — the auth index is what the panel
+// shows for those, so it has to be accepted too.
+func accountMatchesUID(account checkinAccount, uid string) bool {
+	if strings.TrimSpace(account.Creds.UID) == uid {
+		return true
+	}
+	return strings.TrimSpace(account.AuthID) == uid
 }
 
 // fetchQuotaOne queries a single credential and records the result.
@@ -150,6 +178,16 @@ func fetchQuotaOne(account checkinAccount) quotaRefreshResult {
 
 // runQuotaRefresh performs one pass over all credentials.
 func runQuotaRefresh(trigger string) ([]quotaRefreshResult, error) {
+	return runQuotaRefreshFor(trigger, "")
+}
+
+// runQuotaRefreshFor refreshes the whole pool, or a single account when
+// filterUID is given.
+//
+// The two share the busy flag on purpose: an account-scoped refresh still talks to
+// the upstream, so letting it run alongside a full sweep would double the traffic
+// to the same credential and race on the cached readings.
+func runQuotaRefreshFor(trigger string, filterUID string) ([]quotaRefreshResult, error) {
 	state.quota.mu.Lock()
 	if state.quota.running {
 		state.quota.mu.Unlock()
@@ -165,7 +203,7 @@ func runQuotaRefresh(trigger string) ([]quotaRefreshResult, error) {
 		state.quota.mu.Unlock()
 	}()
 
-	results, errFetch := fetchQuotaForAccounts()
+	results, errFetch := fetchQuotaForAccountsFiltered(filterUID)
 	if errFetch != nil {
 		return nil, errFetch
 	}

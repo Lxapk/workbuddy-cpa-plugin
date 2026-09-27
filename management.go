@@ -329,6 +329,7 @@ func statusSnapshot() map[string]any {
 		"providers":    providerList,
 		"accounts":     lanes,
 		"usage":        state.log.totals(),
+		"usage_daily":  state.log.dailyUsage(),
 		"recent_calls": state.log.recent(10),
 		"server_time":  now.Format(time.RFC3339),
 	}
