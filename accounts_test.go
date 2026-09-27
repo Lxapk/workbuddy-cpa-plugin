@@ -314,10 +314,18 @@ func TestSinglePageContainsEverything(t *testing.T) {
 		t.Error("combined page must not use HTML forms")
 	}
 	// Every feature is reachable from one tab bar rather than separate screens.
-	for _, tab := range []string{"tab-accounts", "tab-switch", "tab-checkin", "tab-credits", "tab-usage", "tab-settings"} {
+	// Sign-in has no tab of its own: it is a task, and lives on the tasks tab.
+	for _, tab := range []string{"tab-accounts", "tab-switch", "tab-credits", "tab-usage", "tab-tasks", "tab-settings"} {
 		if !strings.Contains(page, `data-tab="`+tab+`"`) {
 			t.Errorf("expected a tab %q", tab)
 		}
+	}
+	if strings.Contains(page, `data-tab="tab-checkin"`) {
+		t.Error("签到不应再有独立的标签页，它属于任务页")
+	}
+	// 但签到的内容仍必须在（在任务页里）。
+	if !strings.Contains(page, "每日签到") {
+		t.Error("签到卡片丢失")
 	}
 }
 

@@ -666,7 +666,7 @@ func mainPageScript() string {
       button.disabled = true;
       button.textContent = '签到中';
     }
-    call('/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
+    call(BASE + '/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
       .then(function (data) {
         var accounts = (data && data.accounts) || [];
         var hit = accounts[0] || {};
@@ -691,7 +691,7 @@ func mainPageScript() string {
       button.disabled = true;
       button.textContent = '查询中';
     }
-    call('/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
+    call(BASE + '/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
       .then(function (data) {
         var results = (data && data.results) || [];
         var hit = results[0] || {};

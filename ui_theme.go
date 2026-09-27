@@ -469,6 +469,11 @@ function showTab(id, btn) {
 function restoreTab() {
   var saved = '';
   try { saved = localStorage.getItem('workbuddy-panel-tab') || ''; } catch (e) {}
+
+  // 签到不再是独立标签页，它并入了任务页。存过这个 id 的浏览器要落到任务页，
+  // 而不是被当成失效值丢回第一个标签——那会让「上次看的是签到」变成「回了账号页」。
+  if (saved === 'tab-checkin') saved = 'tab-tasks';
+
   if (saved) {
     var panel = document.getElementById(saved);
     var btn = document.querySelector('.tabs button[data-tab="' + saved + '"]');

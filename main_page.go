@@ -12,6 +12,43 @@ import (
 )
 
 // renderTaskPage builds the task centre tab content.
+// renderCheckinCards builds the daily sign-in card and its last-run summary.
+//
+// Split out so the tasks tab can include it without duplicating the markup: the
+// panel used to be a tab of its own, and an operator looking at "what is
+// scheduled" wants the daily sign-in next to the growth tasks.
+func renderCheckinCards(settings gatewaySettings, history []checkinRun) string {
+	var b strings.Builder
+
+	b.WriteString(`<div class="card"><h2>每日签到 <span class="hint">自动签到与上次结果</span></h2>`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckEnabled"`)
+	if settings.Checkin.Enabled {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启用每日自动签到</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field">每天 <input type="number" id="ckHour" min="0" max="23" value="` +
+		fmt.Sprint(clampHour(settings.Checkin.Hour)) + `"> 时 <input type="number" id="ckMinute" min="0" max="59" value="` +
+		fmt.Sprint(clampMinute(settings.Checkin.Minute)) + `"> 分执行</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckOnStart"`)
+	if settings.Checkin.OnStart {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
+	b.WriteString(`<div class="row"><button type="button" data-call="saveCheckinSettings">保存</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="runCheckin">立即签到</button></div>`)
+	b.WriteString(`</div>`)
+
+	b.WriteString(`<div class="card"><h2>最近一次签到</h2>`)
+	if len(history) == 0 {
+		b.WriteString(`<div class="empty">还没有签到记录。</div>`)
+	} else {
+		b.WriteString(renderRun(history[0]))
+	}
+	b.WriteString(`</div>`)
+
+	return b.String()
+}
+
 // renderUsageTrend draws the last few days of traffic as a bar chart.
 //
 // The chart is filled in by JavaScript rather than rendered here: the table below
@@ -123,6 +160,9 @@ func renderTaskPage() string {
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
+	// The daily sign-in sits with the other tasks: it is scheduled work, and an
+	// operator checking "what runs today" should not have to change tabs for it.
+	b.WriteString(renderCheckinCards(state.settings.get(), state.checkin.snapshot(1)))
 	b.WriteString(`</div></div>`)
 	return b.String()
 }
@@ -157,7 +197,6 @@ func renderMainPage() string {
 	checkinRunning := state.checkin.running
 	state.checkin.mu.Unlock()
 
-	checkinHistory := state.checkin.snapshot(1)
 	recentCalls := state.log.recent(12)
 
 	var b strings.Builder
@@ -196,7 +235,6 @@ func renderMainPage() string {
 	}
 	tab("tab-accounts", "账号", true)
 	tab("tab-switch", "账号切换", false)
-	tab("tab-checkin", "签到", false)
 	tab("tab-credits", "积分", false)
 	tab("tab-usage", "统计", false)
 	tab("tab-tasks", "任务", false)
@@ -348,34 +386,15 @@ func renderMainPage() string {
 	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 
-	// ---------------- tab: check-in ----------------
-	b.WriteString(`<div id="tab-checkin" class="panel">`)
-	b.WriteString(`<div class="card"><h2>自动签到</h2>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckEnabled"`)
-	if settings.Checkin.Enabled {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启用每日自动签到</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field">每天 <input type="number" id="ckHour" min="0" max="23" value="` +
-		fmt.Sprint(clampHour(settings.Checkin.Hour)) + `"> 时 <input type="number" id="ckMinute" min="0" max="59" value="` +
-		fmt.Sprint(clampMinute(settings.Checkin.Minute)) + `"> 分执行</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckOnStart"`)
-	if settings.Checkin.OnStart {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
-	b.WriteString(`<div class="row"><button type="button" data-call="saveCheckinSettings">保存</button>`)
-	b.WriteString(`<button type="button" class="ghost" data-call="runCheckin">立即签到</button></div>`)
-	b.WriteString(`</div>`)
-
-	b.WriteString(`<div class="card"><h2>最近一次签到</h2>`)
-	if len(checkinHistory) == 0 {
-		b.WriteString(`<div class="empty">还没有签到记录。</div>`)
-	} else {
-		b.WriteString(renderRun(checkinHistory[0]))
-	}
-	b.WriteString(`</div></div>`)
-
+	// ---------------- check-in (lives inside the tasks tab) ----------------
+	//
+	// Check-in is a task, so it belongs on the tasks tab rather than in a tab of
+	// its own: an operator looking at "what is scheduled" wants the daily sign-in
+	// next to the growth tasks, not one tab away.
+	//
+	// The markup is emitted here but placed by renderIntoTaskTab below, which keeps
+	// the two halves of the panel in one place while still producing a single
+	// container in the output.
 	// ---------------- tab: credits ----------------
 	b.WriteString(`<div id="tab-credits" class="panel">`)
 	b.WriteString(`<div class="card"><h2>自动刷新积分</h2>`)

@@ -20,7 +20,7 @@ func TestEveryTabRendersContent(t *testing.T) {
 	page := renderMainPage()
 
 	tabs := []string{
-		"tab-tasks", "tab-accounts", "tab-switch", "tab-checkin",
+		"tab-tasks", "tab-accounts", "tab-switch",
 		"tab-credits", "tab-usage", "tab-settings",
 	}
 	for _, tab := range tabs {
