@@ -178,6 +178,47 @@ pre.log {
   font-size: .76rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
 }
 details > summary { cursor: pointer; margin-top: 8px; }
+/* ---------- growth run result ---------- */
+/* Marks are drawn in CSS rather than as font glyphs or images: the panel ships no
+   assets, and a text glyph renders differently on every platform. */
+i.mark {
+  display: inline-block; width: 12px; height: 12px; flex: 0 0 12px;
+  border-radius: 50%; vertical-align: -1px;
+  border: 1.5px solid currentColor; box-sizing: border-box;
+}
+i.mark.ok { border-color: var(--ok); background: var(--ok); }
+i.mark.skip { border-color: var(--muted); background: transparent; }
+i.mark.err { border-color: var(--danger); background: var(--danger); }
+i.mark.info { border-color: var(--accent); background: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 4px; color: var(--muted); font-size: .78rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+details.log-group {
+  border: 1px solid var(--line); border-radius: 9px;
+  margin-top: 8px; background: var(--panel-2); overflow: hidden;
+}
+details.log-group > summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; cursor: pointer; font-size: .84rem;
+  list-style: none;
+}
+details.log-group > summary::-webkit-details-marker { display: none; }
+details.log-group > summary::after {
+  content: '▾'; margin-left: auto; opacity: .55; transition: transform .15s ease;
+}
+details.log-group[open] > summary::after { transform: rotate(180deg); }
+details.log-group > summary:hover { background: var(--accent-soft); }
+details.log-group .count { margin-left: auto; color: var(--muted); font-size: .76rem; }
+details.log-group .count + * { margin-left: 0; }
+.log-body { padding: 2px 12px 10px; }
+.log-entry { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: .8rem; line-height: 1.55; }
+.log-entry i.mark { margin-top: 4px; }
+.log-text { word-break: break-word; }
+/* Bounded height with its own scrollbar: a run where one missing prerequisite
+   blocks every task produces one entry per task, and unbounded they push the
+   summary out of view. */
+.log-scroll { max-height: 320px; overflow-y: auto; }
+.log-scroll::-webkit-scrollbar { width: 8px; }
+.log-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 /* ---------- usage trend ---------- */
 .trend { padding: 4px 0 0; color: var(--text); }
 .trend-svg { display: block; width: 100%; height: auto; max-height: 200px; }

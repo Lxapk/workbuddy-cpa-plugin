@@ -347,6 +347,93 @@ func mainPageScript() string {
     }).then(function () { if (btn) btn.disabled = false; });
   };
 
+  // renderGrowthResult turns the run's log lines into grouped, collapsible cards.
+  //
+  // The log used to be dumped into one <pre>: successes, skips and failures all
+  // interleaved, with failure entries carrying a full upstream JSON blob. A run
+  // where sixteen tasks are blocked by one missing prerequisite therefore produced
+  // sixteen screens of near-identical text, and the one line that explained
+  // *why* was buried inside it.
+  //
+  // So: count first, detail second. Each level gets its own section with a
+  // one-line summary; the entries themselves live behind a <details> and are
+  // closed by default. Failures open by themselves only when there are few enough
+  // to read at a glance — when there are many, the summary is the useful part.
+  function renderGrowthResult(lines, earned, accountCount) {
+    var groups = { ok: [], skip: [], error: [], warn: [], info: [] };
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i] || {};
+      var level = String(line.level || 'info');
+      if (!groups[level]) level = 'info';
+      groups[level].push(String(line.message || ''));
+    }
+
+    var parts = [];
+    parts.push('<div class="card"><h2>成长任务结果 <span class="hint">' +
+      esc(accountCount) + ' 个账号 · 累计 +' + esc(earned) + ' 积分</span></h2>');
+
+    // Summary strip: the numbers an operator actually wants.
+    parts.push('<div class="grid stats">' + [
+      ['完成', groups.ok.length],
+      ['跳过', groups.skip.length],
+      ['未成功', groups.error.length],
+      ['提示', groups.warn.length + groups.info.length]
+    ].map(function (pair) {
+      return '<div class="stat"><div class="v">' + esc(pair[1]) + '</div><div class="k">' +
+        esc(pair[0]) + '</div></div>';
+    }).join('') + '</div>');
+
+    // Legend: the marks used below, spelled out. Without it the icons are just
+    // decoration and a reader has to guess what a crossed circle meant.
+    parts.push('<div class="legend">' +
+      '<span><i class="mark ok"></i>完成</span>' +
+      '<span><i class="mark skip"></i>跳过（无法代做或不在时段）</span>' +
+      '<span><i class="mark err"></i>未成功（可展开看原因）</span>' +
+      '<span><i class="mark info"></i>说明</span>' +
+      '</div>');
+
+    // Sections, most actionable first.
+    //
+    // "未成功" opens by default even when long: it is the section that needs a
+    // decision, and a collapsed group would hide the very thing the operator came
+    // to read. Its body is height-capped and scrolls, so a run with dozens of
+    // failures cannot push the rest of the page off screen.
+    parts.push(renderGrowthSection('未成功', 'err', groups.error, groups.error.length > 0))
+    parts.push(renderGrowthSection('跳过', 'skip', groups.skip, false));
+    parts.push(renderGrowthSection('完成', 'ok', groups.ok, false));
+    parts.push(renderGrowthSection('说明', 'info', groups.info.concat(groups.warn), false));
+
+    parts.push('</div>');
+    return parts.join('');
+  }
+
+  // renderGrowthSection builds one collapsible group of log entries.
+  //
+  // Entries are never dropped: an operator debugging a skipped task needs the
+  // reason, and the reason is upstream text that this panel cannot paraphrase
+  // without losing detail.
+  function renderGrowthSection(title, kind, entries, openByDefault) {
+    if (!entries.length) return '';
+    var body = entries.map(function (message) {
+      return '<div class="log-entry"><i class="mark ' + kind + '"></i>' +
+        '<span class="log-text">' + esc(message) + '</span></div>';
+    }).join('');
+    // Cap the height of the long, open-by-default sections. A run blocked by one
+    // missing prerequisite yields one entry per affected task, which is easily
+    // dozens of lines; unbounded they would bury the summary above them.
+    var scrollable = kind === 'err' && entries.length > 6 ? ' log-scroll' : '';
+    return '<details class="log-group"' + (openByDefault ? ' open' : '') + '>' +
+      '<summary><i class="mark ' + kind + '"></i>' + esc(title) +
+      '<span class="count">' + esc(entries.length) + ' 条</span></summary>' +
+      '<div class="log-body' + scrollable + '">' + body + '</div>' +
+      '</details>';
+  }
+
+
+  //
+  // It forwards to the same /account/toggle endpoint the account tab uses, so
+  // the task tab and the account tab can never disagree about an account's
+  // state. The caller passes the action to apply, not the current state.
   // toggleAccountTask flips one account's task participation.
   //
   // It forwards to the same /account/toggle endpoint the account tab uses, so
@@ -464,12 +551,7 @@ func mainPageScript() string {
       msgSet('taskMsg', '完成：' + (payload.accounts_count || 0) + ' 个账号，累计 +' + earned + ' 积分', 'ok');
       var box = document.getElementById('taskResult');
       if (box) {
-        var html = '<div class="card"><h2>成长任务结果 <span class="hint">+' + earned + ' 积分</span></h2><pre class="log">';
-        for (var i = 0; i < lines.length; i++) {
-          html += escapeHTML(lines[i].message) + '\n';
-        }
-        html += '</pre></div>';
-        box.innerHTML = html;
+        box.innerHTML = renderGrowthResult(lines, earned, payload.accounts_count || 0);
       }
       setTimeout(function () { location.reload(); }, 2500);
     }).catch(function (e) {
