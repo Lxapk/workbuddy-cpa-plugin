@@ -84,14 +84,11 @@ jobs:
             --version "${{ steps.ver.outputs.version }}" \
             --amd64 dist/workbuddy-linux-amd64/workbuddy.so \
             --out release
-          python3 scripts/build_direct_registry.py \
+          python3 scripts/build_release_registry.py \
             --id "${PLUGIN_ID}" --name "${PLUGIN_NAME}" \
             --version "${{ steps.ver.outputs.version }}" \
             --repo "${{ github.server_url }}/${{ github.repository }}" \
             --tag "v${{ steps.ver.outputs.version }}" \
-            --checksums release/checksums.txt \
-            --platforms linux/amd64 \
-            --author BlackHawk \
             --out registry.json
 
       # The store validates the archive entry by entry before installing and
