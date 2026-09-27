@@ -178,6 +178,89 @@ func isRequestContentFailure(message string) bool {
 	return containsAnyFold(message, requestContentPhrases)
 }
 
+// summarizeConversationShape renders the structure of a rejected request body.
+//
+// Only the shape is recorded — roles, tool_call ids and their pairing — never the
+// message contents: the shape is what explains a pairing rejection, and the
+// contents would be a copy of the user's conversation.
+//
+// It also runs the normalisation pipeline on the same body and reports whether it
+// rewrote anything, because a rejected request may be the rewritten one rather
+// than the original.
+func summarizeConversationShape(body []byte) string {
+	var doc map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(body, &doc); errUnmarshal != nil {
+		return fmt.Sprintf("请求体不是 JSON 对象（%v）", errUnmarshal)
+	}
+	rawMessages, okMessages := doc["messages"]
+	if !okMessages {
+		return "请求体没有 messages 字段"
+	}
+	var messages []map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(rawMessages, &messages); errUnmarshal != nil {
+		return "messages 不是消息数组"
+	}
+
+	parts := make([]string, 0, len(messages))
+	callCount, resultCount := 0, 0
+	for index, message := range messages {
+		role := roleOf(message)
+		switch role {
+		case "assistant":
+			ids := assistantToolCallIDs(message)
+			if len(ids) > 0 {
+				callCount += len(ids)
+				parts = append(parts, fmt.Sprintf("%d:assistant(calls=%s)", index, strings.Join(ids, "+")))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d:assistant", index))
+			}
+		case "tool":
+			resultCount++
+			parts = append(parts, fmt.Sprintf("%d:tool(id=%s)", index, toolResultID(message)))
+		default:
+			parts = append(parts, fmt.Sprintf("%d:%s", index, role))
+		}
+	}
+
+	rewritten := "未改写"
+	if normalised, errNormalise := normaliseUpstreamBody(body); errNormalise == nil {
+		if !bytes.Equal(normalised, body) {
+			rewritten = "改写后=" + summarizeRoleSequence(normalised)
+		}
+	}
+
+	return fmt.Sprintf("messages=%d（tool_call %d / tool 结果 %d）[%s] %s",
+		len(messages), callCount, resultCount, strings.Join(parts, ", "), rewritten)
+}
+
+// summarizeRoleSequence renders just the role sequence of a normalised body.
+func summarizeRoleSequence(body []byte) string {
+	var doc map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(body, &doc); errUnmarshal != nil {
+		return "?"
+	}
+	var messages []map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(doc["messages"], &messages); errUnmarshal != nil {
+		return "?"
+	}
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		role := roleOf(message)
+		if role == "assistant" {
+			if ids := assistantToolCallIDs(message); len(ids) > 0 {
+				parts = append(parts, "assistant("+strings.Join(ids, "+")+")")
+				continue
+			}
+		}
+		if role == "tool" {
+			parts = append(parts, "tool("+toolResultID(message)+")")
+			continue
+		}
+		parts = append(parts, role)
+	}
+	return strings.Join(parts, " → ")
+}
+
 // reportExecutorFailure records an upstream failure from inside the executor.
 //
 // The response interceptor is not reached when the executor itself answers with
@@ -215,6 +298,19 @@ func reportExecutorFailure(creds *workBuddyCredentials, authIndex, model string,
 	// turn and the client ended up with "no auth available" for a conversation it
 	// could have fixed itself.
 	if isRequestContentFailure(upErr.Message) {
+		// Record the shape of the conversation that the upstream rejected.
+		//
+		// This failure is about the request, not the account, so the useful
+		// evidence is the message list itself: which roles appear, how the
+		// tool_call ids line up, and whether the rewriting pass changed anything.
+		// Without it the only symptom is a generic pairing error that says nothing
+		// about which structure the client sent.
+		state.log.add(callRecord{
+			ProviderID: provider,
+			Model:      model,
+			StatusCode: statusCode,
+			Error:      "请求内容被上游拒绝：" + summarizeConversationShape(body),
+		})
 		return
 	}
 	state.pool.failureForModel(provider, uid, model, upErr.Kind, upErr.Message,
