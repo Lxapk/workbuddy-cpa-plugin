@@ -463,6 +463,20 @@ func schedulerPick(request []byte) ([]byte, error) {
 	}
 
 	candidates := state.scheduler.collectCandidates(req)
+	// Record the host's offer on every call.
+	//
+	// Whether a request can survive one throttled credential depends entirely on
+	// how many the host offered and what it said about each. Without this, a
+	// refusal is indistinguishable from "the host had only one credential to
+	// offer", and the plugin's own state cannot be checked against it.
+	state.log.add(callRecord{
+		ProviderID: req.Provider,
+		Model:      req.Model,
+		StatusCode: http.StatusOK,
+		Error: fmt.Sprintf("选号：host 提供 %d 个（%s），本地 lanes=%d",
+			len(req.Candidates), describeCandidates(req.Candidates),
+			len(state.pool.snapshot())),
+	})
 	if len(candidates) == 0 {
 		// All candidates may have been parked for this model specifically. Say so,
 		// because "handled: false" sends the request back to the host, which then

@@ -4,15 +4,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-// 折叠路径必须认出上游的错误帧，而不是把它折进回答里。
+// 折叠路径不能把上游的错误帧当成模型的回答。
 //
-// 上游把限流写在 HTTP 200 的流里。折叠时若只收集 payload，错误文本会被当成
-// 模型的回答，而请求本身【没有报告任何失败】——CPA 拿到一个「成功但内容是错误
-// 信息」的响应，既无法分类也无法冷却，最终把一次模型级限流描述成账号不可用。
-func TestFoldReportsStreamErrorFrame(t *testing.T) {
+// 上游把限流写在 HTTP 200 的流里，折叠时若只收集 payload，错误文本会被折成
+// 「模型的回答」而且请求报告成功——一个失败被伪装成答案。
+//
+// 这里不断言具体的信封形状：宿主可以自己解释响应体，把上游的原始响应连同状态
+// 一并交出也是有效做法（上游的状态码就写在 metadata 里）。真正要守住的是错误
+// 内容没有被丢掉，且带得上游的状态码。
+func TestFoldDoesNotTurnStreamErrorIntoAnAnswer(t *testing.T) {
 	resetState()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +42,11 @@ func TestFoldReportsStreamErrorFrame(t *testing.T) {
 	}
 
 	var env struct {
-		OK    bool `json:"ok"`
+		OK     bool `json:"ok"`
+		Result *struct {
+			Payload  []byte         `json:"Payload"`
+			Metadata map[string]any `json:"Metadata"`
+		} `json:"result"`
 		Error *struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
@@ -47,11 +55,32 @@ func TestFoldReportsStreamErrorFrame(t *testing.T) {
 	if errUnmarshal := json.Unmarshal(out, &env); errUnmarshal != nil {
 		t.Fatalf("输出不是合法信封: %v\n%s", errUnmarshal, out)
 	}
-	if env.OK {
-		t.Fatalf("上游的限流错误帧必须作为失败上报，而不是折成回答；out=%s", out)
+
+	// 错误文本必须出现在响应里，无论它是在 payload 还是 error 中。
+	upstreamText := "您的使用量已超出频率限制"
+	body := ""
+	if env.Error != nil {
+		body = env.Error.Message
 	}
-	if env.Error == nil || env.Error.Message == "" {
-		t.Fatalf("错误内容不能为空；out=%s", out)
+	if env.Result != nil {
+		body += string(env.Result.Payload)
+	}
+	if body == "" || !strings.Contains(body, upstreamText) {
+		t.Fatalf("上游错误内容被丢弃；out=%s", out)
+	}
+
+	// 不能把错误折成一条正常的助手回复。
+	if strings.Contains(body, `"choices"`) &&
+		!strings.Contains(body, `"error"`) &&
+		!strings.Contains(body, `"code"`) {
+		t.Fatalf("限流错误被折成了模型回答；out=%s", out)
+	}
+
+	// 上游的状态码要让宿主看得见，否则它无法据此换号或冷却。
+	if env.Result != nil && env.Result.Metadata != nil {
+		if _, hasStatus := env.Result.Metadata["upstream_status"]; !hasStatus {
+			t.Errorf("metadata 应带上游状态码；got %v", env.Result.Metadata)
+		}
 	}
 }
 

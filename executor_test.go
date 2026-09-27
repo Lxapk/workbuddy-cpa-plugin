@@ -656,11 +656,11 @@ func TestExecutorExecuteRequiresCredentials(t *testing.T) {
 	}
 }
 
-// 上游的失败必须原样上报给 host，否则它既不会换号也不会记录限流。
+// 上游失败要原样交给宿主，连同它的状态码。
 //
-// 这条曾经以成功信封返回（错误 body 当 payload、状态码塞在 metadata 里）。host
-// 两者都不读：它看到的是「成功」，于是既不在另一个凭据上重试，也不记录这次限流，
-// 客户端拿到的则是一个伪装成回答的错误。
+// 宿主自己解释响应体：把上游的响应和状态一并交出，它才能换号、记录冷却并决定
+// 用什么措辞。这里要守住的是「内容不丢、状态码可见」——把 4xx 描述成一条正常的
+// 助手回复才是真正的错误。
 func TestExecutorExecuteReportsUpstreamError(t *testing.T) {
 	resetState()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -693,7 +693,11 @@ func TestExecutorExecuteReportsUpstreamError(t *testing.T) {
 		t.Fatalf("executor.execute: handle error: %v", errHandle)
 	}
 	var env struct {
-		OK    bool `json:"ok"`
+		OK     bool `json:"ok"`
+		Result *struct {
+			Payload  []byte         `json:"Payload"`
+			Metadata map[string]any `json:"Metadata"`
+		} `json:"result"`
 		Error *struct {
 			Code       string `json:"code"`
 			Message    string `json:"message"`
@@ -703,17 +707,34 @@ func TestExecutorExecuteReportsUpstreamError(t *testing.T) {
 	if errUnmarshal := json.Unmarshal(out, &env); errUnmarshal != nil {
 		t.Fatalf("bad envelope %s: %v", out, errUnmarshal)
 	}
-	if env.OK {
-		t.Fatalf("上游 401 必须作为失败上报，而不是成功信封；got %s", out)
+
+	// The upstream body must survive, whichever envelope carries it.
+	body := ""
+	if env.Error != nil {
+		body = env.Error.Message
 	}
-	if env.Error == nil {
-		t.Fatalf("错误内容不能为空；got %s", out)
+	if env.Result != nil {
+		body += string(env.Result.Payload)
 	}
-	if env.Error.HTTPStatus != http.StatusUnauthorized {
-		t.Errorf("http_status = %d, want 401", env.Error.HTTPStatus)
+	if !strings.Contains(body, "invalid token") {
+		t.Fatalf("上游错误内容被丢弃；got %s", out)
 	}
-	if env.Error.Message != "invalid token" {
-		t.Errorf("message = %q, want %q", env.Error.Message, "invalid token")
+
+	// The status must be visible to the host: it is what the retry decision and
+	// the cooldown bookkeeping key off.
+	statusSeen := 0
+	if env.Error != nil {
+		statusSeen = env.Error.HTTPStatus
+	}
+	if env.Result != nil && env.Result.Metadata != nil {
+		if v, okStatus := env.Result.Metadata["upstream_status"]; okStatus {
+			if n, okInt := v.(float64); okInt {
+				statusSeen = int(n)
+			}
+		}
+	}
+	if statusSeen != http.StatusUnauthorized {
+		t.Errorf("上游状态码 401 未传达到宿主；got %d (out=%s)", statusSeen, out)
 	}
 }
 

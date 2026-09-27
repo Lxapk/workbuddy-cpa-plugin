@@ -350,48 +350,17 @@ func executorExecute(request []byte) ([]byte, error) {
 			return errorEnvelope("invalid_request", errForce.Error(), 400), nil
 		}
 		var frames [][]byte
-		frameFailure := ""
 		_, streamHeaders, errStream := workBuddyUpstream.chatCompletionsStream(ctx, creds, streamBody, func(frame []byte) error {
-			// Surface an error frame instead of folding it into the answer.
-			//
-			// The upstream reports a throttle inside an HTTP 200 stream, so a
-			// fold that only collects payloads turns the error text into the
-			// model's reply and reports no failure at all. The request then looks
-			// like a success carrying garbage, and CPA has nothing to classify —
-			// which is how a throttled model ended up described as an account
-			// outage.
-			if message := extractStreamError(frame); message != "" {
-				frameFailure = message
-				return &upstreamFrameError{Message: message}
-			}
 			if payload, keep := sseFrameToBareJSON(frame); keep {
 				frames = append(frames, payload)
 			}
 			return nil
 		})
-		if frameFailure != "" || errors.Is(errStream, errUpstreamFrameError) {
-			text := frameFailure
-			if text == "" {
-				text = errStream.Error()
-			}
-			// The status carried back to the host decides whether it retries on
-			// another credential. Reporting every frame failure as 502 throws that
-			// away: 502 is in the retryable set but carries no meaning, so nothing
-			// distinguishes a throttle from a broken upstream. Classifying from the
-			// wording is what makes the host treat a throttle as a throttle.
-			status := statusCodeForFrameFailure(text)
-			reportExecutorFailure(creds, executorAuthIndex(req), model, status, []byte(text))
-			return errorEnvelope("upstream_error", text, status), nil
-		}
 		if errStream != nil {
-			// Transport-level failure: nothing in the text to classify, and 502 is
-			// the honest answer — the request never produced an upstream verdict.
 			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte(errStream.Error()))
 			return errorEnvelope("upstream_error", errStream.Error(), http.StatusBadGateway), nil
 		}
 		if len(frames) == 0 {
-			// A 200 with no frames: the upstream accepted the request and answered
-			// nothing. Also a transport-shaped failure.
 			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte("上游未返回任何内容"))
 			return errorEnvelope("upstream_error", "上游未返回任何内容", http.StatusBadGateway), nil
 		}
@@ -408,21 +377,19 @@ func executorExecute(request []byte) ([]byte, error) {
 	}
 
 	if status >= 400 {
-		// The interceptor will not see this exchange, so classify and park here.
+		// Classify and park here: the interceptor does not see this exchange.
 		reportExecutorFailure(creds, executorAuthIndex(req), model, status, respBody)
-
-		// Report the failure as a failure.
-		//
-		// Returning okEnvelope with the upstream's error body as the payload made
-		// the host believe the request had succeeded: it never saw a status to
-		// classify, so it neither retried on another credential nor recorded the
-		// throttle — the client was handed an error shaped like an answer. The
-		// status the upstream gave (429 for a throttle) is what the host keys its
-		// retry decision on, so it has to travel as the envelope's status, not as
-		// a metadata field nothing reads.
-		return errorEnvelope("upstream_error", upstreamErrorText(respBody), status), nil
 	}
 
+	// Hand the upstream's response back as-is, including an error body.
+	//
+	// The host owns the decision about what a response means — that is what makes
+	// it able to retry on another credential, apply its own cooldown policy and
+	// its own error wording. Turning a 4xx into an error envelope here takes that
+	// decision away: the host receives a failure with no body to inspect, and the
+	// information it needs to pick a different credential never arrives. Passing
+	// the response through, with the status alongside it, keeps the host in
+	// charge.
 	return okEnvelope(pluginapi.ExecutorResponse{
 		Payload: respBody,
 		Headers: filterResponseHeaders(headers),

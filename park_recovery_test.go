@@ -159,16 +159,28 @@ func TestPublishModelParkIsANoOp(t *testing.T) {
 // 上游给了重置时刻就必须用它，而不是本地的默认冷却时长。
 func TestModelParkDeadlinePrefersUpstreamResetTime(t *testing.T) {
 	now := time.Now()
+	// Build the message from a future instant so the test does not expire: a
+	// hardcoded date silently stops exercising the parser once that date passes,
+	// and the failure then looks like a parser bug rather than a stale fixture.
+	// The provider phrases the reset in UTC+8, so render it that way.
+	future := now.UTC().Add(3 * time.Hour).In(time.FixedZone("UTC+8", 8*3600))
+	stamp := future.Format("2006-01-02 15:04:05")
 	upErr := upstreamError{
 		Kind:    failureRate,
-		Message: "您的使用量已超出频率限制，将在 2026-09-27 20:03:46 UTC+8 重置，您也可以切换其他模型继续使用。",
+		Message: "您的使用量已超出频率限制，将在 " + stamp + " UTC+8 重置，您也可以切换其他模型继续使用。",
 	}
+
 	until, okUntil := modelParkDeadline(now, upErr, 502)
 	if !okUntil {
-		t.Fatal("应从文案里解析出重置时刻")
+		t.Fatalf("应从文案里解析出重置时刻（%s）", stamp)
 	}
-	if until.Hour() != 12 {
-		t.Errorf("20:03:46 UTC+8 应换算成 12:03:46 UTC，got %v", until)
+	// The parsed instant must be the same moment, converted to UTC.
+	want := future.UTC().Truncate(time.Second)
+	if !until.UTC().Truncate(time.Second).Equal(want) {
+		t.Errorf("解析结果 = %v, want %v", until.UTC(), want)
+	}
+	if !until.After(now) {
+		t.Errorf("重置时刻应在未来：%v", until)
 	}
 }
 
