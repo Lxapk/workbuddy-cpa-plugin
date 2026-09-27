@@ -828,9 +828,49 @@ func mainPageScript() string {
     host.innerHTML = parts.join('');
   }
 
+  // dispatchDataCall routes a data-call attribute to the named global function.
+  //
+  // Every control used to carry an inline onclick. A Content Security Policy that
+  // forbids inline script blocks all of them at once and silently — the click does
+  // nothing and no error reaches the console. Delegating from a listener in this
+  // file keeps the behaviour identical while making it CSP-safe.
+  //
+  // Arguments come from data-arg0, data-arg1, … so a value is never interpolated
+  // into code. "this" is not representable as a data attribute; the element that
+  // matched is passed instead, which is what every caller meant by it.
+  function dispatchDataCall(node) {
+    var name = node.getAttribute && node.getAttribute('data-call');
+    if (!name) return false;
+    var fn = window[name];
+    if (typeof fn !== 'function') return false;
+
+    var args = [];
+    for (var index = 0; ; index++) {
+      var key = 'data-arg' + index;
+      if (!node.hasAttribute(key)) break;
+      args.push(node.getAttribute(key));
+    }
+    // A handler that took "this" needs the element; passing it matches how these
+    // were called from the inline form.
+    fn.apply(null, args.length ? args : [node]);
+    return true;
+  }
+
   document.addEventListener('click', function (ev) {
     var node = ev.target;
     while (node && node !== document) {
+      // Tabs carry only data-tab; the panel id and the button are derived from
+      // it, so no value has to be interpolated into the markup.
+      if (node.hasAttribute && node.hasAttribute('data-tab') && node.classList &&
+          node.classList.contains('tab')) {
+        ev.preventDefault();
+        showTab(node.getAttribute('data-tab'), node);
+        return;
+      }
+      if (dispatchDataCall(node)) {
+        ev.preventDefault();
+        return;
+      }
       if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
         ev.preventDefault();
         toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');

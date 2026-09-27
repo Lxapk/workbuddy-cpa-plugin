@@ -329,7 +329,7 @@ func renderGrowthSection() string {
 	}
 
 	b.WriteString(`<div class="row" style="margin-top:10px">`)
-	b.WriteString(`<button type="button" class="ghost" onclick="loadGrowthTasks()">查询任务明细</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="loadGrowthTasks">查询任务明细</button>`)
 	b.WriteString(`<span class="muted small" id="growthMsg"></span>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div id="growthDetail"></div>`)

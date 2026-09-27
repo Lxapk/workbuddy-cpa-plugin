@@ -51,9 +51,9 @@ func renderTaskPage() string {
 	b.WriteString(`</div></div>`)
 
 	b.WriteString(`<div class="card"><div class="row">`)
-	b.WriteString(`<button type="button" id="btnRunAllTasks" onclick="runAllTasks()">全部执行</button>`)
-	b.WriteString(`<button type="button" class="ghost" id="btnRunGrowth" onclick="runGrowthTasks()">完成成长任务</button>`)
-	b.WriteString(`<button type="button" class="ghost" id="btnTravel" onclick="runTravel()">猫猫旅行</button>`)
+	b.WriteString(`<button type="button" id="btnRunAllTasks" data-call="runAllTasks">全部执行</button>`)
+	b.WriteString(`<button type="button" class="ghost" id="btnRunGrowth" data-call="runGrowthTasks">完成成长任务</button>`)
+	b.WriteString(`<button type="button" class="ghost" id="btnTravel" data-call="runTravel">猫猫旅行</button>`)
 	b.WriteString(`<span class="muted small" id="taskMsg"></span>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="note">「完成成长任务」会自动接取、点亮并领取每日成长任务奖励，顺带检查猫猫旅行。` +
@@ -178,14 +178,21 @@ func renderMainPage() string {
 	b.WriteString(`</div></div>`)
 
 	// ---------------- tabs ----------------
+	//
+	// The buttons carry a data attribute and are wired by a delegated listener
+	// rather than an inline onclick. An inline handler is blocked by a Content
+	// Security Policy that disallows inline script, and then nothing happens at
+	// all when a tab is pressed — the page stays on whichever panel was already
+	// marked active. Only the account panel is active in the markup, so the
+	// symptom is precisely "the other tabs show nothing".
 	b.WriteString(`<div class="tabs">`)
 	tab := func(id, label string, first bool) {
 		cls := ""
 		if first {
-			cls = ` class="active"`
+			cls = ` active`
 		}
-		b.WriteString(`<button type="button" data-tab="` + id + `"` + cls +
-			` onclick="showTab('` + id + `', this)">` + html.EscapeString(label) + `</button>`)
+		b.WriteString(`<button type="button" class="tab` + cls + `" data-tab="` + html.EscapeString(id) + `">` +
+			html.EscapeString(label) + `</button>`)
 	}
 	tab("tab-accounts", "账号", true)
 	tab("tab-switch", "账号切换", false)
@@ -282,12 +289,12 @@ func renderMainPage() string {
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="card"><h2>一键操作</h2><div class="row">`)
-	b.WriteString(`<button type="button" id="btnRun" onclick="runAll()"`)
+	b.WriteString(`<button type="button" id="btnRun" data-call="runAll"`)
 	if quotaRunning || checkinRunning {
 		b.WriteString(` disabled`)
 	}
 	b.WriteString(`>签到 + 刷新积分</button>`)
-	b.WriteString(`<button type="button" class="ghost" onclick="refreshAccounts()">刷新列表</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="refreshAccounts">刷新列表</button>`)
 	b.WriteString(`<span class="muted small" id="runMsg"></span></div>`)
 	b.WriteString(`<div id="runResult"></div></div>`)
 	b.WriteString(`</div>`)
@@ -311,8 +318,8 @@ func renderMainPage() string {
 			`<span class="desc">` + html.EscapeString(desc) + `</span></span></label>`)
 	}
 	b.WriteString(`<div class="row">`)
-	b.WriteString(`<button type="button" onclick="saveStrategy()">应用策略</button>`)
-	b.WriteString(`<button type="button" class="ghost" onclick="resetRotation()">重置轮巡位置</button>`)
+	b.WriteString(`<button type="button" data-call="saveStrategy">应用策略</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="resetRotation">重置轮巡位置</button>`)
 	b.WriteString(`<span class="muted small" id="strategyMsg"></span></div>`)
 	b.WriteString(`<div class="note">当前：<b>` + html.EscapeString(fmt.Sprint(routing["strategy_label"])) +
 		`</b> · ` + html.EscapeString(nextRotationHint()) + `</div>`)
@@ -357,8 +364,8 @@ func renderMainPage() string {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
-	b.WriteString(`<div class="row"><button type="button" onclick="saveCheckinSettings()">保存</button>`)
-	b.WriteString(`<button type="button" class="ghost" onclick="runCheckin()">立即签到</button></div>`)
+	b.WriteString(`<div class="row"><button type="button" data-call="saveCheckinSettings">保存</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="runCheckin">立即签到</button></div>`)
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="card"><h2>最近一次签到</h2>`)
@@ -384,8 +391,8 @@ func renderMainPage() string {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时刷新一次</label></div>`)
-	b.WriteString(`<div class="row"><button type="button" onclick="saveQuotaSettings()">保存</button>`)
-	b.WriteString(`<button type="button" class="ghost" onclick="refreshQuota()">立即刷新积分</button></div>`)
+	b.WriteString(`<div class="row"><button type="button" data-call="saveQuotaSettings">保存</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="refreshQuota">立即刷新积分</button></div>`)
 	b.WriteString(`<div class="note">积分决定账号选用顺序：源应用按剩余积分从多到少选用。</div>`)
 	b.WriteString(`</div>`)
 
@@ -446,8 +453,8 @@ func renderMainPage() string {
 	b.WriteString(`<div id="tab-settings" class="panel">`)
 	b.WriteString(`<div class="card"><h2>管理密钥 <span class="hint">仅保存在本机浏览器</span></h2>`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" style="flex:1 1 320px">`)
-	b.WriteString(`<button type="button" onclick="saveKey()">保存到浏览器</button>`)
-	b.WriteString(`<button type="button" class="ghost" onclick="clearKey()">清除</button></div>`)
+	b.WriteString(`<button type="button" data-call="saveKey">保存到浏览器</button>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="clearKey">清除</button></div>`)
 	b.WriteString(`<div class="muted small" id="keyState"></div>`)
 	b.WriteString(`<div class="note">密钥仅保存在本机浏览器（localStorage），不会上传到插件或服务器。</div>`)
 	b.WriteString(`</div>`)
@@ -467,7 +474,7 @@ func renderMainPage() string {
 		}
 		b.WriteString(`<button type="button" data-variant="` + opt.v + `"` + cls +
 			` title="` + html.EscapeString(opt.title) + `"` +
-			` onclick="setVariant('` + opt.v + `')">` + opt.label + `</button>`)
+			` data-call="setVariant" data-arg0="` + opt.v + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="note">决定<strong>调用</strong>时使用哪些账号：<strong>全部供应商</strong>（默认）按每个账号自身归属自动选择——国内账号走国内接口、国际账号走国际接口，两组并存；` +
@@ -493,7 +500,7 @@ func renderMainPage() string {
 		}
 		b.WriteString(`<button type="button" data-auth="` + opt.v + `"` + cls +
 			` title="` + html.EscapeString(opt.title) + `"` +
-			` onclick="setAuthSupplier('` + opt.v + `')">` + opt.label + `</button>`)
+			` data-call="setAuthSupplier" data-arg0="` + opt.v + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="note">本开关<strong>只决定授权走哪一侧</strong>，与上面的调用设置互相独立。` +

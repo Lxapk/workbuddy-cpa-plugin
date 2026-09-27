@@ -285,8 +285,8 @@ func checkinPageWithRun(fresh *checkinRun) string {
 	// in localStorage and attached by fetch() below.
 	b.WriteString(`<h2>管理密钥</h2><div class="card">`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" ` +
-		`style="width:min(420px,70%);padding:5px 8px"> <button type="button" onclick="saveKey()">保存到浏览器</button>` +
-		` <button type="button" onclick="clearKey()">清除</button></div>`)
+		`style="width:min(420px,70%);padding:5px 8px"> <button type="button" data-call="saveKey">保存到浏览器</button>` +
+		` <button type="button" data-call="clearKey">清除</button></div>`)
 	b.WriteString(`<div class="muted" id="keyState"></div>`)
 	b.WriteString(`<div class="muted">密钥仅保存在本机浏览器（localStorage），不会上传到插件或服务器。` +
 		`对应 CPA 配置中的 <code>remote-management.secret-key</code>。</div>`)
@@ -307,7 +307,7 @@ func checkinPageWithRun(fresh *checkinRun) string {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时补跑（当天尚未执行时）</label>`)
-	b.WriteString(`<button type="button" onclick="saveConfig()">保存设置</button>`)
+	b.WriteString(`<button type="button" data-call="saveConfig">保存设置</button>`)
 	if next, _ := status["next_run"].(string); next != "" {
 		b.WriteString(`<span class="muted" style="margin-left:12px">下次执行：` + html.EscapeString(next) + `</span>`)
 	}
@@ -315,7 +315,7 @@ func checkinPageWithRun(fresh *checkinRun) string {
 
 	// --- manual run ----------------------------------------------------
 	b.WriteString(`<h2>手动签到</h2><div class="card">`)
-	b.WriteString(`<button type="button" id="btnRun" onclick="runCheckin()"`)
+	b.WriteString(`<button type="button" id="btnRun" data-call="runCheckin"`)
 	if running, _ := status["running"].(bool); running {
 		b.WriteString(` disabled`)
 	}

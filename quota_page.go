@@ -196,8 +196,8 @@ func quotaPage() string {
 	// --- management key (same mechanism as the check-in page) ----------
 	b.WriteString(`<h2>管理密钥</h2><div class="card">`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" ` +
-		`style="width:min(420px,70%)"> <button type="button" onclick="saveKey()">保存到浏览器</button>` +
-		` <button type="button" onclick="clearKey()">清除</button></div>`)
+		`style="width:min(420px,70%)"> <button type="button" data-call="saveKey">保存到浏览器</button>` +
+		` <button type="button" data-call="clearKey">清除</button></div>`)
 	b.WriteString(`<div class="muted" id="keyState"></div>`)
 	b.WriteString(`<div class="muted">密钥仅保存在本机浏览器（localStorage），不会上传到插件或服务器。</div>`)
 	b.WriteString(`</div>`)
@@ -222,7 +222,7 @@ func quotaPage() string {
 
 	// --- controls ------------------------------------------------------
 	b.WriteString(`<h2>刷新</h2><div class="card">`)
-	b.WriteString(`<button type="button" id="btnRefresh" onclick="refreshQuota()"`)
+	b.WriteString(`<button type="button" id="btnRefresh" data-call="refreshQuota"`)
 	if running {
 		b.WriteString(` disabled`)
 	}
@@ -246,7 +246,7 @@ func quotaPage() string {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时刷新一次</label>`)
-	b.WriteString(`<button type="button" onclick="saveConfig()">保存设置</button>`)
+	b.WriteString(`<button type="button" data-call="saveConfig">保存设置</button>`)
 	b.WriteString(`<div class="muted">额度用于给账号排序：源应用按剩余额度从多到少选用账号。</div>`)
 	b.WriteString(`</div>`)
 
