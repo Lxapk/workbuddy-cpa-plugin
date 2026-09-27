@@ -145,6 +145,58 @@ type schedulerCandidate struct {
 	ModelCoolModel string
 }
 
+// describeAuthInventory renders the host's view of every credential.
+//
+// This is the diagnostic for "why was this request refused": CPA decides
+// availability from each credential's unavailable / quota / next_retry_after, and
+// when a model is throttled on one credential the remaining one must still look
+// available or the request is refused outright with no usable explanation.
+func describeAuthInventory() string {
+	raw, errList := callHost("host.auth.list", map[string]any{})
+	if errList != nil || len(raw) == 0 {
+		return "host.auth.list 无响应"
+	}
+	var resp hostAuthListResponse
+	if errUnmarshal := json.Unmarshal(raw, &resp); errUnmarshal != nil {
+		return "host.auth.list 解析失败"
+	}
+	entries := hostAuthListEntries(resp)
+	if len(entries) == 0 {
+		return "host.auth.list 返回空"
+	}
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		status := strings.TrimSpace(entry.Status)
+		if status == "" {
+			status = "-"
+		}
+		retry := "-"
+		if !entry.NextRetryAfter.IsZero() {
+			retry = entry.NextRetryAfter.UTC().Format(time.RFC3339)
+		}
+		parts = append(parts, fmt.Sprintf("%s/%s/unavail=%v/disabled=%v/retry=%s",
+			firstNonEmpty(entry.Label, entry.ID, entry.AuthIndex),
+			status, entry.Unavailable, entry.Disabled, retry))
+	}
+	return strings.Join(parts, " | ")
+}
+
+// describeCandidates renders a candidate list for diagnostics.
+func describeCandidates(candidates []pluginapi.SchedulerAuthCandidate) string {
+	if len(candidates) == 0 {
+		return "无"
+	}
+	parts := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		status := strings.TrimSpace(c.Status)
+		if status == "" {
+			status = "?"
+		}
+		parts = append(parts, c.ID+"/"+status)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // collectCandidates ports A0/s.java:596's availability guard and folds in the
 // quota reading so strategies can rank by it.
 //
@@ -400,6 +452,11 @@ func schedulerPick(request []byte) ([]byte, error) {
 			return nil, errUnmarshal
 		}
 	}
+	// Refusals are recorded, not every call.
+	//
+	// "No auth available" looks identical whether the host offered no candidates,
+	// offered some that were all parked, or never asked at all. Only a refusal
+	// needs that explained, so the trace is written on the empty-candidate path.
 
 	if !schedulerOwnsProvider(req) {
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
@@ -420,6 +477,18 @@ func schedulerPick(request []byte) ([]byte, error) {
 					req.Model, humanizeUntil(until)),
 			})
 		}
+		// Record what the host offered and why nothing survived: an empty list
+		// here is the difference between "every account is parked for this model"
+		// (correct) and "the host never offered the accounts we expected" (a bug
+		// that looks identical from the outside).
+		state.log.add(callRecord{
+			ProviderID: req.Provider,
+			Model:      req.Model,
+			StatusCode: http.StatusServiceUnavailable,
+			Error: fmt.Sprintf("选号无候选：host 提供 %d 个（%s），本地 lanes=%d，账号状态=[%s]",
+				len(req.Candidates), describeCandidates(req.Candidates),
+				len(state.pool.snapshot()), describeAuthInventory()),
+		})
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
 

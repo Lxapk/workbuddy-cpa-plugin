@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -115,6 +116,42 @@ func prepareUpstreamBody(body []byte, requestedModel string) ([]byte, string, er
 // The upstream signals a throttle inside an HTTP 200 stream, so the reader's
 // transport error stays nil; this sentinel lets the caller tell "the upstream
 // said no" apart from "the connection dropped".
+// statusCodeForFrameFailure infers the status a stream-borne failure maps to.
+//
+// A frame arrives inside an HTTP 200 stream, so there is no status code to read.
+// Reporting every frame failure as 502 loses the one distinction CPA acts on:
+// a throttle must be recognised as a throttle, because that is what makes it a
+// model-wide, recoverable condition instead of an opaque account error. The
+// classification reuses the same phrase matching the non-streaming path applies
+// to a real status code and body.
+func statusCodeForFrameFailure(message string) int {
+	classified := classifyUpstream(0, []byte(message))
+	switch classified.Kind {
+	case failureRate:
+		return http.StatusTooManyRequests
+	case failureQuota:
+		return http.StatusPaymentRequired
+	case failureAuth:
+		return http.StatusUnauthorized
+	}
+	// Content problems keep the old generic status: they are not about the
+	// credential, and callers already filter them out by phrase.
+	return http.StatusBadGateway
+}
+
+// errUpstreamFrameError marks a stream that carried an error frame.
+//
+// The upstream reports failures inside an HTTP 200 stream, so the transport
+// status says nothing about them. The frame's own wording is the only evidence,
+// and it is carried back so the failure can be classified from the text rather
+// than from a status code that was never meaningful here.
+type upstreamFrameError struct {
+	Message string
+}
+
+// Error implements error, returning the upstream's own wording.
+func (e *upstreamFrameError) Error() string { return e.Message }
+
 var errUpstreamFrameError = errors.New("upstream reported an error frame")
 
 // requestContentPhrases mark failures caused by the request's own shape rather
@@ -152,7 +189,11 @@ func isRequestContentFailure(message string) bool {
 //
 // model scopes the cooldown: a throttle parks only that model, leaving the
 // account usable for the others.
-func reportExecutorFailure(creds *workBuddyCredentials, model string, statusCode int, body []byte) {
+//
+// authIndex is CPA's credential key (pluginapi.ExecutorRequest.AuthID). It is
+// what ties this failure to the auth file CPA reads its per-model state from,
+// and is empty on paths that have no single bound credential.
+func reportExecutorFailure(creds *workBuddyCredentials, authIndex, model string, statusCode int, body []byte) {
 	if creds == nil {
 		return
 	}
@@ -178,6 +219,97 @@ func reportExecutorFailure(creds *workBuddyCredentials, model string, statusCode
 	}
 	state.pool.failureForModel(provider, uid, model, upErr.Kind, upErr.Message,
 		state.settings.get(), isPermanentFailure(statusCode, upErr))
+
+	// Publish a model-scoped park to CPA as well.
+	//
+	// The pool state above only parks the model inside the plugin, which CPA
+	// cannot see; without the mirror below a request for a throttled model is
+	// reported as "auth_unavailable" instead of a model cooldown. Only failures
+	// that are scoped to a model and recover on their own qualify — a permanent
+	// failure is handled by the account-level disable path.
+	if !isPermanentFailure(statusCode, upErr) {
+		publishModelFailure(authIndex, model, upErr, statusCode)
+	}
+}
+
+// publishModelFailure mirrors a model-scoped failure into the auth file.
+//
+// Only throttle and quota failures are published: they are the two that describe
+// a model as temporarily unusable and carry a recovery time. Anything else is
+// either permanent (handled at account level) or not about the credential.
+func publishModelFailure(authIndex, model string, upErr upstreamError, statusCode int) {
+	if strings.TrimSpace(authIndex) == "" || strings.TrimSpace(model) == "" {
+		return
+	}
+	switch upErr.Kind {
+	case failureRate, failureQuota:
+	default:
+		return
+	}
+
+	now := time.Now()
+	until, okUntil := modelParkDeadline(now, upErr, statusCode)
+	if !okUntil {
+		return
+	}
+	quotaExceeded := upErr.Kind == failureQuota
+	publishModelPark(authIndex, model, until, upErr.Message, statusCode, quotaExceeded)
+}
+
+// modelParkDeadline decides when a parked model may be retried.
+//
+// The upstream states the reset instant in its message ("将在 2026-09-27
+// 20:03:46 UTC+8 重置"), and honouring that beats any local guess: retrying
+// earlier just burns another request, and retrying later wastes capacity that is
+// already available. The configured cooldown is the fallback for messages that
+// do not carry one.
+func modelParkDeadline(now time.Time, upErr upstreamError, statusCode int) (time.Time, bool) {
+	if hint, okHint := parseUpstreamResetTime(upErr.Message, now.Location()); okHint {
+		if hint.After(now) {
+			return hint, true
+		}
+		return time.Time{}, false
+	}
+	settings := state.settings.get()
+	switch upErr.Kind {
+	case failureRate:
+		if settings.RateCooldownMillis <= 0 {
+			return time.Time{}, false
+		}
+		return now.Add(time.Duration(settings.RateCooldownMillis) * time.Millisecond), true
+	case failureQuota:
+		if settings.QuotaCooldownMillis <= 0 {
+			return time.Time{}, false
+		}
+		return now.Add(time.Duration(settings.QuotaCooldownMillis) * time.Millisecond), true
+	}
+	_ = statusCode
+	return time.Time{}, false
+}
+
+// executorAuthIndex returns CPA's credential key for a call, which is what ties
+// a failure to the auth file its per-model state lives in.
+//
+// pluginapi.ExecutorRequest.AuthID is that key. It is preferred over the
+// credential's own uid because uid is a WorkBuddy identity that two files can
+// share (the same person logged in on both realms), while the auth index names
+// exactly one file.
+func executorAuthIndex(req executorRequest) string {
+	// The host's own view is recorded when the id is missing, which is the case
+	// that needs explaining. Logging it on every call would bury that line.
+	index := strings.TrimSpace(req.AuthID)
+	if index != "" {
+		return index
+	}
+	_, _ = callHost("host.log", map[string]any{
+		"level":   "warn",
+		"message": "[model-states] executor 未提供 AuthID，无法定位凭据文件；账号状态=[" + describeAuthInventory() + "]",
+		"fields": map[string]any{
+			"provider": req.AuthProvider,
+			"model":    req.Model,
+		},
+	})
+	return ""
 }
 
 // executorExecute answers executor.execute (non-streaming).
@@ -198,7 +330,7 @@ func executorExecute(request []byte) ([]byte, error) {
 	status, headers, respBody, errChat := workBuddyUpstream.chatCompletions(ctx, creds, upstreamBody)
 	if errChat != nil {
 		// Network-level failure: no upstream body to classify.
-		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errChat.Error()))
+		reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte(errChat.Error()))
 		return errorEnvelope("upstream_error", errChat.Error(), 502), nil
 	}
 
@@ -217,18 +349,43 @@ func executorExecute(request []byte) ([]byte, error) {
 			return errorEnvelope("invalid_request", errForce.Error(), 400), nil
 		}
 		var frames [][]byte
+		frameFailure := ""
 		_, streamHeaders, errStream := workBuddyUpstream.chatCompletionsStream(ctx, creds, streamBody, func(frame []byte) error {
+			// Surface an error frame instead of folding it into the answer.
+			//
+			// The upstream reports a throttle inside an HTTP 200 stream, so a
+			// fold that only collects payloads turns the error text into the
+			// model's reply and reports no failure at all. The request then looks
+			// like a success carrying garbage, and CPA has nothing to classify —
+			// which is how a throttled model ended up described as an account
+			// outage.
+			if message := extractStreamError(frame); message != "" {
+				frameFailure = message
+				return &upstreamFrameError{Message: message}
+			}
 			if payload, keep := sseFrameToBareJSON(frame); keep {
 				frames = append(frames, payload)
 			}
 			return nil
 		})
+		if frameFailure != "" || errors.Is(errStream, errUpstreamFrameError) {
+			text := frameFailure
+			if text == "" {
+				text = errStream.Error()
+			}
+			// Classify from the wording, not from 502: a throttle has to be
+			// reported as 429 so CPA treats it as a model-wide, recoverable
+			// condition.
+			reportExecutorFailure(creds, executorAuthIndex(req), model,
+				statusCodeForFrameFailure(text), []byte(text))
+			return errorEnvelope("upstream_error", text, 502), nil
+		}
 		if errStream != nil {
-			reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errStream.Error()))
+			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte(errStream.Error()))
 			return errorEnvelope("upstream_error", errStream.Error(), 502), nil
 		}
 		if len(frames) == 0 {
-			reportExecutorFailure(creds, model, http.StatusBadGateway, []byte("上游未返回任何内容"))
+			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte("上游未返回任何内容"))
 			return errorEnvelope("upstream_error", "上游未返回任何内容", 502), nil
 		}
 		aggregated := aggregateStreamToCompletion(frames, req.Model)
@@ -245,7 +402,7 @@ func executorExecute(request []byte) ([]byte, error) {
 
 	if status >= 400 {
 		// The interceptor will not see this exchange, so classify and park here.
-		reportExecutorFailure(creds, model, status, respBody)
+		reportExecutorFailure(creds, executorAuthIndex(req), model, status, respBody)
 	}
 
 	return okEnvelope(pluginapi.ExecutorResponse{
@@ -315,7 +472,7 @@ func executorExecuteStream(request []byte) ([]byte, error) {
 		return errorEnvelope("invalid_request", errPrepare.Error(), 400), nil
 	}
 
-	go pumpUpstreamStreamIntoHost(streamID, creds, upstreamBody, model)
+	go pumpUpstreamStreamIntoHost(streamID, creds, executorAuthIndex(req), upstreamBody, model)
 
 	return okEnvelope(streamChunkEnvelope{
 		Headers: http.Header{"Content-Type": []string{"text/event-stream"}},
@@ -329,7 +486,7 @@ func executorExecuteStream(request []byte) ([]byte, error) {
 // chunk exists; see that function for why. The recover mirrors the official
 // example: a panic here would otherwise leave the stream open and the client
 // waiting on a connection nobody will ever close.
-func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, upstreamBody []byte, model string) {
+func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, authIndex string, upstreamBody []byte, model string) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			closeHostStream(streamID, fmt.Sprintf("upstream stream panic: %v", recovered))
@@ -349,7 +506,9 @@ func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, up
 		// error text as the model's answer.
 		if message := extractStreamError(frame); message != "" {
 			frameError = message
-			return errUpstreamFrameError
+			// Carry the wording: it is the only evidence of what went wrong, and
+			// the caller turns it into a status CPA can act on.
+			return &upstreamFrameError{Message: message}
 		}
 		payload, keep := sseFrameToBareJSON(frame)
 		if !keep {
@@ -370,13 +529,19 @@ func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, up
 	// where the reason became "Bad Gateway" and the cooldown was applied to the
 	// whole account instead of the model.
 	if frameError != "" {
-		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(frameError))
+		reportExecutorFailure(creds, authIndex, model, http.StatusBadGateway, []byte(frameError))
 		closeHostStream(streamID, frameError)
 		return
 	}
 	if errors.Is(errStream, errUpstreamFrameError) {
-		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errStream.Error()))
-		closeHostStream(streamID, errStream.Error())
+		// The frame text carries the cause; the status is inferred from it so a
+		// throttle is reported as 429 rather than a generic 502. CPA keys its
+		// model-level cooldown off that distinction, and collapsing it was why a
+		// throttled model surfaced as "auth_unavailable".
+		frameText := errStream.Error()
+		reportExecutorFailure(creds, authIndex, model,
+			statusCodeForFrameFailure(frameText), []byte(frameText))
+		closeHostStream(streamID, frameText)
 		return
 	}
 
@@ -384,7 +549,7 @@ func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, up
 		// Report before closing: the response interceptor does not run for an
 		// exchange the executor itself failed, so this is the only place the
 		// throttle can be classified and parked.
-		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte(errStream.Error()))
+		reportExecutorFailure(creds, authIndex, model, http.StatusBadGateway, []byte(errStream.Error()))
 
 		message := errStream.Error()
 		if emitted == 0 {
@@ -395,7 +560,7 @@ func pumpUpstreamStreamIntoHost(streamID string, creds *workBuddyCredentials, up
 	}
 	if emitted == 0 {
 		// A 200 with no frames is still a failure to answer.
-		reportExecutorFailure(creds, model, http.StatusBadGateway, []byte("上游未返回任何内容"))
+		reportExecutorFailure(creds, authIndex, model, http.StatusBadGateway, []byte("上游未返回任何内容"))
 		closeHostStream(streamID, "上游未返回任何内容")
 		return
 	}

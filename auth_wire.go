@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"time"
 )
 
 // This file defines the host.auth.* RPC wire types.
@@ -41,6 +42,11 @@ type hostAuthEntry struct {
 	Disabled bool `json:"disabled,omitempty"`
 	// Unavailable reports whether the credential is currently unavailable.
 	Unavailable bool `json:"unavailable,omitempty"`
+	// NextRetryAfter is when an unavailable credential may be retried. Carried
+	// for diagnostics: it is what turns "unavailable" into a recovery time.
+	NextRetryAfter time.Time `json:"next_retry_after,omitempty"`
+	// UpdatedAt is the last time the host touched this credential record.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 
 	// StorageJSON is not part of HostAuthFileEntry: the list response omits the
 	// credential bodies, which must be fetched per entry via host.auth.get.

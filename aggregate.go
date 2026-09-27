@@ -219,6 +219,12 @@ func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 				Type    string `json:"type"`
 				Code    string `json:"code"`
 			} `json:"error"`
+			// Flat shapes. The provider reports request-level failures as
+			// {"code":…,"msg":…} with no wrapper, and a fold that only looks at
+			// error.message would carry that through as if it were content.
+			FlatMessage  string `json:"message"`
+			FlatMsg      string `json:"msg"`
+			FlatErrorMsg string `json:"error_msg"`
 		}
 		if errUnmarshal := json.Unmarshal(frame, &doc); errUnmarshal != nil {
 			continue
@@ -227,6 +233,14 @@ func aggregateStreamToCompletion(frames [][]byte, model string) []byte {
 		if doc.Error != nil && doc.Error.Message != "" {
 			return errorBody(doc.Error.Message, firstNonEmpty(doc.Error.Type, "upstream_error"),
 				firstNonEmpty(doc.Error.Code, "upstream_error"))
+		}
+		if flat := firstNonEmpty(doc.FlatMessage, doc.FlatMsg, doc.FlatErrorMsg); flat != "" {
+			// Only when the frame carries no choices: a normal delta may also
+			// have a "message" field in some providers' envelopes, and treating
+			// that as an error would turn a valid answer into a failure.
+			if len(doc.Choices) == 0 {
+				return errorBody(flat, "upstream_error", "upstream_error")
+			}
 		}
 		if doc.ID != "" {
 			id = doc.ID

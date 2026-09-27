@@ -12,7 +12,7 @@ import (
 
 const (
 	pluginName    = "workbuddy"
-	pluginVersion = "0.13.34"
+	pluginVersion = "0.13.35"
 	pluginAuthor  = "BlackHawk"
 	pluginRepo    = "https://github.com/router-for-me/CLIProxyAPI"
 )
@@ -139,6 +139,10 @@ func handleMethod(method string, request []byte) ([]byte, error) {
 			startQuotaScheduler()
 		}
 		startTaskScheduler()
+		// Restore credentials parked for a throttle once their deadline passes.
+		// Started unconditionally: a parked credential is a correctness problem,
+		// not a feature the operator opts into.
+		startParkRecovery()
 		return okEnvelope(buildRegistration())
 
 	case pluginabi.MethodPluginQuiesce:
@@ -358,13 +362,26 @@ var rateLimitPhrases = []string{
 // because the two mean opposite things for the remaining credits: a throttle says
 // nothing about the balance, exhaustion zeroes it.
 var quotaPhrases = []string{
+	// Chinese wording used by the provider's own clients.
 	"余额不足",
 	"额度不足",
 	"配额不足",
+	"积分不足",
+	"积分用完",
+	"额度用尽",
+	"没有积分",
+	// English equivalents.
 	"quota exceeded",
+	"quota exhaust",
 	"insufficient quota",
 	"insufficient_quota",
 	"out of credits",
+	"insufficient credit",
+	"no credit",
+	"credit exhausted",
+	"credit not enough",
+	"not enough credit",
+	"payment required",
 }
 
 // containsAnyFold reports whether s contains any phrase, case-insensitively.

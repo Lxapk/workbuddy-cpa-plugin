@@ -10,15 +10,7 @@
       "repository": "https://github.com/Lxapk/workbuddy-cpa-plugin",
       "license": "MIT",
       "install": {
-        "type": "direct",
-        "artifacts": [
-          {
-            "goos": "linux",
-            "goarch": "amd64",
-            "url": "https://github.com/Lxapk/workbuddy-cpa-plugin/releases/download/v0.13.34/workbuddy_0.13.34_linux_amd64.zip",
-            "sha256": "f7149ae815c131d65e5aee026307570d26283ab85d10a79d3707ef1659582a99"
-          }
-        ]
+        "type": "github-release"
       }
     }
   ]
