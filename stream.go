@@ -114,26 +114,79 @@ func extractStreamError(chunk []byte) string {
 		var doc struct {
 			Error *struct {
 				Message string `json:"message"`
+				Msg     string `json:"msg"`
 				Type    string `json:"type"`
 			} `json:"error"`
 			Response *struct {
 				Error *struct {
 					Message string `json:"message"`
+					Msg     string `json:"msg"`
 					Type    string `json:"type"`
 				} `json:"error"`
 			} `json:"response"`
+			// Flat shapes. The provider does not consistently wrap its errors:
+			// throttles arrive as {"error":{"message":…}} but request-level
+			// failures arrive as {"code":11148,"msg":…} with no wrapper at all.
+			// Missing these meant the frame was forwarded as content, and the
+			// failure only surfaced later as a generic "no content" error.
+			Message  string `json:"message"`
+			Msg      string `json:"msg"`
+			ErrorMsg string `json:"error_msg"`
 		}
 		if errUnmarshal := json.Unmarshal(payload, &doc); errUnmarshal != nil {
 			continue
 		}
-		if doc.Error != nil && doc.Error.Message != "" {
-			return doc.Error.Message
-		}
-		if doc.Response != nil && doc.Response.Error != nil && doc.Response.Error.Message != "" {
-			return doc.Response.Error.Message
+		for _, candidate := range []string{
+			nestedMessage(doc.Error),
+			nestedMessage(responseError(doc.Response)),
+			doc.Message,
+			doc.Msg,
+			doc.ErrorMsg,
+		} {
+			if strings.TrimSpace(candidate) != "" {
+				return strings.TrimSpace(candidate)
+			}
 		}
 	}
 	return ""
+}
+
+// nestedErrorMessage is the shape of an error object under "error".
+type nestedErrorMessage = struct {
+	Message string `json:"message"`
+	Msg     string `json:"msg"`
+	Type    string `json:"type"`
+}
+
+// nestedMessage reads the message from an error object, accepting both the
+// OpenAI spelling ("message") and the provider's own ("msg").
+func nestedMessage(err *nestedErrorMessage) string {
+	if err == nil {
+		return ""
+	}
+	if strings.TrimSpace(err.Message) != "" {
+		return err.Message
+	}
+	return err.Msg
+}
+
+// responseError unwraps response.error, which some deployments nest one level
+// deeper.
+func responseError(response *struct {
+	Error *struct {
+		Message string `json:"message"`
+		Msg     string `json:"msg"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}) *nestedErrorMessage {
+	if response == nil || response.Error == nil {
+		return nil
+	}
+	return &nestedErrorMessage{
+		Message: response.Error.Message,
+		Msg:     response.Error.Msg,
+		Type:    response.Error.Type,
+	}
 }
 
 // iterSSEPayloads yields the JSON payload of each `data:` frame in a chunk,
@@ -152,6 +205,13 @@ func iterSSEPayloads(chunk []byte) [][]byte {
 			continue
 		}
 		if !strings.HasPrefix(line, "data:") {
+			// Some deployments answer with a bare JSON body instead of SSE
+			// frames (an error arrives that way when the request is rejected
+			// before the stream starts). Treat a line that is plainly JSON as a
+			// payload of its own so those errors are still seen.
+			if strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") {
+				out = append(out, []byte(line))
+			}
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))

@@ -631,7 +631,72 @@ curl -N http://127.0.0.1:8317/v1/chat/completions \
 
 `data:` 前缀和 SSE 空行由 CPA 负责添加。
 
+### 错误帧漏认：线索被指向错误的方向（v0.13.34 修复）
+
+**用户的报错**：
+
+```
+last upstream error: 上游未返回任何内容: tool calls and tool results do not match,
+                     please start a new conversation and retry
+```
+
+**注意那个前缀**。它是 `emitted == 0` 时加的 —— 意思是
+**「一个 chunk 都没转发出去，流就结束了」**。
+
+**但后半句明明是上游给的 tool 错误** —— **说明上游确实发了错误，只是没被认出来**。
+
+#### 根因：`extractStreamError` 只认一种形状
+
+```go
+var doc struct {
+    Error *struct {
+        Message string `json:"message"`      // 只认这个
+    } `json:"error"`
+}
+```
+
+**同一套接口上，错误不止一种形状**：
+
+| 形状 | 是否识别（修复前） |
+|---|---|
+| `{"error":{"message":…}}` | ✅ |
+| **`{"code":11148,"msg":…}`** | ❌ **完全认不出** |
+| **`{"code":…,"message":…}`** | ❌ |
+| **`{"error":{"code":…,"msg":…}}`** | ❌ |
+| **`{"message":…}`** | ❌ |
+| **`{"error_msg":…}`** | ❌ |
+| **裸 JSON（无 `data:` 前缀）** | ❌ |
+
+**供应商自己的风格就是 `{"code":…,"msg":…}`** ——
+（`11101` 的 `{"code":11101,"msg":"Non-stream chat request…"}` 是同一个家族）
+
+#### 漏认的后果不是「少报一个错」
+
+**这一帧会被当成正常内容转发**：
+
+1. **客户端看到错误文本被当作模型的回答**
+2. 流结束时 `emitted == 0` 或内容已污染
+3. **最终报出「上游未返回任何内容」** —— **线索指向完全错误的方向**
+4. 这类错误**还会被计入账号健康度**（因为认不出是「请求内容问题」）
+
+#### 修复
+
+`extractStreamError` 依次尝试：
+
+```go
+nestedMessage(doc.Error),          // {"error":{"message"|"msg":…}}
+nestedMessage(response.error),     // {"response":{"error":…}}
+doc.Message, doc.Msg, doc.ErrorMsg // 扁平形状
+```
+
+`iterSSEPayloads` 同时接受**裸 JSON 行**（无 `data:` 前缀）——
+上游在流开始前拒绝请求时会这样回。
+
+**正常内容帧与 `[DONE]` 一律不误判**（误判会把成功的回答变成失败，比漏判更难查）。
+
 ### 流式 tool_calls 分片被覆盖（v0.13.33 修复）
+
+
 
 **排查依据**：反编译 `AI 聚合网关_0.1.18.apk`（`d2/C0490f.java` 的折叠累加器）。
 
