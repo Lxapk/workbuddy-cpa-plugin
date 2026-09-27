@@ -111,11 +111,6 @@ func prepareUpstreamBody(body []byte, requestedModel string) ([]byte, string, er
 	return normalised, model, nil
 }
 
-// errUpstreamFrameError marks a stream that carried an error frame.
-//
-// The upstream signals a throttle inside an HTTP 200 stream, so the reader's
-// transport error stays nil; this sentinel lets the caller tell "the upstream
-// said no" apart from "the connection dropped".
 // statusCodeForFrameFailure infers the status a stream-borne failure maps to.
 //
 // A frame arrives inside an HTTP 200 stream, so there is no status code to read.
@@ -141,18 +136,22 @@ func statusCodeForFrameFailure(message string) int {
 
 // errUpstreamFrameError marks a stream that carried an error frame.
 //
-// The upstream reports failures inside an HTTP 200 stream, so the transport
-// status says nothing about them. The frame's own wording is the only evidence,
-// and it is carried back so the failure can be classified from the text rather
-// than from a status code that was never meaningful here.
+// The upstream signals a throttle inside an HTTP 200 stream, so the reader's
+// transport error stays nil; this sentinel lets the caller tell "the upstream
+// said no" apart from "the connection dropped".
+var errUpstreamFrameError = errors.New("upstream reported an error frame")
+
+// upstreamFrameError carries the wording of an error frame back to the caller.
+//
+// The frame arrives inside an HTTP 200 stream, so the transport status says
+// nothing about the failure; the text is the only evidence, and it is what the
+// classification matches on.
 type upstreamFrameError struct {
 	Message string
 }
 
 // Error implements error, returning the upstream's own wording.
 func (e *upstreamFrameError) Error() string { return e.Message }
-
-var errUpstreamFrameError = errors.New("upstream reported an error frame")
 
 // requestContentPhrases mark failures caused by the request's own shape rather
 // than by the credential.
@@ -494,39 +493,6 @@ func executorExecute(request []byte) ([]byte, error) {
 			"provider":        workBuddyProviderKey,
 		},
 	})
-}
-
-// upstreamErrorText extracts the human-readable message from an upstream error body.
-//
-// The body is usually {"error":{"message":…}} but may be a bare code/msg pair or
-// plain text. Falling back to the raw body keeps the wording intact, which matters
-// because that wording is what the phrase classification and the operator both read.
-func upstreamErrorText(body []byte) string {
-	if len(body) == 0 {
-		return "上游请求失败"
-	}
-	var doc struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Message string `json:"message"`
-		Msg     string `json:"msg"`
-	}
-	if errUnmarshal := json.Unmarshal(body, &doc); errUnmarshal == nil {
-		if message := strings.TrimSpace(doc.Error.Message); message != "" {
-			return message
-		}
-		if message := strings.TrimSpace(doc.Message); message != "" {
-			return message
-		}
-		if message := strings.TrimSpace(doc.Msg); message != "" {
-			return message
-		}
-	}
-	if text := strings.TrimSpace(string(body)); text != "" {
-		return text
-	}
-	return "上游请求失败"
 }
 
 // executorExecuteStream answers executor.execute_stream.

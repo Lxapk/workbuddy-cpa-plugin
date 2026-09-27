@@ -143,6 +143,11 @@ func repairToolCallIDs(messages []map[string]json.RawMessage) ([]map[string]json
 // the whole normalisation would otherwise be skipped as a no-op, silently dropping
 // the repair.
 func linkToolResultsToCalls(messages []map[string]json.RawMessage) ([]map[string]json.RawMessage, bool) {
+	// Every id any call declares, anywhere in the conversation. A result that
+	// names one of these is simply out of order — its call exists, just later —
+	// and rewriting it would give one call two results and another none.
+	allCallIDs := collectAssistantToolCallIDs(messages)
+
 	var pending []string
 	answered := map[string]bool{}
 	relinked := false
@@ -151,17 +156,37 @@ func linkToolResultsToCalls(messages []map[string]json.RawMessage) ([]map[string
 		message := messages[index]
 		switch roleOf(message) {
 		case "assistant":
-			pending = assistantToolCallIDs(message)
-			answered = make(map[string]bool, len(pending))
+			// Only a turn that declares calls starts a new batch. A plain reply —
+			// or an assistant with an empty tool_calls array — leaves the current
+			// batch in place, because the results it is waiting for may still
+			// arrive after it (the host can interleave them).
+			if ids := assistantToolCallIDs(message); len(ids) > 0 {
+				pending = ids
+				answered = make(map[string]bool, len(ids))
+			}
 		case "tool":
 			if len(pending) == 0 {
 				// Case 4; handled by the trim pass.
 				continue
 			}
 			current := toolResultID(message)
-			if current != "" && containsString(pending, current) && !answered[current] {
-				answered[current] = true
-				continue
+			if current != "" {
+				if containsString(pending, current) && !answered[current] {
+					// Answers a call in this batch: the client got it right.
+					answered[current] = true
+					continue
+				}
+				if allCallIDs[current] {
+					// Names a call that exists elsewhere — the transcript is out of
+					// order, not mislabelled. Leave it: repointing it would produce
+					// two results for one call and none for the other, and the
+					// upstream would reject the request with the very error this
+					// pass exists to repair.
+					continue
+				}
+				// A stale id that names no call at all. The content came from a real
+				// execution, so it is re-pointed at the first call still awaiting a
+				// result.
 			}
 			next := ""
 			for _, id := range pending {

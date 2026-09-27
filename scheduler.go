@@ -115,6 +115,11 @@ type schedulerState struct {
 	// lastPickedID is the account most recently handed to a request, used as
 	// the "current account" in the rotation gate chain.
 	lastPickedID string
+	// lastOffer is the most recently logged description of the candidate set the
+	// host offered. The offer repeats on nearly every call, so it is only written
+	// to the call history when it changes; otherwise it would crowd out the
+	// failures that need reading.
+	lastOffer string
 }
 
 func newSchedulerState() *schedulerState {
@@ -463,20 +468,24 @@ func schedulerPick(request []byte) ([]byte, error) {
 	}
 
 	candidates := state.scheduler.collectCandidates(req)
-	// Record the host's offer on every call.
+	// Record the host's offer when it changes.
 	//
-	// Whether a request can survive one throttled credential depends entirely on
-	// how many the host offered and what it said about each. Without this, a
-	// refusal is indistinguishable from "the host had only one credential to
-	// offer", and the plugin's own state cannot be checked against it.
-	state.log.add(callRecord{
-		ProviderID: req.Provider,
-		Model:      req.Model,
-		StatusCode: http.StatusOK,
-		Error: fmt.Sprintf("选号：host 提供 %d 个（%s），本地 lanes=%d",
-			len(req.Candidates), describeCandidates(req.Candidates),
-			len(state.pool.snapshot())),
-	})
+	// Whether a request can survive one throttled credential depends on how many
+	// the host offered and what it said about each, so this is worth keeping —
+	// but only while it is informative. Writing it on every call would push the
+	// failures that actually need reading out of the call history, and the offer
+	// is the same on almost every call: the host re-sends the same credential set
+	// and only the per-candidate status drifts.
+	if offer := describeCandidates(req.Candidates); offer != state.scheduler.lastOffer {
+		state.scheduler.lastOffer = offer
+		state.log.add(callRecord{
+			ProviderID: req.Provider,
+			Model:      req.Model,
+			StatusCode: http.StatusOK,
+			Error: fmt.Sprintf("选号：host 提供 %d 个（%s），本地 lanes=%d",
+				len(req.Candidates), offer, len(state.pool.snapshot())),
+		})
+	}
 	if len(candidates) == 0 {
 		// All candidates may have been parked for this model specifically. Say so,
 		// because "handled: false" sends the request back to the host, which then

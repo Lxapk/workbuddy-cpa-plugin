@@ -631,7 +631,47 @@ curl -N http://127.0.0.1:8317/v1/chat/completions \
 
 `data:` 前缀和 SSE 空行由 CPA 负责添加。
 
-### 上游失败被当成成功：换号与冷却都失效（v0.13.36 修复）
+### 多轮工具调用被改坏：上游报 tool calls and tool results do not match（v0.13.38 修复）
+
+**现象**：**所有账号**都返回同一个错，而更早的版本（如 v0.13.12）正常。
+
+```
+上游未返回任何内容: tool calls and tool results do not match, please start a conversation and retry
+```
+
+**为什么和账号无关**：**失败发生在请求体上** —— 换哪个账号都一样，所以
+「重试另一个账号」永远救不了它，报成 `auth_unavailable` 只会误导。
+
+**根因**：`repackToolResults`（v0.13.20 引入）把「夹在 `tool_calls` 与其结果
+之间」的消息移到结果之后，但它的判断过宽 —— **一个自身带 `tool_calls` 的
+assistant 只要后面还有结果，就被当成插入者**。多轮工具调用恰好是这个形状：
+
+```
+请求本来合法:  user, call:c1, result:c1, call:c2, result:c2, assistant
+被改坏之后:    user, call:c1, result:c1, result:c2, call:c2, assistant
+                                   ↑ result:c2 跑到它自己的调用前面了
+```
+
+上游于是看到 `result:c2` 找不到对应的调用，整段拒绝。
+
+**修复**：assistant 若自身带 `tool_calls`，它是下一轮交互的开始，批次到此为止，
+不是插入者。
+
+**同时修掉一个孪生缺陷**（v0.13.41）：`linkToolResultsToCalls` 会把「名字指向
+另一个批次的结果」改写成本批次下一个未回答的调用，使一个调用拿到两个结果、另一个
+一个都没有 —— 靠改写制造出的错配。现在只在 id 为**空**或**指向不存在的调用**
+时才补/改，顺序不对的结果保持原样。
+
+**排查手法**：这类失败只靠代码 diff 很难定位，因为差异多且互相叠加。用
+`scripts/bisect_version.sh <tag> <port>` 把某个 tag 单独编译进一份干净的运行目录
+打一次真实请求，就能把「哪个版本开始坏」钉死。
+
+
+
+> **注**：这一节记录的是当时的判断，**已被 v0.13.38 回滚**。实测表明宿主读得到
+> `metadata` 里的状态码也能自己解释响应体，把它换成错误信封反而夺走了宿主换号、
+> 判冷却所需的信息。v0.13.12 一直是以成功信封原样交出上游响应，那正是可用的
+> 行为。**结论：不要用这一节的改法**，保留它只为说明排查过程。
 
 **这是「模型限流被报成 `auth_unavailable`」的真正根因。**
 
@@ -1752,7 +1792,37 @@ plugins:
 
 ---
 
-### 方式二：手动放置 `.so`
+### 方式二：一键安装脚本（推荐用于升级）
+
+商店那条路会经过两处缓存/校验，升级时常遇到「商店里还是旧版本」：
+
+- CPA 把最新 release 的查询结果缓存 **1 小时**（`pluginReleaseCacheTTL`），
+  期间打开商店看到的仍是旧版本号；
+- `direct` 形式的清单为产物钉死 sha256，同一个 tag 重新构建就再也对不上，
+  商店会以 `artifact checksum mismatch` 拒绝安装。
+
+脚本绕开这两者，直接从 release 取产物：
+
+```bash
+cd /path/to/cpa          # CPA 工作目录（config.yaml 所在目录）
+curl -fsSL https://raw.githubusercontent.com/Lxapk/workbuddy-cpa-plugin/main/install.sh | sh
+```
+
+指定版本或目标架构（本项目的 CI 只发布 `linux/amd64`，在 arm64 机器上准备
+x86_64 服务器用的文件时需要显式指定）：
+
+```bash
+VERSION=0.13.40 GOARCH=amd64 sh install.sh
+DRY_RUN=1 sh install.sh        # 只看会做什么，不落盘
+```
+
+脚本会：读取 `config.yaml` 里的 `plugins-dir`（默认 `plugins/`）→ 下载对应
+平台的产物 → 有 `checksums.txt` 就核对 sha256 → 解包出 `workbuddy.so` →
+以「先写临时名再改名」的方式落盘，运行中的 CPA 不会读到半截文件。
+
+装完**重启 CPA**生效；插件面板上的版本号会显示成 `install.sh` 装入的那一版。
+
+### 方式三：手动放置 `.so`
 
 不走商店，直接手动放文件。
 
