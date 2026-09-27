@@ -423,6 +423,16 @@ func repackToolResults(messages []map[string]json.RawMessage) bool {
 				j++
 				continue
 			}
+			// An assistant turn that starts its own tool calls is not an intruder:
+			// it begins the next exchange, and the batch ends here. Deferring it
+			// would move the call behind its own results, leaving each result
+			// attached to the wrong call — the upstream then rejects the request
+			// with "tool calls and tool results do not match". Multi-round tool
+			// use produces exactly this shape (a call, its result, then the next
+			// call), so treating it as a violation breaks every such conversation.
+			if isAssistantWithToolCalls(next) {
+				break
+			}
 			// A non-tool message ends the batch — unless it merely interrupts
 			// it and more results follow, which is the case being repaired.
 			if hasToolResultLater(messages, j+1) {
