@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -65,6 +66,18 @@ func interceptResponse(request []byte) ([]byte, error) {
 			// the failure twice in the totals.
 			errorText += "（已自动禁用该账号）"
 		}
+		// Say what the client should actually do.
+		//
+		// A throttle is scoped to one model, and whether another credential can
+		// take over depends on that model existing elsewhere. When it does not,
+		// the client sees "no auth available" and reads it as "the account is
+		// gone" — the wrong remedy entirely, since switching accounts cannot help
+		// and the reset time is the only thing that will.
+		if upErr.Kind == failureRate || upErr.Kind == failureQuota {
+			if detail := modelServabilityNote(failedModelName(ctx)); detail != "" {
+				errorText += detail
+			}
+		}
 		state.log.add(callRecord{
 			ProviderID:     ctx.Provider,
 			Variant:        ctx.Variant,
@@ -103,6 +116,29 @@ func interceptResponse(request []byte) ([]byte, error) {
 	state.log.add(rec)
 
 	return okEnvelope(pluginapi.ResponseInterceptResponse{})
+}
+
+// modelServabilityNote explains whether switching accounts could serve a model.
+//
+// Returns an empty string when another credential is still eligible, because then
+// the ordinary "try again" advice is right and a note would only add noise. The
+// useful case is the opposite one: every credential that could take the request is
+// parked for this model, or the plugin no longer has a second one to offer.
+//
+// Whether a model exists on other credentials cannot be answered from here. The two
+// realms do not carry the same catalogue — the international one lists fewer models
+// than the domestic one — so a model may legitimately be single-sourced, and the
+// pool tracks eligibility, not catalogues. The note therefore states what has been
+// observed (no other credential can take it) without asserting why.
+func modelServabilityNote(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if state.pool.anotherLaneCanServe(model) {
+		return ""
+	}
+	return fmt.Sprintf("（当前没有其它可用账号能接管该模型；请等待重置或改用其他模型）")
 }
 
 // interceptStreamChunk ports the streaming accounting path.

@@ -222,21 +222,20 @@ func reportExecutorFailure(creds *workBuddyCredentials, authIndex, model string,
 
 	// Publish a model-scoped park to CPA as well.
 	//
-	// The pool state above only parks the model inside the plugin, which CPA
-	// cannot see; without the mirror below a request for a throttled model is
-	// reported as "auth_unavailable" instead of a model cooldown. Only failures
-	// that are scoped to a model and recover on their own qualify — a permanent
-	// failure is handled by the account-level disable path.
-	if !isPermanentFailure(statusCode, upErr) {
-		publishModelFailure(authIndex, model, upErr, statusCode)
-	}
+	// Disabled: the host rewrites auth files from its own state, so the write is
+	// reverted, and the write/revert cycle fires file events on every request. A
+	// model-level park also cannot influence host selection, which is the only
+	// thing that would have made it useful. The plugin's own cooldown still parks
+	// the model for its own scheduling, and the wording the client sees now comes
+	// from the classified status code rather than from this file.
+	_ = statusCode
 }
 
-// publishModelFailure mirrors a model-scoped failure into the auth file.
+// publishModelFailure would mirror a model-scoped failure into the auth file.
 //
-// Only throttle and quota failures are published: they are the two that describe
-// a model as temporarily unusable and carry a recovery time. Anything else is
-// either permanent (handled at account level) or not about the credential.
+// Disabled along with publishModelPark: writing to the auth file does not reach
+// host selection, and the resulting write/revert cycle churns the file. Kept for
+// reference, unreferenced on purpose so the compiler flags any accidental use.
 func publishModelFailure(authIndex, model string, upErr upstreamError, statusCode int) {
 	if strings.TrimSpace(authIndex) == "" || strings.TrimSpace(model) == "" {
 		return
@@ -255,6 +254,8 @@ func publishModelFailure(authIndex, model string, upErr upstreamError, statusCod
 	quotaExceeded := upErr.Kind == failureQuota
 	publishModelPark(authIndex, model, until, upErr.Message, statusCode, quotaExceeded)
 }
+
+var _ = publishModelFailure
 
 // modelParkDeadline decides when a parked model may be retried.
 //
@@ -295,15 +296,15 @@ func modelParkDeadline(now time.Time, upErr upstreamError, statusCode int) (time
 // share (the same person logged in on both realms), while the auth index names
 // exactly one file.
 func executorAuthIndex(req executorRequest) string {
-	// The host's own view is recorded when the id is missing, which is the case
-	// that needs explaining. Logging it on every call would bury that line.
+	// The host's own view is recorded only when the id is missing, which is the
+	// case that needs explaining. Logging it on every call would bury that line.
 	index := strings.TrimSpace(req.AuthID)
 	if index != "" {
 		return index
 	}
 	_, _ = callHost("host.log", map[string]any{
 		"level":   "warn",
-		"message": "[model-states] executor 未提供 AuthID，无法定位凭据文件；账号状态=[" + describeAuthInventory() + "]",
+		"message": "[workbuddy] executor 未提供 AuthID",
 		"fields": map[string]any{
 			"provider": req.AuthProvider,
 			"model":    req.Model,
@@ -373,20 +374,26 @@ func executorExecute(request []byte) ([]byte, error) {
 			if text == "" {
 				text = errStream.Error()
 			}
-			// Classify from the wording, not from 502: a throttle has to be
-			// reported as 429 so CPA treats it as a model-wide, recoverable
-			// condition.
-			reportExecutorFailure(creds, executorAuthIndex(req), model,
-				statusCodeForFrameFailure(text), []byte(text))
-			return errorEnvelope("upstream_error", text, 502), nil
+			// The status carried back to the host decides whether it retries on
+			// another credential. Reporting every frame failure as 502 throws that
+			// away: 502 is in the retryable set but carries no meaning, so nothing
+			// distinguishes a throttle from a broken upstream. Classifying from the
+			// wording is what makes the host treat a throttle as a throttle.
+			status := statusCodeForFrameFailure(text)
+			reportExecutorFailure(creds, executorAuthIndex(req), model, status, []byte(text))
+			return errorEnvelope("upstream_error", text, status), nil
 		}
 		if errStream != nil {
+			// Transport-level failure: nothing in the text to classify, and 502 is
+			// the honest answer — the request never produced an upstream verdict.
 			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte(errStream.Error()))
-			return errorEnvelope("upstream_error", errStream.Error(), 502), nil
+			return errorEnvelope("upstream_error", errStream.Error(), http.StatusBadGateway), nil
 		}
 		if len(frames) == 0 {
+			// A 200 with no frames: the upstream accepted the request and answered
+			// nothing. Also a transport-shaped failure.
 			reportExecutorFailure(creds, executorAuthIndex(req), model, http.StatusBadGateway, []byte("上游未返回任何内容"))
-			return errorEnvelope("upstream_error", "上游未返回任何内容", 502), nil
+			return errorEnvelope("upstream_error", "上游未返回任何内容", http.StatusBadGateway), nil
 		}
 		aggregated := aggregateStreamToCompletion(frames, req.Model)
 		return okEnvelope(pluginapi.ExecutorResponse{
@@ -403,6 +410,17 @@ func executorExecute(request []byte) ([]byte, error) {
 	if status >= 400 {
 		// The interceptor will not see this exchange, so classify and park here.
 		reportExecutorFailure(creds, executorAuthIndex(req), model, status, respBody)
+
+		// Report the failure as a failure.
+		//
+		// Returning okEnvelope with the upstream's error body as the payload made
+		// the host believe the request had succeeded: it never saw a status to
+		// classify, so it neither retried on another credential nor recorded the
+		// throttle — the client was handed an error shaped like an answer. The
+		// status the upstream gave (429 for a throttle) is what the host keys its
+		// retry decision on, so it has to travel as the envelope's status, not as
+		// a metadata field nothing reads.
+		return errorEnvelope("upstream_error", upstreamErrorText(respBody), status), nil
 	}
 
 	return okEnvelope(pluginapi.ExecutorResponse{
@@ -413,6 +431,39 @@ func executorExecute(request []byte) ([]byte, error) {
 			"provider":        workBuddyProviderKey,
 		},
 	})
+}
+
+// upstreamErrorText extracts the human-readable message from an upstream error body.
+//
+// The body is usually {"error":{"message":…}} but may be a bare code/msg pair or
+// plain text. Falling back to the raw body keeps the wording intact, which matters
+// because that wording is what the phrase classification and the operator both read.
+func upstreamErrorText(body []byte) string {
+	if len(body) == 0 {
+		return "上游请求失败"
+	}
+	var doc struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+		Msg     string `json:"msg"`
+	}
+	if errUnmarshal := json.Unmarshal(body, &doc); errUnmarshal == nil {
+		if message := strings.TrimSpace(doc.Error.Message); message != "" {
+			return message
+		}
+		if message := strings.TrimSpace(doc.Message); message != "" {
+			return message
+		}
+		if message := strings.TrimSpace(doc.Msg); message != "" {
+			return message
+		}
+	}
+	if text := strings.TrimSpace(string(body)); text != "" {
+		return text
+	}
+	return "上游请求失败"
 }
 
 // executorExecuteStream answers executor.execute_stream.

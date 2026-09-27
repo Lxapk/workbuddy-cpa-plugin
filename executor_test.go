@@ -656,6 +656,11 @@ func TestExecutorExecuteRequiresCredentials(t *testing.T) {
 	}
 }
 
+// 上游的失败必须原样上报给 host，否则它既不会换号也不会记录限流。
+//
+// 这条曾经以成功信封返回（错误 body 当 payload、状态码塞在 metadata 里）。host
+// 两者都不读：它看到的是「成功」，于是既不在另一个凭据上重试，也不记录这次限流，
+// 客户端拿到的则是一个伪装成回答的错误。
 func TestExecutorExecuteReportsUpstreamError(t *testing.T) {
 	resetState()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -673,17 +678,42 @@ func TestExecutorExecuteReportsUpstreamError(t *testing.T) {
 		"StorageJSON":     storage,
 	})
 
-	// The exec still succeeds; the upstream status is reported in metadata so
-	// the host can decide how to react.
-	res := callOK(t, pluginabi.MethodExecutorExecute, json.RawMessage(payload))
-	var out struct {
-		Metadata struct {
-			UpstreamStatus int `json:"upstream_status"`
-		} `json:"Metadata"`
+	// The failure is reported as a failure, with the upstream's own status.
+	//
+	// It used to come back as an ok envelope carrying the error body plus an
+	// upstream_status metadata field. The host reads neither: it saw a success, so
+	// it never retried on another credential and never recorded the throttle, and
+	// the client was handed an error shaped like an answer.
+	raw, errMarshal := json.Marshal(json.RawMessage(payload))
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
 	}
-	mustDecode(t, res, &out)
-	if out.Metadata.UpstreamStatus != http.StatusUnauthorized {
-		t.Fatalf("upstream_status = %d, want 401", out.Metadata.UpstreamStatus)
+	out, errHandle := handleMethod(pluginabi.MethodExecutorExecute, raw)
+	if errHandle != nil {
+		t.Fatalf("executor.execute: handle error: %v", errHandle)
+	}
+	var env struct {
+		OK    bool `json:"ok"`
+		Error *struct {
+			Code       string `json:"code"`
+			Message    string `json:"message"`
+			HTTPStatus int    `json:"http_status"`
+		} `json:"error"`
+	}
+	if errUnmarshal := json.Unmarshal(out, &env); errUnmarshal != nil {
+		t.Fatalf("bad envelope %s: %v", out, errUnmarshal)
+	}
+	if env.OK {
+		t.Fatalf("上游 401 必须作为失败上报，而不是成功信封；got %s", out)
+	}
+	if env.Error == nil {
+		t.Fatalf("错误内容不能为空；got %s", out)
+	}
+	if env.Error.HTTPStatus != http.StatusUnauthorized {
+		t.Errorf("http_status = %d, want 401", env.Error.HTTPStatus)
+	}
+	if env.Error.Message != "invalid token" {
+		t.Errorf("message = %q, want %q", env.Error.Message, "invalid token")
 	}
 }
 

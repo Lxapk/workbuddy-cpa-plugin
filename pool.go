@@ -110,6 +110,48 @@ type credentialLane struct {
 	Failures  int64 `json:"failures"`
 }
 
+// anotherLaneCanServe reports whether any credential other than the parked ones is
+// still eligible for a model.
+//
+// A lane parked for this model is not a candidate; that is the whole point. When
+// every eligible lane is parked for it, the only honest advice is to wait for the
+// reset or use another model — telling the caller to retry, or that the account is
+// gone, both point at the wrong remedy.
+func (p *credentialPool) anotherLaneCanServe(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return true
+	}
+	now := time.Now()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, lane := range p.lanes {
+		if lane == nil || !lane.isUsable() {
+			continue
+		}
+		if _, cooled := lane.modelCooled(model, now); !cooled {
+			return true
+		}
+	}
+	return false
+}
+
+// isUsable reports whether a lane may currently serve traffic.
+func (l *credentialLane) isUsable() bool {
+	if l == nil {
+		return false
+	}
+	if l.Disabled || l.DisabledByUser || l.AutoDisabled {
+		return false
+	}
+	// Lanes created by older code paths may leave Enabled unset; treat "not
+	// explicitly disabled" as usable rather than silently dropping the lane.
+	return l.Enabled || !l.Disabled
+}
+
+// poolOrphanLock documents the lock the pool's accessors take.
+
 // disableAccount marks a credential for manual enable/disable from the panel.
 //
 // This is orthogonal to the host's own disabled flag — it persists across

@@ -118,50 +118,6 @@ func TestDecodeModelStatesHandlesEmpty(t *testing.T) {
 	}
 }
 
-// 上游给了重置时刻就必须用它，而不是本地的默认冷却时长。
-//
-// 早于上游的重置时刻重试只会再烧一次请求，晚于它则白白空着已经恢复的额度。
-func TestModelParkDeadlinePrefersUpstreamResetTime(t *testing.T) {
-	now := time.Now()
-	upErr := upstreamError{
-		Kind:    failureRate,
-		Message: "您的使用量已超出频率限制，将在 2026-09-27 20:03:46 UTC+8 重置，您也可以切换其他模型继续使用。",
-	}
-	until, okUntil := modelParkDeadline(now, upErr, 502)
-	if !okUntil {
-		t.Fatal("应从文案里解析出重置时刻")
-	}
-	if until.Year() != 2026 || until.Month() != time.September || until.Day() != 27 {
-		t.Errorf("解析出的日期不对: %v", until)
-	}
-	if until.Hour() != 12 {
-		t.Errorf("20:03:46 UTC+8 应换算成 12:03:46 UTC，got %v", until)
-	}
-}
-
-// 文案里没有重置时刻时退回本地冷却时长。
-func TestModelParkDeadlineFallsBackToCooldown(t *testing.T) {
-	resetState()
-	state.settings.set(gatewaySettings{RateCooldownMillis: 60_000, QuotaCooldownMillis: 120_000})
-
-	now := time.Now()
-	until, okUntil := modelParkDeadline(now, upstreamError{Kind: failureRate, Message: "rate limited"}, 429)
-	if !okUntil {
-		t.Fatal("应回退到本地冷却时长")
-	}
-	if delta := until.Sub(now); delta < 55*time.Second || delta > 65*time.Second {
-		t.Errorf("冷却时长 = %v, want ~60s", delta)
-	}
-
-	untilQuota, okQuota := modelParkDeadline(now, upstreamError{Kind: failureQuota, Message: "no credit"}, 402)
-	if !okQuota {
-		t.Fatal("额度失败应回退到本地冷却时长")
-	}
-	if delta := untilQuota.Sub(now); delta < 115*time.Second {
-		t.Errorf("冷却时长 = %v, want ~120s", delta)
-	}
-}
-
 // 非模型级失败（网络错误、语义不明的 5xx）不写 model_states。
 func TestPublishModelFailureIgnoresUnrelatedKinds(t *testing.T) {
 	for _, kind := range []failureKind{failureAuth, failureTransient, failureKind(99)} {

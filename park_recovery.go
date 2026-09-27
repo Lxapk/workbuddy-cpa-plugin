@@ -33,12 +33,22 @@ var parkRecoveryOnce sync.Once
 
 // startParkRecovery begins the periodic restore pass.
 //
-// Called once during plugin start; the loop runs for the lifetime of the process
-// and stops when the plugin is quiesced.
+// DISABLED: the account-level park this restores is itself disabled (see
+// publishModelPark). Two reasons it must stay off:
+//
+//  1. CPA rewrites auth files from its own in-memory state, so a flag written by
+//     the plugin is reverted — and the revert, the re-write and the restore pass
+//     then oscillate. That oscillation unregistered and re-registered the
+//     credential on every request, which is worse than the problem it set out to
+//     solve: requests failed with "no auth available" even though a healthy
+//     credential existed.
+//  2. A disabled credential is skipped by CPA entirely, so parking one account for
+//     a single model's throttle takes its other models offline too.
+//
+// Kept as a no-op rather than deleted: the deadline logic is correct and is the
+// part a future host interface would reuse.
 func startParkRecovery() {
-	parkRecoveryOnce.Do(func() {
-		go parkRecoveryLoop()
-	})
+	parkRecoveryOnce.Do(func() {})
 }
 
 // parkRecoveryLoop restores expired credential disables on a fixed cadence.

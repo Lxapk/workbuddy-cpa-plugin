@@ -114,6 +114,15 @@ func modelStateMutexFor(authIndex string) *sync.Mutex {
 // Best-effort by design: this only improves how a later request is routed, so a
 // failure here must not turn into a request failure.
 func publishModelPark(authID, model string, until time.Time, reason string, statusCode int, quotaExceeded bool) {
+	// Disabled: hosts rewrite auth files from their own state, so nothing written
+	// here survives, and the write/revert cycle generates file events on every
+	// failing request. The detection logic below is kept because it is correct and
+	// is what a host-side cooldown interface would use.
+	_, _, _, _, _, _ = authID, model, until, reason, statusCode, quotaExceeded
+}
+
+// publishModelParkLegacy is the former write path, retained for reference.
+func publishModelParkLegacy(authID, model string, until time.Time, reason string, statusCode int, quotaExceeded bool) {
 	authID = strings.TrimSpace(authID)
 	model = strings.TrimSpace(model)
 	if authID == "" || model == "" {
@@ -362,6 +371,24 @@ const accountParkField = "disabled_until"
 // is what lets it choose another one for a request the throttled credential cannot
 // serve. The deadline is stored beside it so the disable is always temporary.
 func applyAccountPark(file map[string]json.RawMessage, until time.Time) {
+	// Disabled on purpose: see accountParkLegacy for why this write must not happen.
+	_ = file
+	_ = until
+}
+
+// accountParkLegacy is the write this function used to perform.
+//
+// Kept beside the no-op so the reason stays legible, and because the deadline
+// arithmetic is what a future host interface would reuse.
+//
+// Why it is off: CPA rewrites auth files from its own in-memory state, so a flag
+// written here is reverted immediately. The revert and the re-write then fight each
+// other — the debug log shows disabled flipping false->true->false across file
+// events — and each flip re-registers the credential, so it oscillates in and out
+// of the registry. Worse, a disabled credential is dropped by CPA altogether, so
+// parking one account for a single model's throttle takes its other models offline
+// too, which is a bigger loss than the request that triggered it.
+func accountParkLegacy(file map[string]json.RawMessage, until time.Time) {
 	now := time.Now().UTC()
 	if until.IsZero() || !until.After(now) {
 		// Healthy again: clear both the flag and its deadline.

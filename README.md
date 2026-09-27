@@ -631,7 +631,68 @@ curl -N http://127.0.0.1:8317/v1/chat/completions \
 
 `data:` 前缀和 SSE 空行由 CPA 负责添加。
 
+### 上游失败被当成成功：换号与冷却都失效（v0.13.36 修复）
+
+**这是「模型限流被报成 `auth_unavailable`」的真正根因。**
+
+#### 缺陷：`status >= 400` 时仍返回成功信封
+
+```go
+if status >= 400 {
+    reportExecutorFailure(...)           // 插件内部冷却 ✅
+}
+return okEnvelope(pluginapi.ExecutorResponse{
+    Payload:  respBody,                  // ← 错误 JSON 被当正常响应
+    Metadata: {"upstream_status": status} // ← CPA 不读 metadata
+})                                        // ← ★ 返回「成功」
+```
+
+**后果链**：
+
+| 步骤 | 结果 |
+|---|---|
+| 上游回 429 限流 | — |
+| 插件内部冷却 | ✅ |
+| **返回成功信封** | **CPA 以为请求成功** ❌ |
+| **CPA 看不到 429** | **不重试、不换号** ❌ |
+| CPA 记为失败 | **`auth_unavailable`** ❌ |
+
+**CPA 的 `isCredentialRetryRoundStatus` 认 429/502** ——
+**但它必须真的收到那个状态码。** 把状态码塞进 `metadata` 等于没给。
+
+**修复**：`status >= 400` 时返回 `errorEnvelope(..., status)`，
+**让上游的真实状态码穿过 RPC 边界**；同时新增 `upstreamErrorText()`
+从上游 body 提取人类可读文案。
+
+#### 同时修复：折叠路径状态码写死 502
+
+折叠路径用 `statusCodeForFrameFailure(text)` 按文案推断状态码（限流 429、额度 402），
+**而不是统一 502**。
+
+#### 停用有害的账号级冷却
+
+曾尝试「限流时把账号也短暂移出轮换」，**实测证明它有害**：
+
+- **CPA 用自己的内存状态回写 auth 文件** → 写入被撤销
+- **撤销与重写互相追赶** → debug 日志里 `disabled` 在相邻文件事件间
+  `false→true→false` 反复横跳
+- **每次翻转重新注册凭据** → 账号在注册表里进进出出
+- **被禁用的账号会被 CPA 整体丢弃** → 一个模型限流连累该账号所有模型
+
+`applyAccountPark` / `publishModelPark` 改为 no-op，逻辑保留在 `*Legacy`。
+
+#### 附：文案说明「没有其它账号能接管」
+
+响应拦截里新增 `modelServabilityNote`：当**没有其它可用账号能服务该模型**时，
+在错误里补充「请等待重置或改用其他模型」——**因为这时换号本来就没用**。
+
+**背景**：两个 realm 的模型目录不同
+（实测：`ai` 注册 18 个模型，`cn` 注册 30 个），
+所以**某些模型天然只有一个账号支持**。这**不是故障**，但**报错应该说清**。
+
 ### 折叠路径把上游错误折进了回答（v0.13.35 修复）
+
+
 
 **排查依据**：插件自带的 `scheduler.pick` 从未被 CPA 调用（日志实测：失败请求
 27ms 本地拒绝，无任何插件回调），于是把注意力放回插件自己的执行路径，发现
