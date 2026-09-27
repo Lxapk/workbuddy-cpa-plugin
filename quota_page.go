@@ -263,7 +263,7 @@ func quotaPage() string {
 	if len(ordering) == 0 {
 		b.WriteString(`<p class="muted">尚无账号记录。发起一次请求或刷新额度后这里会显示顺序。</p>`)
 	} else {
-		b.WriteString(`<table><tr><th>#</th><th>账号</th><th>剩余额度</th><th>冷却类型</th><th>可用</th></tr>`)
+		b.WriteString(`<div class="table-wrap"><table><tr><th>#</th><th>账号</th><th>剩余额度</th><th>冷却类型</th><th>可用</th></tr>`)
 		for i, row := range ordering {
 			usable := "✅"
 			if !toBool(row["usable"]) {
@@ -275,7 +275,7 @@ func quotaPage() string {
 			b.WriteString(`<td>` + html.EscapeString(fmt.Sprint(row["cool_kind"])) + `</td>`)
 			b.WriteString(`<td>` + usable + `</td></tr>`)
 		}
-		b.WriteString(`</table>`)
+		b.WriteString(`</table></div>`)
 	}
 
 	b.WriteString(quotaPageScript())

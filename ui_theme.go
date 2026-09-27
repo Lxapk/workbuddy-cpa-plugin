@@ -148,10 +148,87 @@ button.ghost:hover { background: var(--accent-soft); color: var(--accent-dark); 
 .opt input { margin-top: 3px; }
 .opt .name { font-weight: 680; }
 .opt .desc { color: var(--muted); font-size: .79rem; }
+/* Icon-only buttons. Square so a row of them lines up regardless of the glyph. */
+button.icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; min-width: 30px; height: 30px;
+  padding: 0; border-radius: 8px;
+  color: var(--muted);
+}
+button.icon:hover { color: var(--accent-dark); border-color: var(--accent); background: var(--accent-soft); }
+button.icon svg { display: block; }
+td.actions { white-space: nowrap; }
+/* ---------- filter bar ---------- */
+/* A single row that fills its card: the search input takes the flexible width and
+   the select sizes to its content, so there is no gap left on the right. */
+.filter-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin: .1rem 0 .7rem; flex-wrap: wrap;
+}
+.filter-search {
+  position: relative; display: flex; align-items: center;
+  flex: 1 1 200px; min-width: 0;
+}
+.filter-search .filter-icon {
+  position: absolute; left: 10px; color: var(--muted);
+  pointer-events: none;
+}
+.filter-search input[type=search] {
+  width: 100%; box-sizing: border-box;
+  /* Left padding clears the icon; right padding clears the clear button. */
+  padding-left: 31px; padding-right: 30px;
+  border-radius: 10px;
+}
+/* The platform's own decorations duplicate the clear button and look foreign. */
+.filter-search input[type=search]::-webkit-search-decoration,
+.filter-search input[type=search]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.filter-clear {
+  position: absolute; right: 5px;
+  width: 22px !important; height: 22px; min-height: 0 !important;
+  padding: 0 !important;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--muted);
+  border-radius: 50%; cursor: pointer;
+}
+.filter-clear:hover { background: var(--line); color: var(--text); }
+.filter-select {
+  flex: 0 0 auto;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.8l3 3 3-3' fill='none' stroke='%235f6a61' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center / 12px 12px;
+  color: var(--text); font-size: .82rem;
+  padding: 8px 28px 8px 11px;
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+}
+.filter-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filter-count { flex: 0 0 auto; margin-left: auto; }
+@media (max-width: 720px) {
+  /* The count moves under the controls rather than squeezing the input. */
+  .filter-count { margin-left: 0; flex-basis: 100%; text-align: right; }
+}
 /* ---------- table ---------- */
+/* Tables get their own horizontal scroll container.
+   A six-column account table (plus three action buttons) cannot fit a 360px
+   viewport no matter how it is typeset, and letting the page itself scroll
+   sideways moves the header and the tab bar out of view along with it. Scoping the
+   overflow to the table keeps the page chrome in place and lets the operator swipe
+   just the rows. */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* A hairline shadow hints that there is more to the right without stealing
+     space from the content. */
+  background:
+    linear-gradient(to right, var(--card-bg) 30%, rgba(0, 0, 0, 0)) left / 24px 100% no-repeat,
+    linear-gradient(to left, var(--card-bg) 30%, rgba(0, 0, 0, 0)) right / 24px 100% no-repeat;
+  background-attachment: local, local;
+}
 table { width: 100%; border-collapse: collapse; font-size: .84rem; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-th { color: var(--muted); font-weight: 640; font-size: .77rem; white-space: nowrap; }
+/* Cells keep their content on one line: wrapping a uid across three lines makes
+   the row taller than the fold and harder to scan than a swipe. */
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+th { color: var(--muted); font-weight: 640; font-size: .77rem; }
 tbody tr:hover { background: var(--panel-2); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .79rem; }
@@ -263,6 +340,111 @@ details.log-group .count + * { margin-left: 0; }
 .seg button { border-radius: 0; background: transparent; color: var(--text); font-weight: 620; padding: 7px 13px; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.active { background: var(--accent); color: #fff; }
+
+/* ---------- narrow viewports (phones) ---------- */
+/* One breakpoint at 720px covers the whole phone range in both orientations: a
+   landscape phone is ~740 CSS px, so pushing it past this would leave the widest
+   common case unstyled. */
+@media (max-width: 720px) {
+  .root { padding: 14px 12px 32px; }
+
+  /* Touch targets.
+     A finger needs roughly 44px; the desktop sizes here were tuned for a mouse and
+     land around 30px. Raising the floor rather than every rule keeps the visual
+     hierarchy intact. */
+  button, .seg button, input[type=button], select {
+    min-height: 42px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  input[type=password], input[type=text], input[type=number] { min-height: 42px; font-size: 16px; }
+  /* 16px avoids the automatic zoom Safari applies to smaller inputs, which would
+     leave the page zoomed in after the operator taps a field. */
+  input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
+
+  /* Rows of controls stack instead of being squeezed.
+     justify-content: space-between would leave a lone button floating right. */
+  .row { gap: 8px; }
+  .row > button, .row > .seg { flex: 1 1 auto; }
+  .row .seg { display: flex; }
+  .row .seg button { flex: 1 1 0; }
+
+  /* Cards lose their generous padding: on a 360px screen the 20px inside each
+     edge is over 10% of the width spent on margins. */
+  .card { padding: 13px 12px; border-radius: 11px; }
+  .card > h2 { font-size: .95rem; }
+
+  /* Stats pair up two-per-row rather than one, so the summary stays above the
+     fold. */
+  .grid.stats { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 9px; }
+  .stat { padding: 10px 12px; }
+
+  /* Tabs scroll sideways rather than wrapping into two rows. */
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  .tabs button { white-space: nowrap; flex: 0 0 auto; }
+
+  /* The chart keeps a readable minimum and scrolls if the container is narrower:
+     squeezing seven bars into 320px makes each one a sliver. */
+  .trend-svg { min-width: 420px; }
+  .trend { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .trend-legend { flex-wrap: wrap; gap: 8px 12px; }
+  .trend-note { margin-left: 0; flex-basis: 100%; }
+
+  /* Toasts span the width instead of hanging off the right edge, where a long
+     message would be clipped. */
+  #toasts { left: 12px; right: 12px; bottom: 12px; align-items: stretch; max-width: none; }
+  .toast { padding: 10px 13px; }
+
+  /* The growth log's bounded height is a desktop convenience; on a phone the
+     viewport is already short, so let the page scroll instead of nesting one. */
+  .log-scroll { max-height: none; overflow: visible; }
+  .log-entry { font-size: .82rem; }
+}
+
+/* The account table's action cell.
+   Three buttons (启用/签到/积分, ~250px) cannot fit the ~90px left to them in the
+   last column of a 360px screen; letting them be clipped means only the first is
+   reachable and the other two are invisible until the operator swipes the table
+   sideways. Below the breakpoint the cell becomes a full-width row of equally
+   sized buttons, so all three are tappable without any horizontal scrolling.
+
+   display:block on the <td> is what lets it span: a table cell normally sizes to
+   its column, and width:100% means "100% of the column", not of the table. Taking
+   it out of the table layout entirely is the reliable way. The trade-off is that
+   the row no longer aligns to the columns above it — acceptable, because on a
+   phone the buttons are the only interactive thing in the row and alignment
+   matters less than reachability. */
+@media (max-width: 720px) {
+  /* Below the breakpoint the table stops shrinking gracefully.
+     A six-column table does not fit a phone; the page must not scroll sideways
+     because that moves the tab bar and header out of view, so the overflow is
+     scoped to the table itself. The rows stay rows — a per-field stacked layout
+     makes the list taller than it is informative, and an operator scanning for one
+     account wants the whole row on one line. */
+  .table-wrap { margin: 0 -12px; padding: 0 12px; }
+  table { font-size: .8rem; }
+  th, td { padding: 7px 8px; }
+
+  /* Icon buttons keep the action column narrow enough to fit. */
+  button.icon {
+    min-width: 34px; width: 34px; min-height: 34px;
+    padding: 0 !important;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  button.icon + button.icon { margin-left: 4px; }
+  td.actions { padding-right: 12px; white-space: nowrap; }
+}
+
+/* Very narrow (iPhone SE and similar). Below this the two-column stat grid stops
+   being useful and the header needs to stack. */
+@media (max-width: 400px) {
+  .grid.stats { grid-template-columns: 1fr 1fr; }
+  .hero { gap: 10px; }
+  .hero h1 { font-size: 1.15rem; }
+  .seg { flex-wrap: wrap; }
+  .seg button { border-radius: 8px !important; border: 1px solid var(--line); }
+  .seg button + button { border-left: 1px solid var(--line); }
+}
 `
 
 // uiTabsScript wires the tab bar. It is plain top-level script source (no

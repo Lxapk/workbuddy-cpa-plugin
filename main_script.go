@@ -851,6 +851,17 @@ func mainPageScript() string {
         runAccountQuota(node.getAttribute('data-uid'), node);
         return;
       }
+      if (node.id === 'accountFilterClear') {
+        ev.preventDefault();
+        var box = document.getElementById('accountFilter');
+        if (box) {
+          box.value = '';
+          // Keep the caret in the field so the operator can keep typing.
+          box.focus();
+        }
+        applyAccountFilter();
+        return;
+      }
       node = node.parentNode;
     }
   });
@@ -870,6 +881,10 @@ func mainPageScript() string {
     var wantStatus = statusSel ? statusSel.value : '';
     var shown = 0;
     var total = 0;
+
+    // The clear button only earns its space once there is something to clear.
+    var clearButton = document.getElementById('accountFilterClear');
+    if (clearButton) clearButton.hidden = needle === '';
 
     var tables = document.querySelectorAll('[data-account-table]');
     for (var t = 0; t < tables.length; t++) {

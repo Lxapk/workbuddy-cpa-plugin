@@ -369,7 +369,7 @@ func renderRun(run checkinRun) string {
 		return b.String()
 	}
 
-	b.WriteString(`<table><tr><th>账号</th><th>UID</th><th>结果</th><th>说明</th><th>码</th></tr>`)
+	b.WriteString(`<div class="table-wrap"><table><tr><th>账号</th><th>UID</th><th>结果</th><th>说明</th><th>码</th></tr>`)
 	for _, r := range run.Results {
 		class, text := "ok", "成功"
 		switch {

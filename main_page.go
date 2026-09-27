@@ -67,7 +67,7 @@ func renderTaskPage() string {
 	if len(accounts) == 0 {
 		b.WriteString(`<div class="empty">还没有账号。</div>`)
 	} else {
-		b.WriteString(`<table><thead><tr><th>账号</th><th>启用</th><th>任务</th><th>上次</th><th>结果</th></tr></thead><tbody>`)
+		b.WriteString(`<div class="table-wrap"><table><thead><tr><th>账号</th><th>启用</th><th>任务</th><th>上次</th><th>结果</th></tr></thead><tbody>`)
 		for _, acct := range accounts {
 			uid, _ := acct["uid"].(string)
 			label, _ := acct["label"].(string)
@@ -121,7 +121,7 @@ func renderTaskPage() string {
 			}
 			b.WriteString(`</td></tr>`)
 		}
-		b.WriteString(`</tbody></table>`)
+		b.WriteString(`</tbody></table></div>`)
 	}
 	b.WriteString(`</div></div>`)
 	return b.String()
@@ -222,10 +222,23 @@ func renderMainPage() string {
 		// Filter bar. Rendering is client-side because the list is already on the
 		// page: a round trip per keystroke would be slower and would lose the
 		// focus that the operator is typing into.
-		b.WriteString(`<div class="row" style="margin:.4rem 0 .6rem;gap:.4rem;flex-wrap:wrap">`)
-		b.WriteString(`<input type="search" id="accountFilter" placeholder="搜索账号 / UID / 备注" ` +
-			`style="flex:1;min-width:180px" autocomplete="off">`)
-		b.WriteString(`<select id="accountStatusFilter">`)
+		//
+		// The input takes the flexible width and the controls after it size to their
+		// content, so the bar fills the card instead of leaving a gap on the right.
+		// A fixed-width input left roughly 40px of dead space next to the select at
+		// phone width.
+		b.WriteString(`<div class="filter-bar">`)
+		b.WriteString(`<span class="filter-search">`)
+		b.WriteString(`<svg class="filter-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
+			`<circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.7"/>` +
+			`<path d="M10.4 10.4L14 14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`)
+		b.WriteString(`<input type="search" id="accountFilter" placeholder="搜索账号 / UID / 备注" autocomplete="off">`)
+		b.WriteString(`<button type="button" class="filter-clear" id="accountFilterClear" title="清除" aria-label="清除搜索" hidden>` +
+			`<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
+			`<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>` +
+			`</button>`)
+		b.WriteString(`</span>`)
+		b.WriteString(`<select id="accountStatusFilter" class="filter-select" aria-label="按状态筛选">`)
 		for _, option := range []struct{ value, label string }{
 			{"", "全部状态"},
 			{"usable", "仅可用"},
@@ -236,7 +249,7 @@ func renderMainPage() string {
 			b.WriteString(`<option value="` + option.value + `">` + option.label + `</option>`)
 		}
 		b.WriteString(`</select>`)
-		b.WriteString(`<span class="muted small" id="accountFilterCount"></span>`)
+		b.WriteString(`<span class="filter-count muted small" id="accountFilterCount"></span>`)
 		b.WriteString(`</div>`)
 	}
 	if len(accounts) == 0 {
@@ -307,7 +320,7 @@ func renderMainPage() string {
 
 	if rows, okRows := routing["order"].([]map[string]any); okRows && len(rows) > 0 {
 		b.WriteString(`<div class="card"><h2>选择顺序预览</h2>`)
-		b.WriteString(`<table><thead><tr><th class="num">#</th><th>账号</th><th class="num">积分</th><th class="num">已选中</th></tr></thead><tbody>`)
+		b.WriteString(`<div class="table-wrap"><table><thead><tr><th class="num">#</th><th>账号</th><th class="num">积分</th><th class="num">已选中</th></tr></thead><tbody>`)
 		for _, row := range rows {
 			cv := "—"
 			if knownValue, _ := row["known"].(bool); knownValue {
@@ -397,7 +410,7 @@ func renderMainPage() string {
 	if len(recentCalls) == 0 {
 		b.WriteString(`<div class="empty">暂无调用记录。</div>`)
 	} else {
-		b.WriteString(`<table><thead><tr><th>时间</th><th>供应商</th><th>账号</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th></tr></thead><tbody>`)
+		b.WriteString(`<div class="table-wrap"><table><thead><tr><th>时间</th><th>供应商</th><th>账号</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th></tr></thead><tbody>`)
 		for _, rec := range recentCalls {
 			cls := "ok"
 			if rec.StatusCode >= 400 || rec.Error != "" {
@@ -419,7 +432,7 @@ func renderMainPage() string {
 			b.WriteString(`<td class="num ` + cls + `">` + fmt.Sprint(rec.StatusCode) + `</td>`)
 			b.WriteString(`<td class="num">` + fmt.Sprint(rec.PromptTokens) + " / " + fmt.Sprint(rec.CompletionTokens) + `</td></tr>`)
 		}
-		b.WriteString(`</tbody></table>`)
+		b.WriteString(`</tbody></table></div>`)
 	}
 	b.WriteString(`</div></div>`)
 
@@ -847,8 +860,8 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		return b.String()
 	}
 
-	b.WriteString(`<table data-account-table="1"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>UID</th><th class="num">积分</th><th>到期</th><th>状态</th><th>操作</th></tr></thead><tbody>`)
+	b.WriteString(`<div class="table-wrap"><table data-account-table="1"><thead><tr>`)
+	b.WriteString(`<th>账号</th><th>UID</th><th class="num">积分</th><th>到期</th><th>状态</th><th class="actions">操作</th></tr></thead><tbody>`)
 	for _, a := range accounts {
 		pillClass, statusText := "ok", "可用"
 		detail := ""
@@ -900,39 +913,47 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 			expiry, expiryClass = fmt.Sprintf("%d 天后", a.CreditsExpireDays), "muted"
 		}
 		b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">` +
-			`<td><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
-		b.WriteString(`<td><code>` + html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `</code></td>`)
-		b.WriteString(`<td class="num">` + html.EscapeString(cv) + `</td>`)
-		b.WriteString(`<td class="` + expiryClass + `">` + html.EscapeString(expiry) + `</td>`)
-		b.WriteString(`<td><span class="pill ` + pillClass + `">` + statusText + `</span>`)
+			`<td data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
+		b.WriteString(`<td data-label="UID"><code>` + html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `</code></td>`)
+		b.WriteString(`<td class="num" data-label="积分">` + html.EscapeString(cv) + `</td>`)
+		b.WriteString(`<td class="` + expiryClass + `" data-label="到期">` + html.EscapeString(expiry) + `</td>`)
+		b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + statusText + `</span>`)
 		if detail != "" {
 			b.WriteString(` <span class="muted small">` + html.EscapeString(detail) + `</span>`)
 		}
 		b.WriteString(`</td>`)
 
 		uid := firstNonEmpty(a.UID, a.AuthIndex)
-		// Each row carries the realm so a per-account action can be routed to the
-		// right upstream: the two realms expose different features (no check-in
-		// internationally), and a request sent to the wrong one fails in a way
-		// that looks like an account problem.
-		rowAction := ""
+		// Compact icon buttons.
+		//
+		// Three labelled buttons ("启用"/"签到"/"积分") need roughly 250px, which does
+		// not fit the last column of a phone-width table — the row overflowed and only
+		// the first button was reachable. Icons need about a third of that, so the row
+		// stays a row and every action stays tappable.
+		//
+		// Each carries an aria-label and a title: an icon alone is ambiguous, and a
+		// screen reader has nothing to announce without it.
+		rowAction := "disable"
+		rowActionLabel := "停用"
+		rowActionIcon := iconPowerOn
 		if a.DisabledByUser || a.Disabled || a.AutoDisabled {
 			rowAction = "enable"
-		} else {
-			rowAction = "disable"
+			rowActionLabel = "启用"
+			rowActionIcon = iconPowerOff
 		}
-		b.WriteString(`<td style="white-space:nowrap">` +
-			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
-			`data-account-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + rowAction +
-			`" data-auth-index="` + html.EscapeString(a.AuthIndex) + `">` +
-			map[bool]string{true: "启用", false: "禁用"}[rowAction == "enable"] + `</button> ` +
-			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
-			`data-account-checkin="1" data-uid="` + html.EscapeString(uid) + `" data-variant="` + html.EscapeString(a.Variant) + `">签到</button> ` +
-			`<button type="button" class="ghost" style="padding:3px 10px;font-size:.78rem" ` +
-			`data-account-quota="1" data-uid="` + html.EscapeString(uid) + `" data-variant="` + html.EscapeString(a.Variant) + `">积分</button>` +
+		b.WriteString(`<td class="actions">` +
+			`<button type="button" class="icon ghost" data-account-toggle="1" data-uid="` + html.EscapeString(uid) +
+			`" data-action="` + rowAction + `" data-auth-index="` + html.EscapeString(a.AuthIndex) +
+			`" title="` + rowActionLabel + `" aria-label="` + rowActionLabel + `">` + rowActionIcon + `</button>` +
+			`<button type="button" class="icon ghost" data-account-checkin="1" data-uid="` + html.EscapeString(uid) +
+			`" data-variant="` + html.EscapeString(a.Variant) +
+			`" title="签到" aria-label="签到">` + iconCheck + `</button>` +
+			`<button type="button" class="icon ghost" data-account-quota="1" data-uid="` + html.EscapeString(uid) +
+			`" data-variant="` + html.EscapeString(a.Variant) +
+			`" title="刷新积分" aria-label="刷新积分">` + iconCoin + `</button>` +
 			`</td>`)
 		b.WriteString(`</tr>`)
 	}
-	b.WriteString(`</tbody></table>`)
+	b.WriteString(`</tbody></table></div>`)
 	return b.String()
 }

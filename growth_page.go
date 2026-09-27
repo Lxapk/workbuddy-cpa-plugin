@@ -285,7 +285,7 @@ func renderGrowthSection() string {
 	if len(runs) == 0 {
 		b.WriteString(`<div class="empty">还没有运行记录。点「完成成长任务」立即执行，或等待每日自动运行。</div>`)
 	} else {
-		b.WriteString(`<table><thead><tr><th>账号</th><th>状态</th><th class="num">新增积分</th>` +
+		b.WriteString(`<div class="table-wrap"><table><thead><tr><th>账号</th><th>状态</th><th class="num">新增积分</th>` +
 			`<th class="num">领奖</th><th class="num">跳过</th><th class="num">失败</th><th>完成时间</th></tr></thead><tbody>`)
 		for i := range runs {
 			run := runs[i]
@@ -314,7 +314,7 @@ func renderGrowthSection() string {
 			b.WriteString(`<td class="muted small">` + finished + `</td>`)
 			b.WriteString(`</tr>`)
 		}
-		b.WriteString(`</tbody></table>`)
+		b.WriteString(`</tbody></table></div>`)
 
 		// Show the most recent account's log; it is the actionable part.
 		last := runs[len(runs)-1]
