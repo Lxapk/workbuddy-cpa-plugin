@@ -285,7 +285,7 @@ func quotaPage() string {
 // renderQuotaResults renders one refresh pass as a table.
 func renderQuotaResults(results []quotaRefreshResult) string {
 	var b strings.Builder
-	b.WriteString(`<div class="card"><table><tr><th>账号</th><th>区域</th><th>剩余额度</th><th>说明</th></tr>`)
+	b.WriteString(`<div class="card"><div class="table-wrap"><table><tr><th>账号</th><th>区域</th><th>剩余额度</th><th>说明</th></tr>`)
 	for _, r := range results {
 		class := "ok"
 		if r.Error != "" {
@@ -301,7 +301,10 @@ func renderQuotaResults(results []quotaRefreshResult) string {
 		b.WriteString(`<td class="` + class + `">` + fmt.Sprint(r.Credits) + `</td>`)
 		b.WriteString(`<td>` + html.EscapeString(note) + `</td></tr>`)
 	}
-	b.WriteString(`</table></div>`)
+	// Closes the scroll wrapper and the card. Both are opened above; closing only
+	// the wrapper leaves the card open and the surrounding markup becomes nested
+	// inside it.
+	b.WriteString(`</table></div></div>`)
 	return b.String()
 }
 

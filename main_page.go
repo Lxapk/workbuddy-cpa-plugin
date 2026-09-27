@@ -335,6 +335,10 @@ func renderMainPage() string {
 	} else {
 		b.WriteString(`<div class="card"><div class="empty">暂无可用账号，无法预览顺序。</div></div>`)
 	}
+	// Closes the preview card, then the tab-switch panel itself. Only the card was
+	// closed before, so the panel stayed open and every following tab was nested
+	// one level too deep — which is what made them render blank.
+	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 
 	// ---------------- tab: check-in ----------------
@@ -499,7 +503,11 @@ func renderMainPage() string {
 		`再选国际授权 → 到 CPA 完成授权；之后把上面的调用设置保持为「全部供应商」，两组账号会一起参与调用。</div>`)
 	b.WriteString(`<div class="muted small" id="authMsg"></div>`)
 	b.WriteString(`</div>`)
-
+	// Close the settings panel and the .root wrapper. Both are opened above —
+	// missing one leaves the script tag nested inside .root, and the browser then
+	// treats the rest of the document as element content, which is how every tab
+	// after the account list ended up rendering as blank.
+	b.WriteString(`</div>`)
 	b.WriteString(`</div>` + mainPageScript() + `</body></html>`)
 	return b.String()
 }
@@ -924,33 +932,28 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		b.WriteString(`</td>`)
 
 		uid := firstNonEmpty(a.UID, a.AuthIndex)
-		// Compact icon buttons.
+		// Labelled buttons, kept narrow by short text.
 		//
-		// Three labelled buttons ("启用"/"签到"/"积分") need roughly 250px, which does
-		// not fit the last column of a phone-width table — the row overflowed and only
-		// the first button was reachable. Icons need about a third of that, so the row
-		// stays a row and every action stays tappable.
-		//
-		// Each carries an aria-label and a title: an icon alone is ambiguous, and a
-		// screen reader has nothing to announce without it.
+		// Icons were tried and reverted: they need the operator to learn what each
+		// glyph means, and the labels here are only two characters each ("启用" is
+		// the longest at 2), so three of them fit the last column without widening
+		// the row. The column keeps `white-space: nowrap` and the table scrolls if
+		// the viewport is too narrow, which is preferable to actions described by
+		// pictures nobody can decode at a glance.
 		rowAction := "disable"
-		rowActionLabel := "停用"
-		rowActionIcon := iconPowerOn
+		rowActionLabel := "禁用"
 		if a.DisabledByUser || a.Disabled || a.AutoDisabled {
 			rowAction = "enable"
 			rowActionLabel = "启用"
-			rowActionIcon = iconPowerOff
 		}
 		b.WriteString(`<td class="actions">` +
-			`<button type="button" class="icon ghost" data-account-toggle="1" data-uid="` + html.EscapeString(uid) +
-			`" data-action="` + rowAction + `" data-auth-index="` + html.EscapeString(a.AuthIndex) +
-			`" title="` + rowActionLabel + `" aria-label="` + rowActionLabel + `">` + rowActionIcon + `</button>` +
-			`<button type="button" class="icon ghost" data-account-checkin="1" data-uid="` + html.EscapeString(uid) +
-			`" data-variant="` + html.EscapeString(a.Variant) +
-			`" title="签到" aria-label="签到">` + iconCheck + `</button>` +
-			`<button type="button" class="icon ghost" data-account-quota="1" data-uid="` + html.EscapeString(uid) +
-			`" data-variant="` + html.EscapeString(a.Variant) +
-			`" title="刷新积分" aria-label="刷新积分">` + iconCoin + `</button>` +
+			`<button type="button" class="ghost mini" data-account-toggle="1" data-uid="` + html.EscapeString(uid) +
+			`" data-action="` + rowAction + `" data-auth-index="` + html.EscapeString(a.AuthIndex) + `">` +
+			rowActionLabel + `</button>` +
+			`<button type="button" class="ghost mini" data-account-checkin="1" data-uid="` + html.EscapeString(uid) +
+			`" data-variant="` + html.EscapeString(a.Variant) + `">签到</button>` +
+			`<button type="button" class="ghost mini" data-account-quota="1" data-uid="` + html.EscapeString(uid) +
+			`" data-variant="` + html.EscapeString(a.Variant) + `">积分</button>` +
 			`</td>`)
 		b.WriteString(`</tr>`)
 	}

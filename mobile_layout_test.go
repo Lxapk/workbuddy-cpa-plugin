@@ -84,7 +84,7 @@ func TestNarrowViewportStylesExist(t *testing.T) {
 		"@media (max-width: 720px)",
 		"@media (max-width: 400px)",
 		".table-wrap",          // 溢出受控的容器
-		"button.icon",          // 图标按钮
+		"button.mini",          // 表格行内的紧凑按钮
 		".filter-bar",          // 筛选条
 		"min-height: 42px",     // 触摸目标下限
 		"font-size: 16px",      // 避免 iOS 聚焦时自动缩放
@@ -134,66 +134,6 @@ func TestFilterBarFillsWidth(t *testing.T) {
 	// 计数靠右而不是硬塞在中间。
 	if !strings.Contains(css, ".filter-count { flex: 0 0 auto; margin-left: auto; }") {
 		t.Error("筛选计数未靠右")
-	}
-}
-
-// 图标按钮必须带 title 与 aria-label。
-//
-// 图标本身是有歧义的：没有可访问名，读屏软件只能念出「按钮」。
-func TestIconButtonsAreLabelled(t *testing.T) {
-	resetState()
-	seedPanelAccounts(t)
-	page := renderMainPage()
-
-	for _, want := range []string{
-		`title="停用" aria-label="停用"`,
-		`title="签到" aria-label="签到"`,
-		`title="刷新积分" aria-label="刷新积分"`,
-	} {
-		if !strings.Contains(page, want) {
-			t.Errorf("图标按钮缺少可访问名：期望 %s", want)
-		}
-	}
-	// 旧的可视文字版本不应残留在账号表里（它撑宽了操作列）。
-	// 只检查按钮的文本节点，别处（任务页）的文字按钮是另一回事；属性里出现
-	// 「签到」是正常的（title / aria-label 就是给它命名的）。
-	actionCell := extractActionCells(page)
-	if hasButtonText(actionCell) {
-		t.Errorf("账号表的操作列仍在渲染文字节点，会撑宽最后一列：%s", actionCell)
-	}
-}
-
-// hasButtonText reports whether any button in the markup has a text node.
-//
-// The icon buttons carry their label in title/aria-label, so a plain substring
-// search would match the attribute and report a problem that is not there; the
-// icon itself is markup, not text. Only the text left after removing every tag
-// counts — that is what widens the column.
-func hasButtonText(markup string) bool {
-	for _, inner := range buttonInnerHTML(markup) {
-		if stripTags(inner) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// buttonInnerHTML returns the content between each <button …> and its </button>.
-func buttonInnerHTML(markup string) []string {
-	var out []string
-	rest := markup
-	for {
-		start := strings.Index(rest, ">")
-		if start < 0 {
-			return out
-		}
-		rest = rest[start+1:]
-		end := strings.Index(rest, "</button>")
-		if end < 0 {
-			return out
-		}
-		out = append(out, rest[:end])
-		rest = rest[end:]
 	}
 }
 

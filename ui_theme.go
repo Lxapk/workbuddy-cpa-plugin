@@ -148,16 +148,16 @@ button.ghost:hover { background: var(--accent-soft); color: var(--accent-dark); 
 .opt input { margin-top: 3px; }
 .opt .name { font-weight: 680; }
 .opt .desc { color: var(--muted); font-size: .79rem; }
-/* Icon-only buttons. Square so a row of them lines up regardless of the glyph. */
-button.icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; min-width: 30px; height: 30px;
-  padding: 0; border-radius: 8px;
-  color: var(--muted);
+/* Small labelled buttons for table rows.
+   Short text ("启用"/"签到"/"积分" are two characters each) keeps the action column
+   narrow enough for a phone without resorting to icons. */
+button.mini {
+  padding: 4px 9px; font-size: .76rem;
+  border-radius: 7px;
+  white-space: nowrap;
 }
-button.icon:hover { color: var(--accent-dark); border-color: var(--accent); background: var(--accent-soft); }
-button.icon svg { display: block; }
-td.actions { white-space: nowrap; }
+button.mini + button.mini { margin-left: 4px; }
+td.actions { white-space: nowrap; padding-right: 12px; }
 /* ---------- filter bar ---------- */
 /* A single row that fills its card: the search input takes the flexible width and
    the select sizes to its content, so there is no gap left on the right. */
@@ -425,13 +425,13 @@ details.log-group .count + * { margin-left: 0; }
   table { font-size: .8rem; }
   th, td { padding: 7px 8px; }
 
-  /* Icon buttons keep the action column narrow enough to fit. */
-  button.icon {
-    min-width: 34px; width: 34px; min-height: 34px;
-    padding: 0 !important;
-    display: inline-flex; align-items: center; justify-content: center;
+  /* Compact labelled buttons keep the action column narrow enough to fit. */
+  button.mini {
+    min-width: 0; min-height: 32px;
+    padding: 5px 8px !important;
+    font-size: .74rem;
   }
-  button.icon + button.icon { margin-left: 4px; }
+  button.mini + button.mini { margin-left: 5px; }
   td.actions { padding-right: 12px; white-space: nowrap; }
 }
 
