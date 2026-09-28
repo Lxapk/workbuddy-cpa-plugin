@@ -405,15 +405,16 @@ func TestCheckinDueNow(t *testing.T) {
 
 // TestCheckinDefaultsSurviveEmptyConfig guards the bug where an absent
 // "checkin" section in config.yaml decoded to the zero value, scheduling the
-// automatic run at 00:00 instead of the documented 09:00.
+// automatic run at 00:00 instead of the documented 08:00.
 func TestCheckinDefaultsSurviveEmptyConfig(t *testing.T) {
 	store := newSettingsStore()
-	if errDecode := store.decodeLifecycleConfig([]byte("enabled: true\napi_key: sk-x\n")); errDecode != nil {
+	if errDecode := store.decodeLifecycleConfig([]byte("enabled: true\napi_key: x\n")); errDecode != nil {
 		t.Fatalf("decode: %v", errDecode)
 	}
 	cfg := store.get().Checkin
-	if cfg.Hour != 9 || cfg.Minute != 0 {
-		t.Fatalf("defaults = %02d:%02d, want 09:00", cfg.Hour, cfg.Minute)
+	// 08:00, an hour before the growth pass.
+	if cfg.Hour != 8 || cfg.Minute != 0 {
+		t.Fatalf("defaults = %02d:%02d, want 08:00", cfg.Hour, cfg.Minute)
 	}
 	if cfg.Enabled {
 		t.Error("auto check-in must default to disabled")

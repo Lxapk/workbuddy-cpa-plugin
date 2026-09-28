@@ -206,26 +206,6 @@ func mainPageScript() string {
     }).catch(function (e) { msgSet('runMsg', '签到失败：' + e.message, 'bad'); });
   };
 
-  window.saveCheckinSettings = function () {
-    var msg = document.getElementById('runMsg');
-    if (msg) { msg.textContent = '保存中…'; msg.className = 'small muted'; }
-    call(BASE + '/checkin/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        enabled: readChecked('ckEnabled', false),
-        hour: readNumber('ckHour', 0),
-        minute: readNumber('ckMinute', 0),
-        on_start: readChecked('ckOnStart', false)
-      })
-    }).then(function () {
-      if (msg) { msg.textContent = '设置已保存'; msg.className = 'small ok'; }
-      setTimeout(function () { location.reload(); }, 700);
-    }).catch(function (e) {
-      if (msg) { msg.textContent = '保存失败：' + e.message; msg.className = 'small bad'; }
-    });
-  };
-
   // readChecked / readNumber read a control without assuming it exists.
   //
   // getElementById(...).checked throws when the element is absent, and an exception
@@ -1090,6 +1070,82 @@ func mainPageScript() string {
     }).catch(function (e) {
       msgSet('growthScheduleMsg', '保存失败：' + e.message, 'bad');
     });
+  };
+
+  // saveSchedule stores both daily jobs in one action.
+  //
+  // Two cards each had their own save; the operator pressed one, saw nothing change
+  // (the badge beside the title is server-rendered), pressed the other, and could not
+  // tell whether either had taken. One button, one reload, one confirmation.
+  window.saveSchedule = function (button) {
+    msgSet('scheduleMsg', '保存中…', 'muted');
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+    }
+
+    var growth = call(BASE + '/growth/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: readChecked('gsEnabled', false),
+        hour: readNumber('gsHour', 9),
+        minute: readNumber('gsMinute', 0),
+        on_start: readChecked('gsOnStart', true)
+      })
+    });
+    var checkin = call(BASE + '/checkin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: readChecked('ckEnabled', false),
+        hour: readNumber('ckHour', 8),
+        minute: readNumber('ckMinute', 0),
+        on_start: readChecked('ckOnStart', true)
+      })
+    });
+
+    // Both must land before reporting: a half-saved pair is worse than a clear failure,
+    // because the operator cannot see which half took.
+    Promise.all([growth, checkin])
+      .then(function () {
+        msgSet('scheduleMsg', '已保存', 'ok');
+        setTimeout(function () { location.reload(); }, 500);
+      })
+      .catch(function (e) {
+        msgSet('scheduleMsg', '保存失败：' + e.message, 'bad');
+      })
+      .then(function () {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+  };
+
+  // runCheckin signs in now, without waiting for the schedule.
+  window.runCheckin = function (button) {
+    msgSet('runMsg', '正在签到…', 'muted');
+    var original = button ? button.textContent : '';
+    if (button) button.disabled = true;
+    call(BASE + '/run', { method: 'POST' })
+      .then(function (payload) {
+        var c = (payload && payload.checkin) || {};
+        var extra = (c.accounts && c.accounts.length) ? '（' + c.accounts.length + ' 个账号）' : '';
+        msgSet('runMsg', '签到完成 ' + (c.succeeded || 0) + ' / 失败 ' + (c.failed || 0) + extra,
+          (c.failed || 0) > 0 ? 'bad' : 'ok');
+        var box = document.getElementById('taskResult');
+        if (box && payload && payload.checkin) {
+          box.innerHTML = renderCheckin(payload.checkin);
+        }
+      })
+      .catch(function (e) { msgSet('runMsg', '签到失败：' + e.message, 'bad'); })
+      .then(function () {
+        if (button) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
   };
 
   // renderGrowthDetail draws one account's per-task outcome as grouped rows.

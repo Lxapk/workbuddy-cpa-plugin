@@ -457,7 +457,7 @@ func TestMissingConfigSectionsKeepDefaults(t *testing.T) {
 	if got.Growth.Enabled {
 		t.Error("定时任务默认不应开启")
 	}
-	if got.Checkin.Hour != 9 {
+	if got.Checkin.Hour != 8 {
 		t.Errorf("签到的默认时间被零值覆盖：%02d", got.Checkin.Hour)
 	}
 	if got.Quota.IntervalMinutes != 30 {

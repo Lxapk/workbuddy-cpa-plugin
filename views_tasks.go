@@ -13,89 +13,105 @@ import (
 	"strings"
 )
 
-// renderGrowthScheduleBox draws the scheduled run controls.
+// renderScheduleBox draws the two automatic daily jobs on one card.
 //
-// Same shape as the check-in card next to it: a switch, a time of day, and an optional
-// catch-up pass at startup. The two read alike because they are the same kind of
-// thing — something that runs unattended at a chosen hour.
-func renderGrowthScheduleBox() string {
-	snap := growthScheduleSnapshot()
-	enabled, _ := snap["enabled"].(bool)
-	hour, _ := snap["hour"].(int)
-	minute, _ := snap["minute"].(int)
-	onStart, _ := snap["on_start"].(bool)
-	ranToday, _ := snap["ran_today"].(bool)
-	running, _ := snap["running"].(bool)
-	lastSummary, _ := snap["last_summary"].(string)
+// Growth tasks and check-in are the same kind of thing — something the plugin does once
+// a day at a chosen hour — so they share a card and a save button. Two cards asked the
+// operator to configure the same idea twice and press save twice, with no indication
+// that either had taken effect until a reload.
+//
+// Each keeps its own switch and its own time: the two jobs hit different endpoints and
+// there is no reason to tie one to the other's schedule.
+func renderScheduleBox() string {
+	growth := growthScheduleSnapshot()
+	checkin := state.settings.get().Checkin
+
+	growthEnabled, _ := growth["enabled"].(bool)
+	growthHour, _ := growth["hour"].(int)
+	growthMinute, _ := growth["minute"].(int)
+	growthOnStart, _ := growth["on_start"].(bool)
+	growthRunning, _ := growth["running"].(bool)
+	growthRanToday, _ := growth["ran_today"].(bool)
+	growthSummary, _ := growth["last_summary"].(string)
 
 	var b strings.Builder
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>定时执行 <span class="hint">每天自动完成全部任务</span></h3><span class="grow"></span>`)
-	if running {
-		b.WriteString(`<span class="pill warn">执行中</span>`)
-	} else if enabled && ranToday {
+	b.WriteString(`<header><h3>每日自动执行 <span class="hint">按本机时区，每天各跑一次</span></h3>`)
+	b.WriteString(`<span class="grow"></span>`)
+	if growthRunning {
+		b.WriteString(`<span class="pill warn">任务执行中</span>`)
+	}
+	b.WriteString(`<span class="note" id="scheduleMsg"></span>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存</button>`)
+	b.WriteString(`</header>`)
+
+	b.WriteString(`<div class="pad">`)
+
+	// ---- growth tasks ----
+	b.WriteString(`<div class="sched-row">`)
+	b.WriteString(`<label class="field sched-switch"><input type="checkbox" id="gsEnabled"`)
+	if growthEnabled {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`><span class="sched-name">成长任务</span></label>`)
+	b.WriteString(`<span class="sched-time">每天 <input type="number" id="gsHour" min="0" max="23" value="` +
+		fmt.Sprint(clampHour(growthHour)) + `"> 时 <input type="number" id="gsMinute" min="0" max="59" value="` +
+		fmt.Sprint(clampMinute(growthMinute)) + `"> 分</span>`)
+	if growthEnabled && growthRanToday && !growthRunning {
 		b.WriteString(`<span class="pill ok">今日已完成</span>`)
 	}
-	b.WriteString(`<span class="note" id="growthScheduleMsg"></span>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveGrowthSchedule">保存</button>`)
-	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="gsEnabled"`)
-	if enabled {
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<label class="field sched-start"><input type="checkbox" id="gsOnStart"`)
+	if growthOnStart {
 		b.WriteString(` checked`)
 	}
-	b.WriteString(`> 启用每天定时执行</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field">每天 <input type="number" id="gsHour" min="0" max="23" value="` +
-		fmt.Sprint(clampHour(hour)) + `"> 时 <input type="number" id="gsMinute" min="0" max="59" value="` +
-		fmt.Sprint(clampMinute(minute)) + `"> 分执行</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="gsOnStart"`)
-	if onStart {
+	b.WriteString(`> 启动时补跑</label>`)
+	b.WriteString(`</div>`)
+
+	// ---- check-in ----
+	b.WriteString(`<div class="sched-row">`)
+	b.WriteString(`<label class="field sched-switch"><input type="checkbox" id="ckEnabled"`)
+	if checkin.Enabled {
 		b.WriteString(` checked`)
 	}
-	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
-	if lastSummary != "" {
-		b.WriteString(`<div class="note" style="margin-top:9px">上次：` + html.EscapeString(lastSummary) + `</div>`)
+	b.WriteString(`><span class="sched-name">每日签到</span></label>`)
+	b.WriteString(`<span class="sched-time">每天 <input type="number" id="ckHour" min="0" max="23" value="` +
+		fmt.Sprint(clampHour(checkin.Hour)) + `"> 时 <input type="number" id="ckMinute" min="0" max="59" value="` +
+		fmt.Sprint(clampMinute(checkin.Minute)) + `"> 分</span>`)
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<label class="field sched-start"><input type="checkbox" id="ckOnStart"`)
+	if checkin.OnStart {
+		b.WriteString(` checked`)
 	}
-	b.WriteString(`<div class="note" style="margin-top:9px">定时执行与「全部执行」做同样的事：` +
-		`成长任务、签到与猫猫旅行。它按本机时区判断日期，同一天只跑一次。</div>`)
-	b.WriteString(`</div></div>`)
-	return b.String()
-}
+	b.WriteString(`> 启动时补跑</label>`)
+	b.WriteString(`</div>`)
 
-// renderCheckinBox draws the daily sign-in: its schedule and the last run's summary.
-func renderCheckinBox() string {
-	settings := state.settings.get()
-	history := state.checkin.snapshot(1)
+	if growthSummary != "" {
+		b.WriteString(`<div class="note" style="margin-top:9px">上次任务：` +
+			html.EscapeString(growthSummary) + `</div>`)
+	}
+	b.WriteString(`<div class="note" style="margin-top:9px">两项都按本机时区判断日期，同一天只跑一次。` +
+		`「启动时补跑」指插件加载时，若当天尚未执行则补上一次。</div>`)
+	b.WriteString(`</div>`)
 
-	var b strings.Builder
-	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>每日签到</h3><span class="grow"></span>`)
+	b.WriteString(`<div class="foot">`)
 	b.WriteString(`<span class="note" id="runMsg"></span>`)
+	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveCheckinSettings">保存</button>`)
-	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckEnabled"`)
-	if settings.Checkin.Enabled {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启用每日自动签到</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field">每天 <input type="number" id="ckHour" min="0" max="23" value="` +
-		fmt.Sprint(clampHour(settings.Checkin.Hour)) + `"> 时 <input type="number" id="ckMinute" min="0" max="59" value="` +
-		fmt.Sprint(clampMinute(settings.Checkin.Minute)) + `"> 分执行</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="ckOnStart"`)
-	if settings.Checkin.OnStart {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
+	b.WriteString(`<button type="button" class="xs" data-call="runAllTasks">立即执行任务</button>`)
 	b.WriteString(`</div>`)
 
-	if len(history) == 0 {
-		b.WriteString(`<div class="empty">还没有签到记录。</div>`)
-	} else {
-		b.WriteString(renderRun(history[0]))
-	}
 	b.WriteString(`</div>`)
+
+	// The last check-in run, when there is one.
+	history := state.checkin.snapshot(1)
+	if len(history) > 0 {
+		b.WriteString(`<div class="box">`)
+		b.WriteString(`<header><h3>最近一次签到</h3></header>`)
+		b.WriteString(renderRun(history[0]))
+		b.WriteString(`</div>`)
+	}
+
 	return b.String()
 }
 

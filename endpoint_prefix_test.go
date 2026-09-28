@@ -52,12 +52,14 @@ func TestCheckinLivesOnTheTasksTab(t *testing.T) {
 	if tasks == "" {
 		t.Fatal("未找到任务面板")
 	}
+	// 签到与成长任务合并为一张卡，共用一个保存按钮。
 	if !strings.Contains(tasks, "每日签到") {
-		t.Error("任务面板里没有签到卡片")
+		t.Error("任务面板里没有签到的设置")
 	}
-	// 签到的两个按钮也要在。
 	for _, want := range []string{
-		`data-call="saveCheckinSettings"`,
+		`id="ckEnabled"`,
+		`id="gsEnabled"`,
+		`data-call="saveSchedule"`,
 		`data-call="runCheckin"`,
 	} {
 		if !strings.Contains(tasks, want) {

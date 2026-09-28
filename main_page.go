@@ -200,12 +200,10 @@ func renderTasksView() string {
 	b.WriteString(`<div class="pad" style="padding-top:0"><span class="note" id="growthMsg"></span></div>`)
 	b.WriteString(`</div>`)
 
-	// Scheduled runs first, then the manual check-in: both are "what happens on its
-	// own", and the schedule is the thing an operator sets up once.
-	b.WriteString(renderGrowthScheduleBox())
-
-	// Check-in sits with the other scheduled work.
-	b.WriteString(renderCheckinBox())
+	// Growth tasks and check-in share one card: they are the same kind of thing —
+	// something that runs once a day at a chosen hour — so they share a save button
+	// rather than asking the operator to configure the same idea twice.
+	b.WriteString(renderScheduleBox())
 
 	// Per-account task state, with its own controls in its own header.
 	b.WriteString(renderTaskAccountsBox(accounts))

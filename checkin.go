@@ -36,10 +36,12 @@ type checkinSettings struct {
 // never calls out on the operator's behalf unless asked.
 func defaultCheckinSettings() checkinSettings {
 	return checkinSettings{
-		Enabled:                  false,
-		Hour:                     9,
+		Enabled: false,
+		// 08:00 — an hour before the growth pass, so the sign-in reward is banked before
+		// the tasks that may depend on it run.
+		Hour:                     8,
 		Minute:                   0,
-		OnStart:                  false,
+		OnStart:                  true,
 		RetryOnDeviceFingerprint: true,
 	}
 }

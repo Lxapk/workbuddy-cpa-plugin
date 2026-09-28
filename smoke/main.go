@@ -427,7 +427,7 @@ func main() {
 	}
 	mustUnmarshal(ckPage.Result, &ckPageEnv)
 	page := string(ckPageEnv.Body)
-	for _, want := range []string{"每日签到", "立即签到", "启用每日自动签到"} {
+	for _, want := range []string{"每日自动执行", "每日签到", "立即签到"} {
 		if !strings.Contains(page, want) {
 			die("check-in page missing %q", want)
 		}

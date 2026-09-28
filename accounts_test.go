@@ -637,7 +637,7 @@ func TestPageScriptDefinesEveryCalledFunction(t *testing.T) {
 	// 对应的处理器也一并删掉。
 	for _, handler := range []string{
 		"runAll", "refreshAccounts", "saveStrategy", "resetRotation",
-		"runCheckin", "saveCheckinSettings", "refreshQuota",
+		"runCheckin", "saveSchedule", "refreshQuota",
 		"saveKey", "clearKey",
 	} {
 		if !strings.Contains(page, "window."+handler+" =") {

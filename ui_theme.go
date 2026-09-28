@@ -446,6 +446,21 @@ label.field input[type=number] { width: 74px; }
 .seg button.on { background: var(--primary-color); color: var(--primary-contrast); }
 .seg button + button { border-left: 1px solid var(--border-primary); }
 
+/* ---------- schedule rows ---------- */
+/* One row per automatic job: switch, time, state, catch-up. Laid out on a single line
+   on a wide screen, and allowed to wrap on a narrow one — the controls keep their
+   grouping either way because each row is its own flex container. */
+.sched-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 0; border-bottom: 1px solid var(--border-color);
+}
+.sched-row:last-of-type { border-bottom: none; }
+.sched-switch { gap: 8px; min-width: 118px; }
+.sched-switch .sched-name { font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
+.sched-time { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 13px; }
+.sched-time input[type=number] { width: 62px; }
+.sched-start { color: var(--text-secondary); font-size: 12.5px; }
+
 /* ======================= filter bar ======================= */
 .filter-bar {
   display: flex; align-items: center; gap: 8px; padding: 11px 16px; flex-wrap: wrap;

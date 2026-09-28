@@ -89,7 +89,7 @@ func TestTaskTabOrder(t *testing.T) {
 	// the anchors include the tag that only the block header carries.
 	indexList := strings.Index(tasks, "任务执行")
 	indexRunAll := strings.Index(tasks, "全部执行")
-	indexCheckin := strings.Index(tasks, "<h3>每日签到</h3>")
+	indexCheckin := strings.Index(tasks, `>每日签到<`)
 	indexAccounts := strings.Index(tasks, "参与账号")
 
 	for name, index := range map[string]int{
