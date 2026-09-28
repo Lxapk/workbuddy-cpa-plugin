@@ -194,3 +194,54 @@ func TestTabBarHoldsEveryPage(t *testing.T) {
 		t.Error("标签栏里仍有品牌块，标题区已负责说明身份")
 	}
 }
+
+// 亮色有两套，不能混用。
+//
+// 宿主在 themes.scss 里定义了两个浅色色板：:root 是「跟随系统」用的纸感暖白
+// (#faf9f5)，[data-theme='white'] 是用户在主题切换器里显式选择后用的纯白
+// (#ffffff)。给显式选择套上纸感色，面板在宿主旁边就会显得发黄——这正是用户指出
+// 「白主题是白色底色」时看到的问题。
+func TestWhiteThemeIsPureWhite(t *testing.T) {
+	css := uiCSS
+
+	white := css[strings.Index(css, `:root[data-theme="white"]`):]
+	white = white[:strings.Index(white, "}")]
+	if !strings.Contains(white, "--bg-secondary: #ffffff") {
+		t.Error("white 主题的页面底色应为纯白 #ffffff")
+	}
+	if !strings.Contains(white, "--bg-primary: #ffffff") {
+		t.Error("white 主题的卡片底色应为纯白 #ffffff")
+	}
+	// 去掉注释后再检查：注释里提到 #faf9f5 正是为了说明两者的区别。
+	if strings.Contains(stripCSSComments(white), "#faf9f5") {
+		t.Error("white 主题混入了 :root 的纸感暖白")
+	}
+
+	// 暗色是同一套暖灰体系里的深色，页面底 #151412。
+	dark := css[strings.Index(css, `:root[data-theme="dark"]`):]
+	dark = dark[:strings.Index(dark, "}")]
+	if !strings.Contains(dark, "--bg-secondary: #151412") {
+		t.Error("dark 主题的页面底色应为 #151412")
+	}
+
+	// 「跟随系统」保持宿主的 :root 值。
+	media := css[strings.Index(css, "@media (prefers-color-scheme: light)"):]
+	if !strings.Contains(media, "#faf9f5") {
+		t.Error("跟随系统的浅色应使用宿主的纸感暖白")
+	}
+}
+
+// stripCSSComments removes /* … */ blocks so value checks ignore prose.
+func stripCSSComments(css string) string {
+	for {
+		start := strings.Index(css, "/*")
+		if start < 0 {
+			return css
+		}
+		end := strings.Index(css[start:], "*/")
+		if end < 0 {
+			return css[:start]
+		}
+		css = css[:start] + css[start+end+2:]
+	}
+}

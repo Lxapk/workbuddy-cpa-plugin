@@ -70,23 +70,28 @@ const uiCSS = `
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
           "Microsoft YaHei", "Helvetica Neue", sans-serif;
 }
+/* theme: 宿主显式选了亮色 */
 :root[data-theme="white"],
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-secondary: #faf9f5;
-  --bg-primary: #f0eee8;
-  --bg-tertiary: #e9e6df;
-  --bg-hover: #e2dfd7;
-  --bg-quinary: #f6f4ee;
+  /* Pure white, not the warm off-white: the host has two light palettes. :root is the
+     "follow system" one (#faf9f5, paper-toned); [data-theme='white'] — what the user
+     picked in the theme switcher — is #ffffff throughout. Using the paper tone for an
+     explicit choice is what made the panel look tinted next to the host. */
+  --bg-secondary: #ffffff;
+  --bg-primary: #ffffff;
+  --bg-tertiary: #f6f6f6;
+  --bg-hover: #f0f0f0;
+  --bg-quinary: #ffffff;
 
   --text-primary: #2d2a26;
   --text-secondary: #6d6760;
   --text-tertiary: #a29c95;
   --text-quaternary: #c0bab3;
 
-  --border-color: #e3e1db;
-  --border-primary: #d5d2cb;
-  --border-hover: #cecac4;
+  --border-color: #e5e5e5;
+  --border-primary: #d9d9d9;
+  --border-hover: #cccccc;
 
   --primary-color: #8b8680;
   --primary-hover: #7f7a74;
@@ -109,7 +114,8 @@ const uiCSS = `
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
           "Microsoft YaHei", "Helvetica Neue", sans-serif;
 }
-/* The host's "follow system" case carries no attribute, so the media query decides. */
+/* 主题：宿主没显式选择时，交给系统偏好。这里用宿主的 :root 值（纸感暖白），
+   而不是 [data-theme='white'] 的纯白——因为「跟随系统」在宿主里对应的就是这套。 */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
