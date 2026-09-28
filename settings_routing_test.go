@@ -552,3 +552,66 @@ func TestRoutingOptionsExplainWhenToUseThem(t *testing.T) {
 
 // timeNowForTest is the clock used by the usage-counter tests.
 func timeNowForTest() time.Time { return time.Now() }
+
+// 积分要同时给出剩余与总量，不能把总量等于剩余。
+//
+// 用户看到每个账号都是「1 / 1」。根因是 legacy 解析路径读了 CycleCapacitySize 却
+// 从未把它累加，Total 直接赋值成 Remaining。没有分母时进度条恒满，比值也没有意义。
+//
+// 取值规则对齐参考实现：一个包报了周期容量就按 Cycle* 算，否则按 Capacity* 算，
+// 两条路径互斥——混用会把同一个包算两次。
+func TestLegacyQuotaSumsCapacitySeparately(t *testing.T) {
+	body := []byte(`{"data":{"Response":{"Data":{"Accounts":[
+		{"CycleCapacitySize":4608,"CycleCapacityRemain":3743,"CycleCapacityUsed":865}
+	]}}}}`)
+	q := interpretQuotaResponse(200, body)
+
+	if q.Summary.Remaining != 3743 {
+		t.Errorf("剩余 = %v, want 3743", q.Summary.Remaining)
+	}
+	if q.Summary.Total != 4608 {
+		t.Errorf("总量 = %v, want 4608（不能等于剩余）", q.Summary.Total)
+	}
+	if q.Summary.Total == q.Summary.Remaining {
+		t.Error("总量与剩余相同，进度条会恒满")
+	}
+}
+
+// 没有周期容量时退到 Capacity* 字段，且不与 Cycle* 混算。
+func TestLegacyQuotaFallsBackToPlainCapacity(t *testing.T) {
+	body := []byte(`{"data":{"Response":{"Data":{"Accounts":[
+		{"CycleCapacitySize":0,"CycleCapacityRemain":0,"CapacitySize":800,"CapacityRemain":300,"CapacityUsed":500}
+	]}}}}`)
+	q := interpretQuotaResponse(200, body)
+
+	if q.Summary.Remaining != 300 || q.Summary.Total != 800 {
+		t.Errorf("退化取值错误：remaining=%v total=%v, want 300/800", q.Summary.Remaining, q.Summary.Total)
+	}
+}
+
+// 多个包各自判断后求和：一个走周期字段，一个走普通字段。
+func TestLegacyQuotaSumsPerPackage(t *testing.T) {
+	body := []byte(`{"data":{"Response":{"Data":{"Accounts":[
+		{"CycleCapacitySize":1000,"CycleCapacityRemain":600},
+		{"CycleCapacitySize":0,"CapacitySize":500,"CapacityRemain":400}
+	]}}}}`)
+	q := interpretQuotaResponse(200, body)
+
+	if q.Summary.Total != 1500 || q.Summary.Remaining != 1000 {
+		t.Errorf("多包求和错误：total=%v remaining=%v, want 1500/1000",
+			q.Summary.Total, q.Summary.Remaining)
+	}
+}
+
+// 只报了剩余、没有容量的包，总量退化为剩余，比值保持 100%。
+func TestLegacyQuotaUsesRemainAsSizeWhenMissing(t *testing.T) {
+	body := []byte(`{"data":{"Response":{"Data":{"Accounts":[
+		{"CycleCapacitySize":0,"CycleCapacityRemain":0,"CapacitySize":0,"CapacityRemain":250}
+	]}}}}`)
+	q := interpretQuotaResponse(200, body)
+
+	if q.Summary.Total != 250 || q.Summary.Remaining != 250 {
+		t.Errorf("缺容量时应以剩余兜底：total=%v remaining=%v, want 250/250",
+			q.Summary.Total, q.Summary.Remaining)
+	}
+}

@@ -564,6 +564,15 @@ func (c *workBuddyClient) fetchLegacyCredits(ctx context.Context, creds *workBud
 }
 
 // parseLegacyRemainder sums the APK-era response shape.
+//
+// The aggregate carries both a remaining figure and a capacity, and the panel needs
+// both: showing only the remainder says nothing about how much of the allowance is
+// left. This used to read CycleCapacitySize and then never add it, so Total came out
+// equal to Remaining — every account displayed "1 / 1".
+//
+// Field choice follows the reference implementation: a package that reports a cycle
+// capacity is counted from the Cycle* fields, otherwise from the plain Capacity*
+// ones, and the two are never mixed for a single package (mixing double-counts it).
 func parseLegacyRemainder(body []byte) (creditSummary, error) {
 	var doc struct {
 		Data *struct {
@@ -572,7 +581,10 @@ func parseLegacyRemainder(body []byte) (creditSummary, error) {
 					Accounts []struct {
 						CycleCapacitySize   *json.Number `json:"CycleCapacitySize"`
 						CycleCapacityRemain *json.Number `json:"CycleCapacityRemain"`
+						CycleCapacityUsed   *json.Number `json:"CycleCapacityUsed"`
+						CapacitySize        *json.Number `json:"CapacitySize"`
 						CapacityRemain      *json.Number `json:"CapacityRemain"`
+						CapacityUsed        *json.Number `json:"CapacityUsed"`
 					} `json:"Accounts"`
 				} `json:"Data"`
 			} `json:"Response"`
@@ -585,20 +597,49 @@ func parseLegacyRemainder(body []byte) (creditSummary, error) {
 		return creditSummary{Error: "响应缺少 data"}, nil
 	}
 
-	var sum float64
+	var remainSum, totalSum, usedSum float64
 	if doc.Data.Response != nil && doc.Data.Response.Data != nil {
 		for _, acc := range doc.Data.Response.Data.Accounts {
-			size := numberOrZero(acc.CycleCapacitySize)
-			remain := numberOrZero(acc.CycleCapacityRemain)
-			if size <= 0 && remain <= 0 {
+			cycleSize := numberOrZero(acc.CycleCapacitySize)
+			cycleRemain := numberOrZero(acc.CycleCapacityRemain)
+			cycleUsed := numberOrZero(acc.CycleCapacityUsed)
+
+			size, remain, used := cycleSize, cycleRemain, cycleUsed
+			if size <= 0 {
+				// No cycle allowance on this package: fall back to the plain fields.
+				// Both are read from the same family so a package is never counted
+				// twice.
+				size = numberOrZero(acc.CapacitySize)
 				remain = numberOrZero(acc.CapacityRemain)
+				used = numberOrZero(acc.CapacityUsed)
 			}
-			if remain > 0 {
-				sum += remain
+			if size <= 0 && remain <= 0 {
+				continue
 			}
+			// A negative remainder is an upstream artefact, not a real balance: skip
+			// the package rather than letting it subtract from the sum.
+			if remain < 0 {
+				continue
+			}
+			// A package can report a remainder without a capacity. Falling back to the
+			// remainder keeps the ratio at 100% rather than dividing by zero or
+			// showing a bar wider than its track.
+			if size <= 0 {
+				size = remain
+			}
+			if used <= 0 && size > remain {
+				used = size - remain
+			}
+
+			totalSum += size
+			remainSum += remain
+			usedSum += used
 		}
 	}
-	return creditSummary{Remaining: sum, Total: sum, Known: true}, nil
+	if totalSum <= 0 {
+		totalSum = remainSum
+	}
+	return creditSummary{Remaining: remainSum, Total: totalSum, Used: usedSum, Known: true}, nil
 }
 
 // ---------------------------------------------------------------------------

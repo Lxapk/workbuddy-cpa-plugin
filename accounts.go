@@ -530,6 +530,17 @@ func enrichWithRuntime(accounts []workBuddyAccount) []workBuddyAccount {
 			// Total is a float upstream; the panel works in whole credits.
 			a.CreditsTotal = int64(q.Summary.Total)
 			a.CreditsUsed = int64(q.Summary.Used)
+			// The pool keeps its own copy of the capacity (it is written on every
+			// refresh, including the background one, while this lookup only sees the
+			// panel's own cache). Take whichever is present.
+			if a.CreditsTotal <= 0 {
+				if total := state.pool.creditsTotalFor(a.AuthIndex, a.UID); total > 0 {
+					a.CreditsTotal = total
+					if a.CreditsTotal > a.Credits {
+						a.CreditsUsed = a.CreditsTotal - a.Credits
+					}
+				}
+			}
 			// A summary with no capacity is a reading, not a budget: leave the
 			// total at zero and the row falls back to the bare remainder.
 			if a.CreditsTotal <= 0 {

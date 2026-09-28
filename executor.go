@@ -462,7 +462,7 @@ func executorExecute(request []byte) ([]byte, error) {
 		aggregated := aggregateStreamToCompletion(frames, req.Model)
 		return okEnvelope(pluginapi.ExecutorResponse{
 			Payload: aggregated,
-			Headers: filterResponseHeaders(streamHeaders),
+			Headers: withAccountIdentity(filterResponseHeaders(streamHeaders), creds, executorAuthIndex(req)),
 			Metadata: map[string]any{
 				"upstream_status": status,
 				"provider":        workBuddyProviderKey,
@@ -487,7 +487,7 @@ func executorExecute(request []byte) ([]byte, error) {
 	// charge.
 	return okEnvelope(pluginapi.ExecutorResponse{
 		Payload: respBody,
-		Headers: filterResponseHeaders(headers),
+		Headers: withAccountIdentity(filterResponseHeaders(headers), creds, executorAuthIndex(req)),
 		Metadata: map[string]any{
 			"upstream_status": status,
 			"provider":        workBuddyProviderKey,
@@ -787,25 +787,108 @@ func executorHTTPRequest(request []byte) ([]byte, error) {
 	}
 	return okEnvelope(pluginapi.ExecutorHTTPResponse{
 		StatusCode: status,
-		Headers:    filterResponseHeaders(headers),
+		Headers:    withAccountIdentity(filterResponseHeaders(headers), creds, strings.TrimSpace(req.AuthID)),
 		Body:       respBody,
 	})
 }
 
 // filterResponseHeaders keeps the headers worth forwarding and drops hop-by-hop
-// or length-negotiated ones that would contradict the rewritten body.
+// headers, then adds the account identity.
+//
+// The identity headers exist so the response interceptor can tell which credential
+// served a request: its request struct carries no account field, so the only channel
+// from the executor (which knows) to the interceptor (which records) is a header. They
+// are consumed inside the process — the host passes response headers from the executor
+// to the interceptor and then writes the downstream response from a filtered copy, so
+// they never reach the client.
 func filterResponseHeaders(src http.Header) http.Header {
-	if src == nil {
-		return nil
-	}
 	out := http.Header{}
-	for _, key := range []string{"Content-Type", "Cache-Control", "X-Request-Id"} {
-		if v := src.Get(key); v != "" {
-			out.Set(key, v)
+	if src != nil {
+		for _, key := range []string{"Content-Type", "Cache-Control", "X-Request-Id"} {
+			if v := src.Get(key); v != "" {
+				out.Set(key, v)
+			}
 		}
 	}
 	if out.Get("Content-Type") == "" {
 		out.Set("Content-Type", "application/json; charset=utf-8")
 	}
 	return out
+}
+
+// withAccountIdentity stamps the credential that served a request onto the response
+// headers, for the interceptor to read.
+//
+// The label is the account's display name, the same string the account table shows —
+// so a line in the call log and a row in the pool read as the same account rather than
+// as a name and a uuid.
+func withAccountIdentity(headers http.Header, creds *workBuddyCredentials, authID string) http.Header {
+	if headers == nil {
+		headers = http.Header{}
+	}
+	uid := ""
+	label := ""
+	if creds != nil {
+		uid = strings.TrimSpace(creds.UID)
+		label = strings.TrimSpace(creds.Nickname)
+		if uid != "" {
+			headers.Set("X-WorkBuddy-Auth-Id", uid)
+		}
+		if variant := strings.TrimSpace(creds.Domain); variant != "" {
+			headers.Set("X-WorkBuddy-Variant", variantOfDomain(variant))
+		}
+	}
+	// The account table labels a credential with its nickname when known, otherwise
+	// with "WorkBuddy <uid>". The call log should say the same thing, so the label is
+	// resolved through the pool rather than left as a bare uuid.
+	if label == "" || label == uid {
+		label = accountDisplayLabelFor(uid, authID)
+	}
+	if label != "" {
+		headers.Set("X-WorkBuddy-Auth-Label", label)
+	}
+	// The interceptor matches on either, so a credential with no uid yet is still
+	// attributed.
+	if uid == "" && label != "" {
+		headers.Set("X-WorkBuddy-Auth-Id", label)
+	}
+	return headers
+}
+
+// accountDisplayLabelFor turns a credential identifier into the label the account table
+// would show for it, so a call log line and a pool row name the same account.
+//
+// Falls back to the identifier itself when the pool has no lane for it — a credential
+// the host offered but the plugin has not seen in this process yet.
+func accountDisplayLabelFor(uid, authIndex string) string {
+	uid = strings.TrimSpace(uid)
+	authIndex = strings.TrimSpace(authIndex)
+	if uid == "" && authIndex == "" {
+		return ""
+	}
+	// The lane's UID is CPA's runtime auth index, so the two identifiers are the same
+	// thing seen from different callers; match on either.
+	for _, lane := range state.pool.snapshot() {
+		if uid != "" && lane.UID != uid && lane.UID != authIndex {
+			continue
+		}
+		if label := strings.TrimSpace(lane.Label); label != "" {
+			return label
+		}
+		if lane.UID != "" {
+			return "WorkBuddy " + lane.UID
+		}
+	}
+	if uid != "" {
+		return "WorkBuddy " + uid
+	}
+	return authIndex
+}
+
+// variantOfDomain maps a credential's domain to the realm name the panel uses.
+func variantOfDomain(domain string) string {
+	if strings.Contains(strings.ToLower(domain), "codebuddy.cn") {
+		return string(variantCn)
+	}
+	return string(variantAi)
 }

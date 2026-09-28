@@ -46,16 +46,19 @@ type quotaState struct {
 
 // quotaRefreshResult is one credential's refresh outcome, shown on the page.
 type quotaRefreshResult struct {
-	AuthID    string    `json:"auth_id"`
-	Label     string    `json:"label"`
-	UID       string    `json:"uid"`
-	Domain    string    `json:"domain"`
-	Region    string    `json:"region"`
-	Credits   int64     `json:"credits"`
-	Known     bool      `json:"known"`
-	Message   string    `json:"message"`
-	Error     string    `json:"error,omitempty"`
-	FetchedAt time.Time `json:"fetched_at"`
+	AuthID  string `json:"auth_id"`
+	Label   string `json:"label"`
+	UID     string `json:"uid"`
+	Domain  string `json:"domain"`
+	Region  string `json:"region"`
+	Credits int64  `json:"credits"`
+	// CreditsTotal is the cycle capacity the balance is drawn from, so the row can
+	// show a ratio and a progress bar rather than a bare remainder.
+	CreditsTotal int64     `json:"credits_total"`
+	Known        bool      `json:"known"`
+	Message      string    `json:"message"`
+	Error        string    `json:"error,omitempty"`
+	FetchedAt    time.Time `json:"fetched_at"`
 }
 
 const quotaHistoryMax = 20
@@ -159,6 +162,7 @@ func fetchQuotaOne(account checkinAccount) quotaRefreshResult {
 	}
 
 	res.Credits = quota.Credits
+	res.CreditsTotal = int64(quota.Summary.Total)
 	res.Known = quota.Known
 	res.Message = quota.Message
 	if quota.Err != "" {
@@ -167,7 +171,7 @@ func fetchQuotaOne(account checkinAccount) quotaRefreshResult {
 
 	// Feeding the pool keeps the selection ordering aligned with the app:
 	// A0/s.java:596 picks the account with the greatest credits.
-	state.pool.setCreditsByAuthID(account.AuthID, account.Creds.UID, quota.Credits, quota.Known)
+	state.pool.setCreditsByAuthID(account.AuthID, account.Creds.UID, quota.Credits, int64(quota.Summary.Total), quota.Known)
 
 	state.quota.mu.Lock()
 	state.quota.byAuth[account.AuthID] = quota
@@ -370,7 +374,7 @@ func quotaFetch(request []byte) ([]byte, error) {
 
 	// Record it so the pool ordering and the page stay in sync.
 	authID := firstNonEmpty(req.AuthIndex, req.AuthID, creds.authID())
-	state.pool.setCreditsByAuthID(authID, creds.UID, quota.Credits, quota.Known)
+	state.pool.setCreditsByAuthID(authID, creds.UID, quota.Credits, int64(quota.Summary.Total), quota.Known)
 	state.quota.mu.Lock()
 	state.quota.byAuth[authID] = quota
 	state.quota.mu.Unlock()

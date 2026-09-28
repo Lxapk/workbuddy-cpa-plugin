@@ -273,7 +273,7 @@ func TestPoolPickSkipsUnusableRegardlessOfCredits(t *testing.T) {
 func TestPoolCreditsRecordedByAuthID(t *testing.T) {
 	p := newCredentialPool()
 	p.observe("codebuddy", "u-1", "Label")
-	p.setCreditsByAuthID("codebuddy-u-1.json", "u-1", 42, true)
+	p.setCreditsByAuthID("codebuddy-u-1.json", "u-1", 42, 100, true)
 
 	lane := p.pick("codebuddy", nil, time.Now())
 	if lane == nil || lane.Credits != 42 || !lane.CreditsKnown {

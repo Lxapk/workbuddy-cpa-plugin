@@ -56,6 +56,9 @@ type credentialLane struct {
 	UID string `json:"uid"`
 	// Label mirrors V1.n.c (user-facing account label).
 	Label string `json:"label"`
+	// CreditsTotal is the cycle capacity the balance is drawn from, so the panel can
+	// show a ratio instead of a bare remainder.
+	CreditsTotal int64 `json:"credits_total"`
 	// Disabled mirrors V1.n.e.
 	Disabled bool `json:"disabled"`
 	// DisabledByUser tracks manual toggles from the panel.
@@ -423,7 +426,29 @@ func (p *credentialPool) laneLocked(provider, uid string) *credentialLane {
 
 // setCreditsByAuthID records a reading when only the auth id is known.
 // It matches on uid first, then on the auth id itself.
-func (p *credentialPool) setCreditsByAuthID(authID, uid string, credits int64, known bool) {
+// creditsTotalFor returns the cycle capacity the pool recorded for a credential.
+//
+// The pool learns it whenever a refresh runs — including the background one — while the
+// panel's own quota cache is only updated by its queries. Reading through the pool means
+// the account row has a denominator even before the first manual refresh.
+func (p *credentialPool) creditsTotalFor(authID, uid string) int64 {
+	authID = strings.TrimSpace(authID)
+	uid = strings.TrimSpace(uid)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, key := range p.order {
+		lane := p.lanes[key]
+		if lane == nil {
+			continue
+		}
+		if (uid != "" && lane.UID == uid) || lane.UID == authID || key == workBuddyProviderKey+"/"+authID {
+			return lane.CreditsTotal
+		}
+	}
+	return 0
+}
+
+func (p *credentialPool) setCreditsByAuthID(authID, uid string, credits, total int64, known bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, key := range p.order {
@@ -433,6 +458,7 @@ func (p *credentialPool) setCreditsByAuthID(authID, uid string, credits int64, k
 		}
 		if (uid != "" && lane.UID == uid) || lane.UID == authID || key == workBuddyProviderKey+"/"+authID {
 			lane.Credits = credits
+			lane.CreditsTotal = total
 			lane.CreditsKnown = known
 			return
 		}

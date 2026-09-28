@@ -33,7 +33,17 @@ func interceptResponse(request []byte) ([]byte, error) {
 		}
 	}
 
-	ctx := resolveContext(req.RequestID, req.RequestHeaders, req.Model, req.RequestedModel, req.Stream)
+	// The account is stamped on the *response* headers by the executor, because that is
+	// the only place it is known: the credential is chosen when the request is
+	// executed, after RequestHeaders have already been fixed. Reading only
+	// RequestHeaders is why the per-account tallies (成功/失败, 用量, 最近成功) were
+	// always empty — the id was never there to find.
+	ctx := resolveContext(req.RequestID, req.ResponseHeaders, req.Model, req.RequestedModel, req.Stream)
+	if ctx.UID == "" {
+		// Fall back to the request headers: an older host, or a body that carries the
+		// identity itself, still works.
+		ctx = resolveContext(req.RequestID, req.RequestHeaders, req.Model, req.RequestedModel, req.Stream)
+	}
 	statusCode := req.StatusCode
 	if statusCode == 0 {
 		statusCode = http.StatusOK
@@ -158,7 +168,19 @@ func interceptStreamChunk(request []byte) ([]byte, error) {
 		}
 	}
 
-	ctx := resolveContext(req.RequestID, req.RequestHeaders, req.Model, req.RequestedModel, true)
+	ctx := resolveContext(req.RequestID, req.ResponseHeaders, req.Model, req.RequestedModel, true)
+	if ctx.UID == "" {
+		ctx = resolveContext(req.RequestID, req.RequestHeaders, req.Model, req.RequestedModel, true)
+	}
+	if ctx.Label == "" {
+		// The executor can also record the account against the request id before the
+		// response exists; the interceptor then finds it here rather than in a header.
+		if c, okCtx := inflight.get(req.RequestID); okCtx && c.UID != "" {
+			ctx.UID = c.UID
+			ctx.Label = c.Label
+			ctx.Variant = c.Variant
+		}
+	}
 
 	// Header-init: nothing to inspect, but remember the correlation context.
 	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
