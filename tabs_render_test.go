@@ -20,8 +20,8 @@ func TestEveryTabRendersContent(t *testing.T) {
 	page := renderMainPage()
 
 	tabs := []string{
-		"tab-tasks", "tab-accounts", "tab-switch",
-		"tab-credits", "tab-usage", "tab-settings",
+		"tab-tasks", "tab-accounts",
+		"tab-usage", "tab-settings",
 	}
 	for _, tab := range tabs {
 		section := sectionOf(page, tab)
@@ -182,9 +182,10 @@ func TestTableWrappersAreBalanced(t *testing.T) {
 	}
 	state.quota.mu.Unlock()
 
-	quotaTab := sectionOf(renderMainPage(), "tab-credits")
-	if !strings.Contains(quotaTab, `<div class="table-wrap">`) {
-		t.Error("积分页的结果表没有包滚动容器")
+	// 积分刷新结果现在在账号页里。
+	accountsTab := sectionOf(renderMainPage(), "tab-accounts")
+	if !strings.Contains(accountsTab, `id="quotaResults"`) {
+		t.Error("账号页缺少积分刷新结果的容器")
 	}
 
 	// 结果表自带 table-wrap，开闭必须配平。

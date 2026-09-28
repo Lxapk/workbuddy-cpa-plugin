@@ -73,7 +73,7 @@ func TestTaskTabOrder(t *testing.T) {
 		t.Fatal("未找到任务面板")
 	}
 
-	indexList := strings.Index(tasks, "任务列表")
+	indexList := strings.Index(tasks, "任务 <span")
 	indexCheckin := strings.Index(tasks, "每日签到")
 	indexRunAll := strings.Index(tasks, "全部执行")
 	indexAccounts := strings.Index(tasks, "账号任务状态")
@@ -87,11 +87,12 @@ func TestTaskTabOrder(t *testing.T) {
 		}
 	}
 
-	if !(indexList < indexCheckin) {
-		t.Errorf("每日签到应在任务列表之后（%d vs %d）", indexList, indexCheckin)
+	// 任务列表与执行按钮在同一张卡片里：统计在上、按钮在下、签到卡片随后。
+	if !(indexList < indexRunAll) {
+		t.Errorf("执行按钮应在任务卡片内、统计之后（%d vs %d）", indexList, indexRunAll)
 	}
-	if !(indexCheckin < indexRunAll) {
-		t.Errorf("每日签到应在「全部执行」之前（%d vs %d）", indexCheckin, indexRunAll)
+	if !(indexRunAll < indexCheckin) {
+		t.Errorf("每日签到应在执行按钮之后（%d vs %d）", indexRunAll, indexCheckin)
 	}
 	if !(indexRunAll < indexAccounts) {
 		t.Errorf("「全部执行」应在账号状态之前（%d vs %d）", indexRunAll, indexAccounts)
@@ -158,8 +159,7 @@ func TestEveryPanelSitsAtTheSameDepth(t *testing.T) {
 
 	depths := map[string]int{}
 	for _, tab := range []string{
-		"tab-accounts", "tab-switch", "tab-credits",
-		"tab-usage", "tab-tasks", "tab-settings",
+		"tab-accounts", "tab-usage", "tab-tasks", "tab-settings",
 	} {
 		marker := `id="` + tab + `"`
 		index := strings.Index(page, marker)

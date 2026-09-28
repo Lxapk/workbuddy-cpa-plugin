@@ -269,7 +269,7 @@ func quotaPage() string {
 			if !toBool(row["usable"]) {
 				usable = "⏸ 冷却中"
 			}
-			b.WriteString(`<tr><td>` + fmt.Sprint(i+1) + `</td>`)
+			b.WriteString(`<tr><td class="num" data-label="#">` + fmt.Sprint(i+1) + `</td>`)
 			b.WriteString(`<td>` + html.EscapeString(fmt.Sprint(row["label"])) + `</td>`)
 			b.WriteString(`<td>` + html.EscapeString(fmt.Sprint(row["credits"])) + `</td>`)
 			b.WriteString(`<td>` + html.EscapeString(fmt.Sprint(row["cool_kind"])) + `</td>`)
@@ -296,7 +296,7 @@ func renderQuotaResults(results []quotaRefreshResult) string {
 		if r.Error != "" {
 			note = r.Error
 		}
-		b.WriteString(`<tr><td>` + html.EscapeString(label) + `</td>`)
+		b.WriteString(`<tr><td data-label="账号">` + html.EscapeString(label) + `</td>`)
 		b.WriteString(`<td>` + html.EscapeString(r.Region) + `</td>`)
 		b.WriteString(`<td class="` + class + `">` + fmt.Sprint(r.Credits) + `</td>`)
 		b.WriteString(`<td>` + html.EscapeString(note) + `</td></tr>`)

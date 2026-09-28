@@ -301,17 +301,17 @@ func renderGrowthSection() string {
 				detail = ` <span class="muted small">` + html.EscapeString(run.Error) + `</span>`
 			}
 			b.WriteString(`<tr>`)
-			b.WriteString(`<td><strong>` + html.EscapeString(run.Label) + `</strong>` + detail + `</td>`)
-			b.WriteString(`<td><span class="pill ` + pillClass + `">` + text + `</span></td>`)
-			b.WriteString(`<td class="num">+` + itoa(run.Earned) + `</td>`)
-			b.WriteString(`<td class="num">` + itoa(run.Claimed) + `</td>`)
-			b.WriteString(`<td class="num">` + itoa(run.Skipped) + `</td>`)
-			b.WriteString(`<td class="num">` + itoa(run.Failed) + `</td>`)
+			b.WriteString(`<td data-label="账号"><strong>` + html.EscapeString(run.Label) + `</strong>` + detail + `</td>`)
+			b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + text + `</span></td>`)
+			b.WriteString(`<td class="num" data-label="新增积分">+` + itoa(run.Earned) + `</td>`)
+			b.WriteString(`<td class="num" data-label="领奖">` + itoa(run.Claimed) + `</td>`)
+			b.WriteString(`<td class="num" data-label="跳过">` + itoa(run.Skipped) + `</td>`)
+			b.WriteString(`<td class="num" data-label="失败">` + itoa(run.Failed) + `</td>`)
 			finished := "—"
 			if !run.FinishedAt.IsZero() {
 				finished = run.FinishedAt.Format("01-02 15:04")
 			}
-			b.WriteString(`<td class="muted small">` + finished + `</td>`)
+			b.WriteString(`<td class="muted small" data-label="完成时间">` + finished + `</td>`)
 			b.WriteString(`</tr>`)
 		}
 		b.WriteString(`</tbody></table></div>`)

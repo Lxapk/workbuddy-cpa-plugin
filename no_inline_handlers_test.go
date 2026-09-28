@@ -56,8 +56,7 @@ func TestTabButtonsAreWiredByDataAttributes(t *testing.T) {
 	page := renderMainPage()
 
 	tabs := []string{
-		"tab-accounts", "tab-switch",
-		"tab-credits", "tab-usage", "tab-tasks", "tab-settings",
+		"tab-accounts", "tab-usage", "tab-tasks", "tab-settings",
 	}
 	for _, tab := range tabs {
 		marker := `class="tab active" data-tab="` + tab + `"`

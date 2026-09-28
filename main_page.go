@@ -49,6 +49,32 @@ func renderCheckinCards(settings gatewaySettings, history []checkinRun) string {
 	return b.String()
 }
 
+// renderQuotaScheduleCard builds the credit-refresh schedule controls.
+//
+// The readings themselves live as columns on the account table, so a tab that showed
+// them again was redundancy. Only the schedule needs a home, and it sits next to the
+// data it maintains.
+func renderQuotaScheduleCard(settings gatewaySettings) string {
+	var b strings.Builder
+	b.WriteString(`<div class="card"><h2>积分自动刷新 <span class="hint">积分决定账号选用顺序</span></h2>`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qEnabled"`)
+	if settings.Quota.Enabled {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启用定时刷新</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field">每 <input type="number" id="qInterval" min="5" max="1440" value="` +
+		fmt.Sprint(clampIntervalMinutes(settings.Quota.IntervalMinutes)) + `"> 分钟刷新一次</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qOnStart"`)
+	if settings.Quota.RefreshOnStart {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启动时刷新一次</label></div>`)
+	b.WriteString(`<div class="row"><button type="button" data-call="saveQuotaSettings">保存</button>`)
+	b.WriteString(`<span class="muted small" id="quotaMsg"></span></div>`)
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
 // renderUsageTrend draws the last few days of traffic as a bar chart.
 //
 // The chart is filled in by JavaScript rather than rendered here: the table below
@@ -78,31 +104,37 @@ func renderTaskPage() string {
 
 	var b strings.Builder
 	b.WriteString(`<div id="tab-tasks" class="wb-panel">`)
-	b.WriteString(`<div class="card"><h2>任务列表</h2><div class="grid stats">`)
+	// Task list and the run controls share one card.
+	//
+	// They were two cards with the counters in one and the buttons in the other,
+	// which asked the reader to hold two places at once for a single question —
+	// "what is scheduled, and how do I run it". The counters are the header of the
+	// same card that holds the buttons.
+	b.WriteString(`<div class="card"><h2>任务 <span class="hint">成长任务、签到与猫猫旅行</span></h2>`)
+	b.WriteString(`<div class="grid stats">`)
 	stat := func(k string, v any) {
 		b.WriteString(`<div class="stat"><div class="v">` + fmt.Sprint(v) + `</div><div class="k">` + k + `</div></div>`)
 	}
 	stat("账号数", len(accounts))
 	stat("正在运行", running)
 	stat("排队中", queued)
-	b.WriteString(`</div></div>`)
+	b.WriteString(`</div>`)
 
-	// The daily sign-in sits between the task list and the run controls: it is
-	// scheduled work like the rest of this page, and putting it above the buttons
-	// means it reads as one more thing that runs rather than an afterthought
-	// appended below the actions.
-	b.WriteString(renderCheckinCards(state.settings.get(), state.checkin.snapshot(1)))
-
-	b.WriteString(`<div class="card"><div class="row">`)
+	b.WriteString(`<div class="row" style="margin-top:12px">`)
 	b.WriteString(`<button type="button" id="btnRunAllTasks" data-call="runAllTasks">全部执行</button>`)
 	b.WriteString(`<button type="button" class="ghost" id="btnRunGrowth" data-call="runGrowthTasks">完成成长任务</button>`)
 	b.WriteString(`<button type="button" class="ghost" id="btnTravel" data-call="runTravel">猫猫旅行</button>`)
-	b.WriteString(`<span class="muted small" id="taskMsg"></span>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="note">「完成成长任务」会自动接取、点亮并领取每日成长任务奖励，顺带检查猫猫旅行。` +
+	b.WriteString(`<div class="muted small" id="taskMsg"></div>`)
+	b.WriteString(`<div class="note">「全部执行」会依次完成成长任务、签到与猫猫旅行。` +
 		`需要真实桌面操作的任务（如资料库、发现应用）无法代做，会列出深链提示；国际版账号不在成长任务中心范围内，会自动跳过。</div>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div id="taskResult"></div>`)
+
+	// The daily sign-in sits with the other scheduled work, after the run controls:
+	// pressing "全部执行" covers it, so the card is for configuring and reviewing it
+	// rather than for starting it.
+	b.WriteString(renderCheckinCards(state.settings.get(), state.checkin.snapshot(1)))
 
 	b.WriteString(renderGrowthSection())
 
@@ -123,7 +155,7 @@ func renderTaskPage() string {
 				enableCls = "muted"
 				enableText = "禁用"
 			}
-			b.WriteString(`<tr><td><strong>` + html.EscapeString(label) + `</strong></td>`)
+			b.WriteString(`<tr><td data-label="账号"><strong>` + html.EscapeString(label) + `</strong></td>`)
 			btnCls := "pill " + enableCls
 			// The button offers the opposite of the current state, so an enabled
 			// account gets "disable". The previous code derived the action from
@@ -132,7 +164,7 @@ func renderTaskPage() string {
 			if enabled {
 				action = "disable"
 			}
-			b.WriteString(`<td><span class="` + btnCls + `" style="cursor:pointer" ` +
+			b.WriteString(`<td data-label="启用"><span class="` + btnCls + `" style="cursor:pointer" ` +
 				`data-task-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + action + `">` +
 				enableText + `</span></td>`)
 			if queuedFlag || inflight > 0 {
@@ -140,13 +172,13 @@ func renderTaskPage() string {
 				b.WriteString(`</tr>`)
 				continue
 			}
-			b.WriteString(`<td>`)
+			b.WriteString(`<td data-label="任务">`)
 			tasks, _ := acct["tasks"].([]map[string]any)
 			for _, t := range tasks[:min(len(tasks), 1)] {
 				label, _ := t["label"].(string)
 				b.WriteString(html.EscapeString(label))
 			}
-			b.WriteString(`</td><td class="mono muted">`)
+			b.WriteString(`</td><td class="mono muted" data-label="上次">`)
 			for _, t := range tasks[:min(len(tasks), 1)] {
 				lr, _ := t["last_run"].(string)
 				if lr != "" && len(lr) > 16 {
@@ -155,7 +187,7 @@ func renderTaskPage() string {
 					b.WriteString("—")
 				}
 			}
-			b.WriteString(`</td><td>`)
+			b.WriteString(`</td><td data-label="结果">`)
 			for _, t := range tasks[:min(len(tasks), 1)] {
 				lr, _ := t["last_result"].(string)
 				lok, _ := t["last_ok"].(bool)
@@ -237,8 +269,6 @@ func renderMainPage() string {
 			html.EscapeString(label) + `</button>`)
 	}
 	tab("tab-accounts", "账号", true)
-	tab("tab-switch", "账号切换", false)
-	tab("tab-credits", "积分", false)
 	tab("tab-usage", "统计", false)
 	tab("tab-tasks", "任务", false)
 	tab("tab-settings", "设置", false)
@@ -342,9 +372,12 @@ func renderMainPage() string {
 	b.WriteString(`<div id="runResult"></div></div>`)
 	b.WriteString(`</div>`)
 
-	// ---------------- tab: switching strategy ----------------
+	// ---------------- switching strategy (lives on the account tab) ----------------
+	//
+	// The strategy and the account list answer the same question — how requests are
+	// spread across these accounts — so they belong on one tab. A separate
+	// "switching" tab made the operator jump between two views of the same thing.
 	routing := routingStatusJSON()
-	b.WriteString(`<div id="tab-switch" class="wb-panel">`)
 	b.WriteString(`<div class="card"><h2>账号切换策略 <span class="hint">请求如何在这些账号之间分配</span></h2>`)
 	options, _ := routing["options"].([]map[string]any)
 	current, _ := routing["strategy"].(string)
@@ -381,19 +414,18 @@ func renderMainPage() string {
 			b.WriteString(`<td class="num">` + html.EscapeString(cv) + `</td>`)
 			b.WriteString(`<td class="num">` + fmt.Sprint(row["picks"]) + `</td></tr>`)
 		}
-		// Closes the scroll wrapper, then the card. The card is opened above and the
-		// wrapper inside it; leaving the card open here makes this panel one level
-		// short of closed, and every later tab ends up nested inside it.
 		b.WriteString(`</tbody></table></div>`)
 		b.WriteString(`</div>`)
 	} else {
-		// The card closes on the same line: an empty state does not need a wrapper,
-		// and adding one here would need a matching close further down that the
-		// populated branch does not have.
 		b.WriteString(`<div class="card"><div class="empty">暂无可用账号，无法预览顺序。</div></div>`)
 	}
-	// Closes the tab-switch panel itself.
-	b.WriteString(`</div>`)
+
+	// ---------------- credits schedule (lives on the account tab) ----------------
+	//
+	// The credit *readings* are already columns on the account table, so a separate
+	// credits tab showed the same numbers twice. Only the schedule — how often to
+	// refresh them — needs a home, and it belongs next to the data it maintains.
+	b.WriteString(renderQuotaScheduleCard(settings))
 
 	// ---------------- check-in (lives inside the tasks tab) ----------------
 	//
@@ -404,41 +436,24 @@ func renderMainPage() string {
 	// The markup is emitted here but placed by renderIntoTaskTab below, which keeps
 	// the two halves of the panel in one place while still producing a single
 	// container in the output.
-	// ---------------- tab: credits ----------------
-	b.WriteString(`<div id="tab-credits" class="wb-panel">`)
-	b.WriteString(`<div class="card"><h2>自动刷新积分</h2>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qEnabled"`)
-	if settings.Quota.Enabled {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启用定时刷新积分</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field">每 <input type="number" id="qInterval" min="5" max="1440" value="` +
-		fmt.Sprint(clampIntervalMinutes(settings.Quota.IntervalMinutes)) + `"> 分钟刷新一次</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qOnStart"`)
-	if settings.Quota.RefreshOnStart {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启动时刷新一次</label></div>`)
-	b.WriteString(`<div class="row"><button type="button" data-call="saveQuotaSettings">保存</button>`)
-	b.WriteString(`<button type="button" class="ghost" data-call="refreshQuota">立即刷新积分</button></div>`)
-	b.WriteString(`<div class="note">积分决定账号选用顺序：源应用按剩余积分从多到少选用。</div>`)
-	b.WriteString(`</div>`)
-
-	b.WriteString(`<div class="card"><h2>账号积分</h2>`)
+	// ---------------- credits refresh result (lives on the account tab) ----------------
+	//
+	// The per-account readings are already columns on the account table; this card
+	// only carries the outcome of the last sweep, so it is placed next to the
+	// schedule that produces it and not in a tab of its own.
 	state.quota.mu.Lock()
 	lastRun := append([]quotaRefreshResult(nil), state.quota.lastRun...)
 	state.quota.mu.Unlock()
-	// Wrapped in a container the script can replace after a refresh, so the table
-	// updates in place instead of the whole page reloading.
+	b.WriteString(`<div class="card"><h2>积分刷新结果 <span class="hint">上次刷新的明细</span></h2>`)
 	b.WriteString(`<div id="quotaResults">`)
 	if len(lastRun) == 0 {
-		b.WriteString(`<div class="empty">点「立即刷新积分」查询各账号的剩余积分与到期时间。</div>`)
+		b.WriteString(`<div class="empty">点上方「刷新」即可一次获取所有账号的积分。</div>`)
 	} else {
 		b.WriteString(renderQuotaResults(lastRun))
 	}
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="muted small" id="quotaMsg"></div>`)
-	b.WriteString(`</div></div>`)
+	b.WriteString(`</div>`)
 
 	// ---------------- tab: usage ----------------
 	b.WriteString(`<div id="tab-usage" class="wb-panel">`)

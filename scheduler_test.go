@@ -664,8 +664,11 @@ func TestMainPageShowsStrategySection(t *testing.T) {
 			t.Errorf("combined page missing %q", want)
 		}
 	}
-	// The strategy view is a tab on the combined page, not a separate screen.
-	if !strings.Contains(page, `data-tab="tab-switch"`) {
-		t.Error("expected a tab for the switching strategy")
+	// The strategy lives on the account tab, together with the list it governs.
+	if !strings.Contains(page, "账号切换策略") {
+		t.Error("expected the switching strategy on the account page")
+	}
+	if strings.Contains(page, `data-tab="tab-switch"`) {
+		t.Error("切换策略不应再有独立标签页")
 	}
 }

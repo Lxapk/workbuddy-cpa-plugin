@@ -213,10 +213,10 @@ func mainPageScript() string {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        enabled: !!document.getElementById('ckEnabled').checked,
-        hour: parseInt(document.getElementById('ckHour').value, 10) || 0,
-        minute: parseInt(document.getElementById('ckMinute').value, 10) || 0,
-        on_start: !!document.getElementById('ckOnStart').checked
+        enabled: readChecked('ckEnabled', false),
+        hour: readNumber('ckHour', 0),
+        minute: readNumber('ckMinute', 0),
+        on_start: readChecked('ckOnStart', false)
       })
     }).then(function () {
       if (msg) { msg.textContent = '设置已保存'; msg.className = 'small ok'; }
@@ -226,6 +226,25 @@ func mainPageScript() string {
     });
   };
 
+  // readChecked / readNumber read a control without assuming it exists.
+  //
+  // getElementById(...).checked throws when the element is absent, and an exception
+  // inside a .then() handler silently kills the rest of that promise chain — the
+  // visible symptom is a panel that stops updating, with the real cause several
+  // layers away. The elements can legitimately be missing: the panel is rendered by
+  // the server, and a control only exists on the tab that owns it.
+  function readChecked(id, fallback) {
+    var el = document.getElementById(id);
+    return el ? !!el.checked : !!fallback;
+  }
+
+  function readNumber(id, fallback) {
+    var el = document.getElementById(id);
+    if (!el) return fallback;
+    var parsed = parseInt(el.value, 10);
+    return isNaN(parsed) ? fallback : parsed;
+  }
+
   // ---- quota -----------------------------------------------------------
   window.saveQuotaSettings = function () {
     msgSet('quotaMsg', '保存中…', 'muted');
@@ -233,9 +252,9 @@ func mainPageScript() string {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        enabled: !!document.getElementById('qEnabled').checked,
-        interval_minutes: parseInt(document.getElementById('qInterval').value, 10) || 30,
-        on_start: !!document.getElementById('qOnStart').checked
+        enabled: readChecked('qEnabled', false),
+        interval_minutes: readNumber('qInterval', 30),
+        on_start: readChecked('qOnStart', false)
       })
     }).then(function () {
       msgSet('quotaMsg', '设置已保存', 'ok');

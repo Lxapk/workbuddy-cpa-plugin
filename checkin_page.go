@@ -381,7 +381,7 @@ func renderRun(run checkinRun) string {
 			class, text = "warn", "已签到"
 		}
 		label := firstNonEmpty(r.Label, r.AuthID)
-		b.WriteString(`<tr><td>` + html.EscapeString(label) + `</td>`)
+		b.WriteString(`<tr><td data-label="账号">` + html.EscapeString(label) + `</td>`)
 		b.WriteString(`<td><code>` + html.EscapeString(firstNonEmpty(r.UID, r.AuthID)) + `</code></td>`)
 		b.WriteString(`<td class="` + class + `">` + text + `</td>`)
 		msg := firstNonEmpty(r.Error, r.Message)
