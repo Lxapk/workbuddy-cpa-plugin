@@ -140,3 +140,57 @@ func readSourceFile(t *testing.T, name string) string {
 	}
 	return string(data)
 }
+
+// 面板是三段式：标题区、标签栏、内容框架，自上而下。
+//
+// 用户描述的布局：顶部是「WorkBuddy 控制台」和描述，中间是各项标签，下方是标签下的
+// 框架。标题区与标签栏分开，这样面板先说明自己是什么，再提供导航。
+func TestThreePartLayout(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+
+	header := strings.Index(page, `class="page-header"`)
+	tabs := strings.Index(page, `class="tabbar"`)
+	main := strings.Index(page, `class="main"`)
+
+	if header < 0 || tabs < 0 || main < 0 {
+		t.Fatalf("缺少区段：header=%d tabbar=%d main=%d", header, tabs, main)
+	}
+	if !(header < tabs && tabs < main) {
+		t.Errorf("顺序应为 标题区 → 标签栏 → 内容框架，实际 %d / %d / %d", header, tabs, main)
+	}
+
+	// 标题区里有标题与描述。
+	section := page[header : header+400]
+	if !strings.Contains(section, "WorkBuddy 控制台") {
+		t.Error("标题区缺少标题")
+	}
+	if !strings.Contains(section, `class="desc"`) {
+		t.Error("标题区缺少描述")
+	}
+
+	// 各页不再有重复的标题：顶部已经说明了这是什么。
+	for _, gone := range []string{"<h1>账号</h1>", "<h1>任务</h1>", "<h1>用量</h1>", "<h1>设置</h1>"} {
+		if strings.Contains(page, gone) {
+			t.Errorf("仍存在页面级标题：%s", gone)
+		}
+	}
+}
+
+// 四个标签都要在标签栏里，并且指向存在的页面。
+func TestTabBarHoldsEveryPage(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+
+	bar := page[strings.Index(page, `class="tabbar"`):]
+	bar = bar[:strings.Index(bar, "</nav>")]
+	for _, view := range []string{"view-accounts", "view-tasks", "view-usage", "view-settings"} {
+		if !strings.Contains(bar, `data-view="`+view+`"`) {
+			t.Errorf("标签栏缺少 %s", view)
+		}
+	}
+	// 标签栏里不该混入品牌块：标题区已经承担了那个角色。
+	if strings.Contains(bar, "brand") {
+		t.Error("标签栏里仍有品牌块，标题区已负责说明身份")
+	}
+}

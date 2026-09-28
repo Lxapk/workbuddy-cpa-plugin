@@ -143,39 +143,51 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* ======================= shell ======================= */
-/* One surface throughout: the tab strip sits on the page background rather than on a
-   panel of its own colour, so the page reads as a single sheet with a row of tabs. */
+/* One surface throughout: the header, the tab strip and the page frame all sit on the
+   page background, so the panel reads as a single sheet rather than stacked panels.
+   This mirrors how the host renders a plugin page — it sets its own content area to
+   var(--bg-secondary) for exactly this case. */
 .shell { display: block; min-height: 100vh; background: var(--bg-secondary); }
+
+/* Title block, above the tabs. The host offsets its content by the header height; the
+   panel is inside a frame that already has that offset, so it needs only a little
+   breathing room at the top and enough clearance for the browser's own floating
+   controls in the top-right corner. */
+.page-header {
+  padding: 30px 22px 16px;
+  max-width: 1280px; margin: 0 auto;
+}
+.page-header h1 {
+  font-size: 20px; font-weight: 650; letter-spacing: -.02em;
+  color: var(--text-primary);
+}
+.page-header .desc {
+  color: var(--text-tertiary); font-size: 13px; margin-top: 6px;
+  max-width: 62ch; line-height: 1.6;
+}
 
 .tabbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: stretch; gap: 2px;
-  padding: 0 18px;
+  padding: 0 22px;
+  max-width: 1280px; margin: 0 auto; width: 100%;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto; scrollbar-width: none;
 }
 .tabbar::-webkit-scrollbar { display: none; }
-.tabbar .brand {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 0 16px 0 0; margin-right: 6px;
-  border-right: 1px solid var(--border-color);
-  white-space: nowrap;
-}
-.tabbar .brand .name { font-weight: 650; font-size: 14px; letter-spacing: -.01em; }
-.tabbar .brand .ver { color: var(--text-tertiary); font-size: 11.5px; font-family: var(--mono); }
 /* The tab: an underline indicator, quiet at rest. Taken from the host's own tab
    component — colour and weight change, plus a 2px bar under the active label. */
 .tab {
   position: relative; display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
   border: 0; background: none; cursor: pointer;
-  padding: 14px 12px 13px; border-radius: 8px 8px 0 0;
-  font: 550 13px/1 var(--sans); color: var(--text-secondary);
+  padding: 13px 13px 12px; border-radius: 8px 8px 0 0;
+  font: 550 13.5px/1 var(--sans); color: var(--text-secondary);
   white-space: nowrap;
   transition: color 200ms ease, background-color 200ms ease;
 }
 .tab::after {
-  content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px;
+  content: ''; position: absolute; left: 11px; right: 11px; bottom: -1px;
   height: 2px; border-radius: var(--radius-full); background: transparent;
 }
 .tab:hover { color: var(--text-primary); background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent); }
@@ -183,10 +195,6 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .tab.on::after { background: var(--text-primary); }
 
 .main { padding: 20px 22px 44px; max-width: 1280px; margin: 0 auto; min-width: 0; }
-.page-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
-.page-head h1 { font-size: 19px; font-weight: 650; letter-spacing: -.02em; }
-.page-head .sub { color: var(--text-tertiary); font-size: 12.5px; margin-top: 4px; }
-.page-head .grow { flex: 1; }
 
 /* ======================= box (card) ======================= */
 .box {
@@ -410,15 +418,15 @@ details > summary { cursor: pointer; }
 /* ======================= narrow ======================= */
 @media (max-width: 768px) {
   /* The host's floating controls sit over the frame's top-right corner; on a phone
-     they are wider relative to the viewport, so the tab strip gets extra clearance. */
-  .tabbar { padding: 8px 12px 0; }
-  .tabbar .brand { display: none; }
+     they are wider relative to the viewport, so the header gets extra clearance. */
+  .page-header { padding: 34px 12px 12px; }
+  .page-header h1 { font-size: 17px; }
+  .page-header .desc { font-size: 12px; margin-top: 5px; }
+
+  .tabbar { padding: 0 12px; }
   .tab { padding: 12px 11px 11px; font-size: 13px; }
 
   .main { padding: 14px 12px 36px; }
-  .page-head { margin-bottom: 14px; }
-  .page-head h1 { font-size: 17px; }
-  .page-head .sub { font-size: 12px; }
 
   /* Touch targets: 44px is the accepted minimum, desktop sizes land near 30px. */
   button, .btn, select,

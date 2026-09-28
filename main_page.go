@@ -19,13 +19,18 @@ import (
 )
 
 // renderMainPage builds the whole document.
+//
+// Layout, top to bottom: a title block, the tab strip, then the page frame holding
+// whichever page is showing. The title block is separate from the tabs so the panel
+// announces what it is before offering navigation.
 func renderMainPage() string {
 	var b strings.Builder
 	b.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">`)
 	b.WriteString(`<meta name="viewport" content="width=device-width,initial-scale=1">`)
-	b.WriteString(`<title>WorkBuddy</title><style>` + uiCSS + `</style></head><body>`)
+	b.WriteString(`<title>WorkBuddy 控制台</title><style>` + uiCSS + `</style></head><body>`)
 
 	b.WriteString(`<div class="shell">`)
+	b.WriteString(renderHeader())
 	b.WriteString(renderNav())
 	b.WriteString(`<main class="main">`)
 
@@ -43,7 +48,18 @@ func renderMainPage() string {
 	return b.String()
 }
 
-// renderNav builds the tab strip above the content.
+// renderHeader is the title block above the tabs.
+func renderHeader() string {
+	var b strings.Builder
+	b.WriteString(`<header class="page-header">`)
+	b.WriteString(`<h1>WorkBuddy 控制台</h1>`)
+	b.WriteString(`<p class="desc">把 WorkBuddy 账号反代为 CPA 的 OpenAI 兼容接口：` +
+		`账号轮换、模型调用、每日签到与积分管理。</p>`)
+	b.WriteString(`</header>`)
+	return b.String()
+}
+
+// renderNav builds the tab strip between the header and the page frame.
 //
 // Tabs rather than a side column: this matches the host's own section navigation, and
 // the panel is usually viewed in a narrow webview where a 196px column costs more than
@@ -51,8 +67,6 @@ func renderMainPage() string {
 func renderNav() string {
 	var b strings.Builder
 	b.WriteString(`<nav class="tabbar">`)
-	b.WriteString(`<span class="brand"><span class="name">WorkBuddy</span>`)
-	b.WriteString(`<span class="ver">v` + pluginVersion + `</span></span>`)
 	for _, item := range []struct{ view, label string }{
 		{"view-accounts", "账号"},
 		{"view-tasks", "任务"},
@@ -78,8 +92,6 @@ func renderAccountsView() string {
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-accounts">`)
-	b.WriteString(`<div class="page-head"><div><h1>账号</h1>`)
-	b.WriteString(`<div class="sub">账号池与积分</div></div></div>`)
 
 	// ---- summary ----
 	b.WriteString(`<div class="stats">`)
@@ -125,10 +137,6 @@ func renderUsageView() string {
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-usage" hidden>`)
-	b.WriteString(`<div class="page-head"><div><h1>用量</h1>`)
-	b.WriteString(`<div class="sub">仅统计经本插件转发的调用</div></div>`)
-	b.WriteString(`<span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="refreshUsage">刷新</button></div>`)
 
 	b.WriteString(`<div class="stats">`)
 	statCard(&b, "", "总调用", totals.TotalCalls)
@@ -139,7 +147,8 @@ func renderUsageView() string {
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>用量趋势 <span class="hint">最近 7 天</span></h3></header>`)
+	b.WriteString(`<header><h3>用量趋势 <span class="hint">最近 7 天</span></h3><span class="grow"></span>`)
+	b.WriteString(`<button type="button" class="xs" data-call="refreshUsage">刷新</button></header>`)
 	b.WriteString(`<div id="usageTrend" class="trend"><div class="empty">正在加载…</div></div>`)
 	b.WriteString(`<div class="trend-legend">`)
 	b.WriteString(`<span><i class="sw sw-ok"></i>成功</span>`)
@@ -167,8 +176,6 @@ func renderTasksView() string {
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-tasks" hidden>`)
-	b.WriteString(`<div class="page-head"><div><h1>任务</h1>`)
-	b.WriteString(`<div class="sub">成长任务、每日签到与猫猫旅行</div></div></div>`)
 
 	// Runs and the controls that start them share one card: they answer one question
 	// — what is scheduled, and how do I run it.
@@ -209,8 +216,6 @@ func renderSettingsView() string {
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-settings" hidden>`)
-	b.WriteString(`<div class="page-head"><div><h1>设置</h1>`)
-	b.WriteString(`<div class="sub">路由策略、本机凭据与供应商选择</div></div></div>`)
 
 	// Routing is a policy, not a property of the account list, so it belongs with the
 	// other settings.
