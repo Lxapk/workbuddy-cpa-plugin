@@ -60,27 +60,35 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* ======================= shell ======================= */
-.shell { display: grid; grid-template-columns: 196px 1fr; min-height: 100vh; }
+/* The nav sits above the content as a horizontal bar.
+   A side column was tried and rejected: this panel is usually viewed in a narrow
+   in-app webview, where 196px of chrome costs more than it gives, and the horizontal
+   strip keeps the full width for the tables. */
+.shell { display: block; }
 .nav {
-  background: var(--surface); border-right: 1px solid var(--line);
-  display: flex; flex-direction: column;
-  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 18px; overflow-x: auto;
 }
-.brand { padding: 18px 16px 14px; border-bottom: 1px solid var(--line-soft); }
+.brand { padding: 12px 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
 .brand .name { font-weight: 650; letter-spacing: -.01em; font-size: 15px; }
-.brand .sub { color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); margin-top: 3px; }
-.nav ul { list-style: none; padding: 9px 8px; flex: 1; }
+.brand .sub { color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); }
+.nav ul { list-style: none; display: flex; gap: 3px; flex: 1; padding: 0; }
 .nav a {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 11px; margin-bottom: 2px; border-radius: 8px;
-  color: var(--ink-2); font-size: 13.5px; font-weight: 500; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 13px 14px; color: var(--ink-2); font-size: 13.5px; font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+  /* The active marker is an underline on the bar's bottom edge rather than a pill:
+     it reads as "which section am I in" without competing with the buttons inside
+     the cards, which are the controls that change things. */
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
-.nav a:hover { background: var(--surface-2); color: var(--ink); }
-.nav a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.nav a .ic { width: 15px; text-align: center; opacity: .85; }
-.nav .foot { padding: 11px 15px; border-top: 1px solid var(--line-soft); color: var(--ink-3); font-size: 11.5px; }
+.nav a:hover { color: var(--ink); }
+.nav a.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.nav .foot { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; padding: 12px 0; }
 
-.main { padding: 20px 22px 44px; max-width: 1320px; min-width: 0; }
+.main { padding: 20px 22px 44px; max-width: 1320px; margin: 0 auto; min-width: 0; }
 .page-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
 .page-head h1 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
 .page-head .sub { color: var(--ink-3); font-size: 12.5px; margin-top: 4px; }
@@ -284,18 +292,10 @@ details > summary { cursor: pointer; }
 
 /* ======================= narrow ======================= */
 @media (max-width: 760px) {
-  /* The side nav becomes a horizontal strip above the content: a 196px column on a
-     360px screen would leave too little for the tables. */
-  .shell { grid-template-columns: 1fr; }
-  .nav {
-    position: static; height: auto; flex-direction: row; align-items: center;
-    border-right: none; border-bottom: 1px solid var(--line); overflow-x: auto;
-  }
-  .brand { padding: 12px 14px; border-bottom: none; border-right: 1px solid var(--line-soft); white-space: nowrap; }
+  .nav { padding: 0 12px; gap: 10px; }
   .brand .sub { display: none; }
-  .nav ul { display: flex; gap: 4px; padding: 8px; }
-  .nav a { padding: 7px 11px; margin-bottom: 0; white-space: nowrap; }
   .nav .foot { display: none; }
+  .nav a { padding: 12px 10px; font-size: 13px; }
   .main { padding: 14px 12px 36px; }
   .page-head h1 { font-size: 17px; }
 
@@ -342,13 +342,30 @@ details > summary { cursor: pointer; }
 // every page ended up visible at once. The attribute is unambiguous.
 const uiTabsScript = `
 function showTab(id, link) {
+  // Accept either the full page id ("view-tasks") or the bare name ("tasks").
+  // The two callers disagree — the nav passes what its data attribute holds, and
+  // restoreTab passes what was stored — so normalising here removes the chance of a
+  // double prefix turning every lookup into a miss.
+  id = String(id || '');
+  if (id && id.indexOf('view-') !== 0) id = 'view-' + id;
+
   var pages = document.querySelectorAll('.view');
+  var shown = false;
   for (var i = 0; i < pages.length; i++) {
-    pages[i].hidden = pages[i].id !== id;
+    var match = pages[i].id === id;
+    pages[i].hidden = !match;
+    if (match) shown = true;
   }
+  // Never leave the page blank: if the id matched nothing (a stale stored value, a
+  // typo), fall back to the first page rather than hiding everything.
+  if (!shown && pages.length) {
+    pages[0].hidden = false;
+    id = pages[0].id;
+  }
+
   var links = document.querySelectorAll('.nav a[data-view]');
   for (var j = 0; j < links.length; j++) {
-    if (links[j].dataset.view === id.replace(/^view-/, '')) {
+    if (links[j].getAttribute('data-view') === id) {
       links[j].classList.add('on');
     } else {
       links[j].classList.remove('on');

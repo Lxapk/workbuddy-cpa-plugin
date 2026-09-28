@@ -1092,9 +1092,12 @@ func mainPageScript() string {
     var node = ev.target;
     while (node && node !== document) {
       // Nav links carry data-view; the page id is derived from it.
+      // The link carries the full page id, so no prefix is added here. Adding one
+      // produced "view-view-tasks" and every page stayed hidden — the click looked
+      // like it did nothing.
       if (node.hasAttribute && node.hasAttribute('data-view')) {
         ev.preventDefault();
-        showTab('view-' + node.getAttribute('data-view'), node);
+        showTab(node.getAttribute('data-view'), node);
         return;
       }
       if (dispatchDataCall(node)) {

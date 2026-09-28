@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -264,4 +265,54 @@ func functionBody(script, name string) string {
 		}
 	}
 	return script[start:]
+}
+
+// 导航链接的 data-view 必须与页面 id 完全一致。
+//
+// 用户报告：点任何一个导航项页面都变空白。
+//
+// 点击处理器一度写成 showTab('view-' + dataView)，而 data-view 的值本身已经是
+// "view-accounts"，拼出 "view-view-accounts"，一次都匹配不上。showTab 把每个页面
+// 都设为 hidden，于是什么都没显示——看起来像「点了没反应」。
+func TestNavTargetsMatchPageIDs(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+
+	pageIDs := map[string]bool{}
+	for _, m := range regexp.MustCompile(`<section class="view" id="([^"]+)"`).FindAllStringSubmatch(page, -1) {
+		pageIDs[m[1]] = true
+	}
+	if len(pageIDs) == 0 {
+		t.Fatal("没有找到页面容器")
+	}
+
+	targets := regexp.MustCompile(`data-view="([^"]+)"`).FindAllStringSubmatch(page, -1)
+	if len(targets) == 0 {
+		t.Fatal("导航没有任何 data-view")
+	}
+	for _, m := range targets {
+		if !pageIDs[m[1]] {
+			t.Errorf("导航指向 %q，但没有这个页面", m[1])
+		}
+	}
+
+	script := mainPageScript()
+	if strings.Contains(script, "'view-' + node.getAttribute('data-view')") {
+		t.Error("点击处理器给 data-view 又加了一次前缀")
+	}
+	if !strings.Contains(script, "showTab(node.getAttribute('data-view')") {
+		t.Error("点击处理器没有把 data-view 原样传给 showTab")
+	}
+}
+
+// showTab 必须容错：id 匹配不到任何页面时回退到第一页，而不是全部隐藏。
+func TestShowTabNeverLeavesThePageBlank(t *testing.T) {
+	tabs := uiTabsScript
+	if !strings.Contains(tabs, "if (!shown && pages.length)") {
+		t.Error("showTab 在 id 匹配失败时会把所有页面隐藏，留下空白")
+	}
+	if !strings.Contains(tabs, "id.indexOf('view-') !== 0") {
+		t.Error("showTab 未对 id 做前缀归一化")
+	}
 }
