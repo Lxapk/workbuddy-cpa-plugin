@@ -680,3 +680,59 @@ func TestAccountTableHasFiveColumns(t *testing.T) {
 		}
 	}
 }
+
+// 一个账号只能有一条 lane，无论调用方用哪个标识来称呼它。
+//
+// 用户看到「host 提供 2 个，本地 lanes=4」：拦截器用的是 CPA 的 auth id（auth 文件名，
+// 形如 codebuddy-<uid>.json），而账号表用的是凭据自身的 uid。同一个账号因此被建成两条
+// lane，账目对不上，调用记录里的账号名也和账号表列的不是同一个。
+//
+// canonicalUID 把两者归一到账号表使用的那一个。
+func TestCanonicalUIDCollapsesBothIdentifiers(t *testing.T) {
+	resetState()
+	installAuthList(t, nil)
+
+	uid := "42213638-073a-434a-90b7-42eff8af6478"
+	authIndex := "codebuddy-" + uid + ".json"
+
+	state.accounts.mu.Lock()
+	state.accounts.cached = []workBuddyAccount{
+		{Label: "国内一号", UID: uid, AuthIndex: authIndex, Variant: "cn"},
+	}
+	state.accounts.fetchedAt = timeNowForTest()
+	state.accounts.mu.Unlock()
+
+	if got := canonicalUID(authIndex); got != uid {
+		t.Errorf("auth id 未被归一：%q, want %q", got, uid)
+	}
+	if got := canonicalUID(uid); got != uid {
+		t.Errorf("uid 本身应原样返回：%q", got)
+	}
+	// 存储里没有的标识原样返回，不猜。
+	if got := canonicalUID("unknown-id"); got != "unknown-id" {
+		t.Errorf("未知标识应原样返回：%q", got)
+	}
+	if got := canonicalUID(""); got != "" {
+		t.Errorf("空值应返回空：%q", got)
+	}
+
+	// 两个标识注册后只应得到一条 lane。
+	state.pool.observe("codebuddy", uid, "国内一号")
+	state.pool.observe("codebuddy", authIndex, "国内一号")
+	if lanes := state.pool.snapshot(); len(lanes) != 1 {
+		t.Errorf("同一账号产生了 %d 条 lane，want 1", len(lanes))
+	}
+}
+
+// 诊断信息完全不再写入。
+//
+// 「选号：host 提供 N 个，本地 lanes=N（数量不一致）」是排查期间加的，根因已在
+// canonicalUID 处修掉。留着它只会在日志里增加像报错的行。
+func TestCandidateDiagnosticIsGone(t *testing.T) {
+	src := readSourceFile(t, "scheduler.go")
+	for _, gone := range []string{"选号：host 提供", "lastOffer"} {
+		if strings.Contains(src, gone) {
+			t.Errorf("scheduler.go 仍含已移除的诊断：%s", gone)
+		}
+	}
+}

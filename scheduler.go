@@ -115,11 +115,6 @@ type schedulerState struct {
 	// lastPickedID is the account most recently handed to a request, used as
 	// the "current account" in the rotation gate chain.
 	lastPickedID string
-	// lastOffer is the most recently logged description of the candidate set the
-	// host offered. The offer repeats on nearly every call, so it is only written
-	// to the call history when it changes; otherwise it would crowd out the
-	// failures that need reading.
-	lastOffer string
 }
 
 func newSchedulerState() *schedulerState {
@@ -484,19 +479,13 @@ func schedulerPick(request []byte) ([]byte, error) {
 	// call log where it reads like an error rather than a note. Now it is emitted
 	// only when the two counts disagree, which is the case that would actually need
 	// investigating: the host handed us credentials the pool has no lane for.
-	if offer := describeCandidates(req.Candidates); offer != state.scheduler.lastOffer {
-		state.scheduler.lastOffer = offer
-		lanes := len(state.pool.snapshot())
-		if len(req.Candidates) != lanes {
-			// A notice, not a call: it must not move the usage counters.
-			state.log.addNotice(callRecord{
-				ProviderID: req.Provider,
-				Model:      req.Model,
-				Error: fmt.Sprintf("选号：host 提供 %d 个，本地 lanes=%d（数量不一致）",
-					len(req.Candidates), lanes),
-			})
-		}
-	}
+	// The candidate set is no longer recorded here.
+	//
+	// It was added while diagnosing a report that "three accounts were only ever using
+	// one"; the diagnosis is done (the host was offering them correctly, and the real
+	// fault was two identifiers for one account, fixed in canonicalUID). Keeping a
+	// note that fires on every mismatch only added lines to the log that read like
+	// errors, so the branch is gone rather than merely quietened.
 	if len(candidates) == 0 {
 		// All candidates may have been parked for this model specifically. Say so,
 		// because "handled: false" sends the request back to the host, which then

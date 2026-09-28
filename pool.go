@@ -346,11 +346,40 @@ func newCredentialPool() *credentialPool {
 
 func laneKey(provider, uid string) string { return provider + "/" + uid }
 
+// canonicalUID maps a credential identifier onto the uid the account table shows.
+//
+// The wire gives us CPA's auth id (the auth file name, e.g.
+// "codebuddy-42213638-….json"); the account table keys on the credential's own uid
+// (e.g. "42213638-…"). Treating them as different identifiers created two lanes for one
+// account — the pool reported four credentials while the host offered two — and the
+// call log named an account the table did not list.
+//
+// Falls back to the input when the store has no row for it, which is the case for a
+// credential the host has offered but the plugin has not yet read.
+func canonicalUID(identifier string) string {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return ""
+	}
+	for _, account := range listWorkBuddyAccounts() {
+		if account.AuthIndex == identifier && account.UID != "" {
+			return account.UID
+		}
+		if account.UID == identifier {
+			return identifier
+		}
+	}
+	return identifier
+}
+
 // observe registers (or refreshes) a credential seen on the wire.
 func (p *credentialPool) observe(provider, uid, label string) *credentialLane {
 	if provider == "" || uid == "" {
 		return nil
 	}
+	// Normalise before keying: the wire's identifier and the table's identifier must
+	// land on the same lane, or one account becomes two.
+	uid = canonicalUID(uid)
 	key := laneKey(provider, uid)
 	p.mu.Lock()
 	lane, ok := p.lanes[key]

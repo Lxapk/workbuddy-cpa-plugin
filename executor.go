@@ -866,10 +866,16 @@ func accountDisplayLabelFor(uid, authIndex string) string {
 	if uid == "" && authIndex == "" {
 		return ""
 	}
-	// The lane's UID is CPA's runtime auth index, so the two identifiers are the same
-	// thing seen from different callers; match on either.
+	// The wire's identifier may be CPA's auth file name rather than the credential's
+	// uid; resolve it first so the pool lookup below has something to match.
+	identifier := uid
+	if identifier == "" {
+		identifier = authIndex
+	}
+	identifier = canonicalUID(identifier)
+
 	for _, lane := range state.pool.snapshot() {
-		if uid != "" && lane.UID != uid && lane.UID != authIndex {
+		if lane.UID != identifier && lane.UID != uid && lane.UID != authIndex {
 			continue
 		}
 		if label := strings.TrimSpace(lane.Label); label != "" {
@@ -879,8 +885,8 @@ func accountDisplayLabelFor(uid, authIndex string) string {
 			return "WorkBuddy " + lane.UID
 		}
 	}
-	if uid != "" {
-		return "WorkBuddy " + uid
+	if identifier != "" {
+		return "WorkBuddy " + identifier
 	}
 	return authIndex
 }
