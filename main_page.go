@@ -87,6 +87,12 @@ func renderTaskPage() string {
 	stat("排队中", queued)
 	b.WriteString(`</div></div>`)
 
+	// The daily sign-in sits between the task list and the run controls: it is
+	// scheduled work like the rest of this page, and putting it above the buttons
+	// means it reads as one more thing that runs rather than an afterthought
+	// appended below the actions.
+	b.WriteString(renderCheckinCards(state.settings.get(), state.checkin.snapshot(1)))
+
 	b.WriteString(`<div class="card"><div class="row">`)
 	b.WriteString(`<button type="button" id="btnRunAllTasks" data-call="runAllTasks">全部执行</button>`)
 	b.WriteString(`<button type="button" class="ghost" id="btnRunGrowth" data-call="runGrowthTasks">完成成长任务</button>`)
@@ -160,9 +166,6 @@ func renderTaskPage() string {
 		}
 		b.WriteString(`</tbody></table></div>`)
 	}
-	// The daily sign-in sits with the other tasks: it is scheduled work, and an
-	// operator checking "what runs today" should not have to change tabs for it.
-	b.WriteString(renderCheckinCards(state.settings.get(), state.checkin.snapshot(1)))
 	b.WriteString(`</div></div>`)
 	return b.String()
 }
@@ -949,7 +952,13 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">` +
 			`<td data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
 		b.WriteString(`<td data-label="UID"><code>` + html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `</code></td>`)
-		b.WriteString(`<td class="num" data-label="积分">` + html.EscapeString(cv) + `</td>`)
+		// The credit cell carries the uid so a per-account refresh can update just
+		// this number. Reloading the page would also show the new value, but it
+		// costs the operator their scroll position and the tab they are on — for a
+		// single number that is a bad trade.
+		b.WriteString(`<td class="num" data-label="积分" data-credits-for="` +
+			html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `">` +
+			html.EscapeString(cv) + `</td>`)
 		b.WriteString(`<td class="` + expiryClass + `" data-label="到期">` + html.EscapeString(expiry) + `</td>`)
 		b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + statusText + `</span>`)
 		if detail != "" {

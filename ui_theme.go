@@ -296,6 +296,16 @@ details.log-group .count + * { margin-left: 0; }
 .log-scroll { max-height: 320px; overflow-y: auto; }
 .log-scroll::-webkit-scrollbar { width: 8px; }
 .log-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+/* A value that just changed gets a brief highlight. Without it an updated number
+   that happens to look the same gives no feedback that the action did anything. */
+@keyframes value-flash {
+  from { background: var(--accent-soft); }
+  to { background: transparent; }
+}
+.flash { animation: value-flash .9s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: none; background: var(--accent-soft); }
+}
 /* ---------- usage trend ---------- */
 .trend { padding: 4px 0 0; color: var(--text); }
 .trend-svg { display: block; width: 100%; height: auto; max-height: 200px; }
@@ -462,8 +472,13 @@ function showTab(id, btn) {
   try { localStorage.setItem('workbuddy-panel-tab', id); } catch (e) {}
   // The usage tab's chart is only fetched while it is visible, so switching to it
   // has to ask for the data rather than waiting for the next tick.
-  if (id === 'tab-usage' && typeof refreshUsageTrend === 'function') {
-    refreshUsageTrend();
+  //
+  // The hook is looked up as a property of window, not as a bare identifier:
+  // showTab is top-level but the fetch lives inside the page's IIFE, so a bare
+  // reference would resolve to undefined and the chart would stay on its loading
+  // placeholder forever.
+  if (id === 'tab-usage' && typeof window.refreshUsageTrend === 'function') {
+    window.refreshUsageTrend();
   }
 }
 function restoreTab() {

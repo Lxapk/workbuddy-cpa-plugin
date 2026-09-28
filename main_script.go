@@ -479,6 +479,10 @@ func mainPageScript() string {
       renderUsageTrend(d && d.usage_daily);
     }).catch(function () { /* transient; the next tick retries */ });
   }
+  // Exposed for showTab, which is defined outside this closure (it is injected as
+  // plain top-level script so the tab bar works even if this block fails to run).
+  // A bare identifier would not resolve across that boundary.
+  window.refreshUsageTrend = refreshUsageTrend;
 
   function usageTabVisible() {
     var panel = document.getElementById('tab-usage');
@@ -694,10 +698,24 @@ func mainPageScript() string {
     call(BASE + '/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
       .then(function (data) {
         var results = (data && data.results) || [];
-        var hit = results[0] || {};
-        var message = hit.error ? ('积分查询失败：' + hit.error)
-                                : ('剩余积分 ' + (hit.credits != null ? hit.credits : '未知'));
-        toast(message, hit.error ? 'bad' : 'ok');
+        var hit = null;
+        for (var i = 0; i < results.length; i++) {
+          if (results[i] && results[i].uid === uid) { hit = results[i]; break; }
+        }
+        if (!hit && results.length === 1) hit = results[0];
+
+        var updated = updateCreditCell(uid, hit);
+        var message;
+        if (hit && hit.error) {
+          message = '积分查询失败：' + hit.error;
+        } else if (hit && hit.known) {
+          message = '剩余积分 ' + hit.credits + (updated ? '（已更新）' : '');
+        } else if (hit) {
+          message = '已查询，但上游未返回积分数值';
+        } else {
+          message = '已查询，未匹配到该账号的返回';
+        }
+        toast(message, hit && hit.error ? 'bad' : 'ok');
       })
       .catch(function (err) { toast('积分查询失败：' + err.message, 'bad'); })
       .then(function () {
@@ -707,6 +725,39 @@ func mainPageScript() string {
         }
       });
   };
+
+  // updateCreditCell writes a fresh credit reading into the row's credit cell.
+  //
+  // The cell carries data-credits-for, so the number can be replaced in place.
+  // Reloading the page would show the same value, but it also costs the operator
+  // their scroll position and dismisses whatever they were reading — a bad trade
+  // for one figure.
+  //
+  // Returns whether anything was written. Not finding the cell is not an error:
+  // the list may have been re-rendered, or the account may be filtered out of
+  // view, and the toast still has something useful to say.
+  function updateCreditCell(uid, result) {
+    if (!uid || !result || result.error || !result.known) return false;
+    var cell = document.querySelector('[data-credits-for="' + cssEscape(uid) + '"]');
+    if (!cell) return false;
+    cell.textContent = String(result.credits);
+    // Brief highlight so the change is visible; without it a number that happens
+    // to be unchanged looks like nothing happened.
+    cell.classList.add('flash');
+    setTimeout(function () { cell.classList.remove('flash'); }, 900);
+    return true;
+  }
+
+  // cssEscape quotes a value for use inside an attribute selector.
+  //
+  // CSS.escape is not present everywhere, and an upstream-provided value can
+  // contain quotes or brackets, which would make the selector invalid and throw.
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/["\\\]\[]/g, function (c) { return '\\' + c; });
+  }
 
   // toast shows a short, self-dismissing notice in the corner.
   //
