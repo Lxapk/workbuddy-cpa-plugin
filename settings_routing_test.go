@@ -245,3 +245,57 @@ func stripCSSComments(css string) string {
 		css = css[:start] + css[start+end+2:]
 	}
 }
+
+// 卡片规格要对齐宿主的 SectionCard。
+//
+// 用户对比截图时指出圆角与底色不对。从源码看，宿主的配置卡片是：
+//
+//	border-radius: 14px            自己定的值，不用 12px 的令牌
+//	padding: clamp(20px, 2.4vw, 28px)
+//	background: color-mix(… var(--bg-primary) 82%, transparent)
+//
+// 半透明那一点尤其重要：底色透出来，卡片才不会像贴上去的色块。
+func TestCardMatchesHostSectionCard(t *testing.T) {
+	css := uiCSS
+
+	for _, want := range []string{
+		"--radius-card: 14px",
+		"border-radius: var(--radius-card)",
+		"border-radius: var(--radius-card);", // .stats 也用同一规格
+		"color-mix(in srgb, var(--bg-primary) 88%",
+		"padding: var(--space-lg)",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("卡片规格缺少 %s", want)
+		}
+	}
+
+	// 旧的 8px 圆角不该再用于卡片。
+	box := css[strings.Index(css, ".box {"):]
+	box = box[:strings.Index(box, "}")]
+	if strings.Contains(box, "var(--radius-md)") {
+		t.Error("卡片仍在用 8px 圆角")
+	}
+
+	// 命中宿主的间距与圆角刻度。
+	for _, tok := range []string{"--space-sm: 8px", "--space-md: 16px", "--space-lg: 24px", "--radius-lg: 12px"} {
+		if !strings.Contains(css, tok) {
+			t.Errorf("缺少与宿主一致的刻度 %s", tok)
+		}
+	}
+}
+
+// 卡片入场动画与宿主同拍，并且只对可见页生效。
+func TestCardEntranceMatchesHost(t *testing.T) {
+	css := uiCSS
+	if !strings.Contains(css, "keyframes card-in") {
+		t.Fatal("缺少卡片入场动画")
+	}
+	if !strings.Contains(css, ".view:not([hidden]) .box { animation: card-in .45s") {
+		t.Error("动画时长或作用范围与宿主不一致；隐藏页不应参与")
+	}
+	// 尊重减弱动效偏好。
+	if !strings.Contains(css, "prefers-reduced-motion: reduce") {
+		t.Error("缺少减弱动效的处理")
+	}
+}

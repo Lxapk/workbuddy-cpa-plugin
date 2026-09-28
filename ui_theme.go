@@ -62,9 +62,22 @@ const uiCSS = `
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3);
   --shadow-lg: 0 14px 30px rgba(0, 0, 0, 0.4);
 
+  --radius-sm: 4px;
   --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 14px;   /* the host's config card uses 14px, not the 12px token */
   --radius-full: 9999px;
-  --header-height: 56px;
+
+  /* Spacing scale (variables.scss). */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  --dur-fast: 150ms;
+  --dur-normal: 300ms;
+  --ease: ease;
 
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
@@ -106,9 +119,22 @@ const uiCSS = `
   --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08);
   --shadow-lg: 0 10px 18px -3px rgb(0 0 0 / 0.1);
 
+  --radius-sm: 4px;
   --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 14px;   /* the host's config card uses 14px, not the 12px token */
   --radius-full: 9999px;
-  --header-height: 56px;
+
+  /* Spacing scale (variables.scss). */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  --dur-fast: 150ms;
+  --dur-normal: 300ms;
+  --ease: ease;
 
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
@@ -203,41 +229,58 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .main { padding: 20px 22px 44px; max-width: 1280px; margin: 0 auto; min-width: 0; }
 
 /* ======================= box (card) ======================= */
+/* Matches the host's SectionCard: 14px radius (its own value, not the 12px token),
+   a very light border, and generous padding — clamp(20px, 2.4vw, 28px) on the config
+   card, 24px ($spacing-lg) on the sidebar card. The panel uses one value that lands
+   between them so the cards look the same at any width.
+ *
+ * The background is mostly opaque rather than fully so: the host's config card is
+ * color-mix(... var(--bg-primary) 82%, transparent), which lets the page tone show
+ * through and keeps the card from reading as a pasted-on rectangle. */
 .box {
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow);
-  margin-bottom: 16px; overflow: hidden;
+  margin-bottom: var(--space-md); overflow: hidden;
 }
 /* The header is the card's control strip: title left, actions right, .grow between. */
 .box > header {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 12px 16px; border-bottom: 1px solid var(--border-color);
+  display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap;
+  padding: 14px var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
 }
-.box > header h3 { font-size: 13.5px; font-weight: 600; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
-.box > header h3 .hint { font-size: 11.5px; font-weight: 400; color: var(--text-tertiary); }
+.box > header h3 {
+  font-size: 15px; font-weight: 680; letter-spacing: -.01em;
+  display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+}
+.box > header h3 .hint { font-size: 12px; font-weight: 400; color: var(--text-secondary); }
 .box > header .grow { flex: 1; min-width: 0; }
-.box > header .note { color: var(--text-tertiary); font-size: 12px; }
-.box .pad { padding: 16px; }
+.box > header .note { color: var(--text-secondary); font-size: 12.5px; }
+.box .pad { padding: var(--space-lg); }
 .box .foot {
-  padding: 10px 16px; border-top: 1px solid var(--border-color);
-  color: var(--text-tertiary); font-size: 12px;
+  padding: 12px var(--space-lg);
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary); font-size: 12.5px;
 }
 
 /* ======================= stats ======================= */
+/* Same card treatment as .box so the strip reads as one more card in the column
+   rather than a different kind of object. */
 .stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  background: var(--bg-primary); border: 1px solid var(--border-color);
-  border-radius: var(--radius-md); box-shadow: var(--shadow);
-  overflow: hidden; margin-bottom: 16px;
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  overflow: hidden; margin-bottom: var(--space-md);
 }
-.stat { padding: 13px 15px; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
+.stat { padding: 16px 18px; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
 .stat .v {
-  font: 600 23px/1.15 var(--mono); font-variant-numeric: tabular-nums;
+  font: 650 24px/1.15 var(--mono); font-variant-numeric: tabular-nums;
   letter-spacing: -.02em; white-space: nowrap;
 }
-.stat .k { color: var(--text-tertiary); font-size: 11.5px; margin-top: 4px; }
+.stat .k { color: var(--text-secondary); font-size: 12px; margin-top: 5px; }
 .stat.good .v { color: var(--success-color); }
 .stat.warn .v { color: var(--quota-medium-color); }
 .stat.bad .v { color: var(--error-color); }
@@ -248,12 +291,12 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
-  text-align: left; font-weight: 500; font-size: 11.5px; color: var(--text-tertiary);
-  padding: 9px 12px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
+  text-align: left; font-weight: 550; font-size: 12px; color: var(--text-secondary);
+  padding: 11px 14px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
 }
-td { padding: 9px 12px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+td { padding: 11px 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent); }
+tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.actions { white-space: nowrap; text-align: right; }
 
@@ -420,6 +463,15 @@ details > summary { cursor: pointer; }
 
 @keyframes value-flash { from { background: color-mix(in srgb, var(--success-color) 18%, transparent); } to { background: transparent; } }
 .flash { animation: value-flash .9s ease-out; }
+
+/* Cards rise into place on first paint, like the host's own cards
+   (config-card-in, 0.45s with a strong ease-out). Applied to the visible page only so
+   a hidden page does not animate when it is later revealed. */
+@keyframes card-in { from { opacity: 0; transform: translate3d(0, 16px, 0); } }
+.view:not([hidden]) .box { animation: card-in .45s cubic-bezier(.22, 1, .36, 1) backwards; }
+.view:not([hidden]) .box:nth-child(2) { animation-delay: .06s; }
+.view:not([hidden]) .box:nth-child(3) { animation-delay: .12s; }
+.view:not([hidden]) .box:nth-child(4) { animation-delay: .18s; }
 
 /* ======================= narrow ======================= */
 @media (max-width: 768px) {
