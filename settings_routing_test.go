@@ -311,7 +311,7 @@ func TestAccountRowShowsTheReferenceColumns(t *testing.T) {
 	seedPanelAccounts(t)
 	page := renderMainPage()
 
-	for _, col := range []string{"账号", "状态", "积分", "成功 / 失败", "在途", "用量", "最近成功", "操作"} {
+	for _, col := range []string{"账号", "状态", "积分", "成功 / 失败", "操作"} {
 		if !strings.Contains(page, ">"+col+"<") && !strings.Contains(page, col+"</th>") &&
 			!strings.Contains(page, col+"<") {
 			t.Errorf("账号表缺少列 %s", col)
@@ -321,7 +321,6 @@ func TestAccountRowShowsTheReferenceColumns(t *testing.T) {
 	for _, want := range []string{
 		"credit-ratio",      // 剩余 / 总量
 		"credit-bar",        // 进度条
-		"upill",             // 用量小标签
 		`data-credits-for=`, // 可按行更新的锚点
 		`data-row-action="checkin"`,
 		`data-row-action="quota"`,
@@ -349,7 +348,7 @@ func TestAccountTableScrollsOnPhone(t *testing.T) {
 	phone := css[strings.Index(css, "@media (max-width: 768px)"):]
 
 	for _, want := range []string{
-		"table.accounts { min-width: 1000px; }",
+		"table.accounts { min-width: 700px; }",
 		"table.accounts thead { display: table-header-group; }",
 		"table.accounts td { display: table-cell;",
 	} {
@@ -613,5 +612,71 @@ func TestLegacyQuotaUsesRemainAsSizeWhenMissing(t *testing.T) {
 	if q.Summary.Total != 250 || q.Summary.Remaining != 250 {
 		t.Errorf("缺容量时应以剩余兜底：total=%v remaining=%v, want 250/250",
 			q.Summary.Total, q.Summary.Remaining)
+	}
+}
+
+// 点「余额」只更新数值，不改变积分格的形态。
+//
+// updateCreditCell 原先用 cell.textContent 整体替换，把「剩余 / 总量」与进度条一并
+// 抹掉，只剩一个裸数字——刷新一次余额反而把可读性毁了。现在它定位到具体元素逐个更新。
+func TestCreditRefreshKeepsTheCellShape(t *testing.T) {
+	script := mainPageScript()
+
+	if !strings.Contains(script, "cell.querySelector('.credit-remaining')") {
+		t.Error("刷新没有定位到剩余数值元素，可能仍在整体替换")
+	}
+	if !strings.Contains(script, "cell.querySelector('.credit-total')") {
+		t.Error("刷新没有更新总量")
+	}
+	if !strings.Contains(script, "cell.querySelector('.credit-bar > span')") {
+		t.Error("刷新没有更新进度条")
+	}
+	// 整体替换只在「没有容量」的分支里保留：那种单元格本来就只有数字。
+	if strings.Contains(script, "cell.textContent = String(result.credits);") &&
+		!strings.Contains(script, "} else {") {
+		t.Error("仍在无条件整体替换单元格内容")
+	}
+
+	// 服务端渲染要给出 JS 能定位的结构。
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+	for _, want := range []string{"credit-ratio", "credit-remaining", "credit-total", "credit-bar"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("积分格缺少 %s", want)
+		}
+	}
+}
+
+// 账号表只保留五列。
+//
+// 在途 / 用量 / 最近成功 按需求去掉：它们回答的问题在这张表里没人问，每列却各占一份
+// 宽度，剩下几列本可以用上。
+func TestAccountTableHasFiveColumns(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+
+	accounts := sectionOf(page, "view-accounts")
+	if accounts == "" {
+		t.Fatal("未找到账号页")
+	}
+	// 取账号表的表头。
+	start := strings.Index(accounts, `<table class="accounts"`)
+	if start < 0 {
+		t.Fatal("未找到账号表")
+	}
+	head := accounts[start:]
+	head = head[:strings.Index(head, "</thead>")]
+	// 只数 <th 元素：<thead> 本身也以 "<th" 开头，直接统计会多算一个。
+	cols := len(regexp.MustCompile(`<th[ >]`).FindAllString(head, -1))
+
+	if cols != 5 {
+		t.Errorf("账号表应有 5 列，实际 %d", cols)
+	}
+	for _, gone := range []string{"在途", "用量", "最近成功"} {
+		if strings.Contains(head, gone) {
+			t.Errorf("账号表仍含已移除的列 %s", gone)
+		}
 	}
 }

@@ -21,9 +21,6 @@ func TestAccountCellsCarryDataLabels(t *testing.T) {
 		`data-label="状态"`,
 		`data-label="积分"`,
 		`data-label="成功 / 失败"`,
-		`data-label="在途"`,
-		`data-label="用量"`,
-		`data-label="最近成功"`,
 	} {
 		if !strings.Contains(page, label) {
 			t.Errorf("账号表缺少 %s", label)

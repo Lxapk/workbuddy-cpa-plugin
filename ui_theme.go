@@ -326,7 +326,7 @@ td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: b
 
    min-width keeps the columns from being squeezed into unreadable slivers; the
    wrapper scrolls when the viewport is narrower. */
-table.accounts { min-width: 900px; }
+table.accounts { min-width: 620px; }
 table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
 /* The account cell is a heading for the row, so it gets a little more room. */
 table.accounts td:first-child { min-width: 150px; }
@@ -358,17 +358,9 @@ table.accounts td.actions button:first-child { margin-left: 0; }
 .credit-bar > span.warn { background: var(--quota-medium-color); }
 .credit-bar > span.bad { background: var(--error-color); }
 
-.usage-pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.upill {
-  display: inline-flex; align-items: center;
-  padding: 2px 7px; border-radius: var(--radius-sm);
-  font: 500 11.5px/1.5 var(--mono);
-  background: var(--bg-tertiary); color: var(--text-secondary);
-}
-.upill.info { background: color-mix(in srgb, var(--primary-color) 18%, transparent); color: var(--text-primary); }
-.upill.ok { background: color-mix(in srgb, var(--success-color) 14%, transparent); color: var(--success-color); }
-.upill.bad { background: color-mix(in srgb, var(--error-color) 16%, transparent); color: var(--error-color); }
-.upill.idle { color: var(--text-tertiary); }
+/* The credit total is quieter than the remainder: it is the denominator, not the
+   figure the operator is watching. */
+.credit-total { font-size: 11.5px; }
 
 /* ======================= badges ======================= */
 .pill {
@@ -600,7 +592,7 @@ details > summary { cursor: pointer; }
   table.data.calls { min-width: 760px; }
   table.data.tasks { min-width: 560px; }
   table.data.detail { min-width: 560px; }
-  table.accounts { min-width: 1000px; }
+  table.accounts { min-width: 700px; }
   table.data thead, table.accounts thead { display: table-header-group; }
   table.data tr, table.accounts tr { display: table-row; }
   table.data td, table.accounts td { display: table-cell; white-space: nowrap; }

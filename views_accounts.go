@@ -68,39 +68,20 @@ func accountCallStats(uid string) (success, failed int) {
 	return success, failed
 }
 
-// accountInflightCount returns how many task runs are currently in flight for an
-// account. Zero means idle; a non-zero value is what the row shows as 在途.
-func accountInflightCount(uid string) int {
-	if uid == "" {
-		return 0
-	}
-	status := taskStatusSnapshot()
-	accounts, _ := status["accounts"].([]map[string]any)
-	for _, acct := range accounts {
-		acctUID, _ := acct["uid"].(string)
-		if acctUID != uid {
-			continue
-		}
-		inflight, _ := acct["inflight"].(int)
-		if queuedFlag, _ := acct["queued"].(bool); queuedFlag {
-			inflight++
-		}
-		return inflight
-	}
-	return 0
-}
-
 // renderAccountTable draws the pool.
 //
-// Columns follow the reference layout: the account, its state, the credit ratio with a
-// bar, the call tally, anything in flight, a small usage breakdown, and the row's own
-// controls. The uid sits under the name in small type — it is an identifier, not a
-// column the operator scans by.
+// Columns: the account, its state, the credit ratio with a bar, the call tally, and
+// the row's own controls. The uid sits under the name in small type — it is an
+// identifier, not a column the operator scans by.
+//
+// 在途 / 用量 / 最近成功 were dropped at the operator's request: they answered
+// questions nobody was asking in this table, and each cost a column of width that the
+// remaining ones can use.
 func renderAccountTable(accounts []workBuddyAccount) string {
 	var b strings.Builder
 	b.WriteString(`<div class="tbl-wrap"><table class="accounts" data-account-table="1"><thead><tr>`)
 	b.WriteString(`<th>账号</th><th>状态</th><th>积分</th><th class="num">成功 / 失败</th>`)
-	b.WriteString(`<th class="num">在途</th><th>用量</th><th>最近成功</th><th class="actions">操作</th>`)
+	b.WriteString(`<th class="actions">操作</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, a := range accounts {
@@ -188,33 +169,6 @@ func renderAccountRow(a workBuddyAccount) string {
 		`<span class="` + map[bool]string{true: "bad-text", false: ""}[failed > 0] + `">` +
 		fmt.Sprint(failed) + `</span></td>`)
 
-	inflight := accountInflightCount(ident)
-	inflightText := "0"
-	inflightCls := "uid"
-	if inflight > 0 {
-		inflightText = fmt.Sprint(inflight)
-		inflightCls = "pill warn"
-	}
-	if inflightCls == "uid" {
-		b.WriteString(`<td class="num" data-label="在途"><span class="uid">0</span></td>`)
-	} else {
-		b.WriteString(`<td class="num" data-label="在途"><span class="pill warn">` + inflightText + `</span></td>`)
-	}
-
-	b.WriteString(`<td data-label="用量">` + renderUsagePills(success, failed) + `</td>`)
-
-	lastOK := "—"
-	for _, rec := range state.log.recent(500) {
-		if rec.UID != ident && rec.Label != ident {
-			continue
-		}
-		if rec.StatusCode < 400 && rec.Error == "" && !rec.StartedAt.IsZero() {
-			lastOK = humanizeSince(rec.StartedAt)
-			break
-		}
-	}
-	b.WriteString(`<td class="uid" data-label="最近成功">` + html.EscapeString(lastOK) + `</td>`)
-
 	// Row controls: sign in, refresh this account's balance, run its tasks, disable.
 	b.WriteString(`<td class="actions">`)
 	b.WriteString(`<button type="button" class="xs" data-row-action="checkin" data-uid="` +
@@ -263,7 +217,7 @@ func renderCreditsCell(a workBuddyAccount, ident string) string {
 			tone = "warn"
 		}
 		b.WriteString(`<span class="credit-ratio mono"><span class="credit-remaining ` + tone + `">` +
-			fmt.Sprint(a.Credits) + `</span><span class="uid"> / ` + fmt.Sprint(a.CreditsTotal) +
+			fmt.Sprint(a.Credits) + `</span><span class="credit-total uid"> / ` + fmt.Sprint(a.CreditsTotal) +
 			`</span></span>`)
 		b.WriteString(`<div class="credit-bar"><span class="` + tone + `" style="width:` +
 			fmt.Sprintf("%.1f", pct) + `%"></span></div>`)
@@ -280,28 +234,6 @@ func renderCreditsCell(a workBuddyAccount, ident string) string {
 	return b.String()
 }
 
-// renderUsagePills shows a compact breakdown of what an account has served.
-//
-// Four counts in coloured chips: the reference layout uses the same idea because a row
-// of small figures reads as "how is this account doing" at a glance, where a sentence
-// would have to be parsed.
-func renderUsagePills(success, failed int) string {
-	if success == 0 && failed == 0 {
-		return `<span class="uid">—</span>`
-	}
-	var b strings.Builder
-	b.WriteString(`<span class="usage-pills">`)
-	b.WriteString(`<span class="upill info">` + fmt.Sprint(success+failed) + ` 次</span>`)
-	b.WriteString(`<span class="upill ok">` + fmt.Sprint(success) + `</span>`)
-	if failed > 0 {
-		b.WriteString(`<span class="upill bad">` + fmt.Sprint(failed) + `</span>`)
-	} else {
-		b.WriteString(`<span class="upill idle">0</span>`)
-	}
-	b.WriteString(`</span>`)
-	return b.String()
-}
-
 // shortenUID trims a long identifier for display, keeping both ends so it is still
 // recognisable against the full value shown on hover.
 func shortenUID(uid string) string {
@@ -309,25 +241,6 @@ func shortenUID(uid string) string {
 		return uid
 	}
 	return uid[:12] + "…" + uid[len(uid)-6:]
-}
-
-// humanizeSince renders how long ago an instant was, in the compact form the table
-// uses ("12 秒前", "3 分钟前", "2 小时前").
-func humanizeSince(t time.Time) string {
-	if t.IsZero() {
-		return "—"
-	}
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%d 秒前", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d 小时前", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
-	}
 }
 
 // renderVariantBox draws the provider selection.

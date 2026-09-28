@@ -754,23 +754,48 @@ func mainPageScript() string {
 
 
 
-  // updateCreditCell writes a fresh credit reading into the row's credit cell.
+  // updateCreditCell writes a fresh credit reading into the cell of one account.
   //
-  // The cell carries data-credits-for, so the number can be replaced in place.
-  // Reloading the page would show the same value, but it also costs the operator
-  // their scroll position and dismisses whatever they were reading — a bad trade
-  // for one figure.
+  // Only the numbers move: the cell keeps its "remaining / total" structure and its
+  // progress bar. Replacing textContent wholesale — which this used to do — wiped both
+  // and left a bare figure, so refreshing a balance destroyed the layout that made the
+  // figure readable.
   //
-  // Returns whether anything was written. Not finding the cell is not an error:
-  // the list may have been re-rendered, or the account may be filtered out of
-  // view, and the toast still has something useful to say.
+  // Returns whether anything was written. A cell that cannot be found is not an error:
+  // the list may have been re-rendered, or the account may be filtered out of view.
   function updateCreditCell(uid, result) {
     if (!uid || !result || result.error || !result.known) return false;
     var cell = document.querySelector('[data-credits-for="' + cssEscape(uid) + '"]');
     if (!cell) return false;
-    cell.textContent = String(result.credits);
-    // Brief highlight so the change is visible; without it a number that happens
-    // to be unchanged looks like nothing happened.
+
+    var remaining = cell.querySelector('.credit-remaining');
+    if (remaining) {
+      // Structured cell: update the remainder, the total, and the bar.
+      remaining.textContent = String(result.credits);
+      var total = Number(result.credits_total) || 0;
+      var totalNode = cell.querySelector('.credit-total');
+      if (totalNode && total > 0) {
+        totalNode.textContent = ' / ' + total;
+      }
+      // Re-tone the number and the bar: a balance that dropped into the low band
+      // should look like it.
+      var pct = total > 0 ? Math.max(0, Math.min(100, (result.credits / total) * 100)) : 100;
+      var tone = pct <= 10 ? 'bad' : (pct <= 30 ? 'warn' : 'ok');
+      remaining.classList.remove('ok', 'warn', 'bad');
+      remaining.classList.add(total > 0 ? tone : 'ok');
+      var bar = cell.querySelector('.credit-bar > span');
+      if (bar) {
+        bar.style.width = pct.toFixed(1) + '%';
+        bar.classList.remove('ok', 'warn', 'bad');
+        bar.classList.add(tone);
+      }
+    } else {
+      // A cell with no capacity reported shows just the number; keep it that way.
+      cell.textContent = String(result.credits);
+    }
+
+    // Brief highlight so the change is visible; without it a number that happens to be
+    // unchanged looks like nothing happened.
     cell.classList.add('flash');
     setTimeout(function () { cell.classList.remove('flash'); }, 900);
     return true;
