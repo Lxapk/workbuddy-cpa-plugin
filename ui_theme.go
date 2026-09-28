@@ -20,6 +20,20 @@ package main
 //	narrow      phone adjustments
 const uiCSS = `
 /* ======================= tokens ======================= */
+/* Theme follows the host.
+ *
+ * The panel runs inside an iframe on CPA's management UI (CPAMC), which marks the
+ * document root with data-theme="dark" or data-theme="white" — and removes the
+ * attribute when the user picked "follow system". So the tokens are defined three
+ * ways, in the order the browser picks them:
+ *
+ *   1. :root[data-theme="dark"|"white"]   set by the page script after reading the host
+ *   2. @media (prefers-color-scheme: …)   the host's "follow system" case
+ *   3. :root                              the fallback
+ *
+ * "white" rather than "light" for the light value: that is the literal the host
+ * writes, and matching it is the whole point.
+ */
 :root {
   color-scheme: dark;
   --bg: #0c0e14; --surface: #14171f; --surface-2: #1a1e28; --raise: #202531;
@@ -33,7 +47,19 @@ const uiCSS = `
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
-[data-theme="light"] {
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0c0e14; --surface: #14171f; --surface-2: #1a1e28; --raise: #202531;
+  --line: #262c3a; --line-soft: #1e232e;
+  --ink: #e8ebf2; --ink-2: #a8b0c2; --ink-3: #6b7488;
+  --accent: #5b7cfa; --accent-ink: #ffffff; --accent-soft: rgba(91,124,250,.13);
+  --ok: #3ddc97; --ok-soft: rgba(61,220,151,.12);
+  --warn: #f5b544; --warn-soft: rgba(245,181,68,.12);
+  --bad: #f0655f; --bad-soft: rgba(240,101,95,.12);
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.5);
+}
+:root[data-theme="white"],
+:root[data-theme="light"] {
   color-scheme: light;
   --bg: #f4f5f8; --surface: #ffffff; --surface-2: #f8f9fb; --raise: #ffffff;
   --line: #e2e5ec; --line-soft: #eceef3;
@@ -43,6 +69,20 @@ const uiCSS = `
   --warn: #b47611; --warn-soft: rgba(180,118,17,.11);
   --bad: #cf3b34; --bad-soft: rgba(207,59,52,.09);
   --shadow: 0 1px 2px rgba(16,20,32,.06), 0 8px 24px -14px rgba(16,20,32,.14);
+}
+/* The host's "follow system" case: no attribute, so the media query decides. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f4f5f8; --surface: #ffffff; --surface-2: #f8f9fb; --raise: #ffffff;
+    --line: #e2e5ec; --line-soft: #eceef3;
+    --ink: #14171f; --ink-2: #545c6e; --ink-3: #8b93a5;
+    --accent: #3d5fe0; --accent-ink: #ffffff; --accent-soft: rgba(61,95,224,.09);
+    --ok: #0f9d63; --ok-soft: rgba(15,157,99,.1);
+    --warn: #b47611; --warn-soft: rgba(180,118,17,.11);
+    --bad: #cf3b34; --bad-soft: rgba(207,59,52,.09);
+    --shadow: 0 1px 2px rgba(16,20,32,.06), 0 8px 24px -14px rgba(16,20,32,.14);
+  }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* [hidden] must win over any display rule: the panel switches pages by setting this
@@ -341,6 +381,40 @@ details > summary { cursor: pointer; }
 // specificity, and any other rule that sets `display` silently wins — which is how
 // every page ended up visible at once. The attribute is unambiguous.
 const uiTabsScript = `
+// adoptHostTheme mirrors the host's theme onto this document.
+//
+// The panel is rendered in an iframe by CPA's management UI, which marks its own
+// <html> with data-theme="dark" / "white", or removes it when the user chose "follow
+// system". Reading that attribute keeps an explicit choice in sync; when it is absent
+// (or the frame is cross-origin, where the read throws) the stylesheet's
+// prefers-color-scheme rules take over, which is exactly what "follow system" means.
+//
+// Re-checked on a timer as well as at load: the host swaps the attribute without
+// reloading the iframe, and the panel would otherwise keep the theme it started with.
+function adoptHostTheme() {
+  var hostTheme = '';
+  try {
+    if (window.parent && window.parent !== window && window.parent.document) {
+      var hostRoot = window.parent.document.documentElement;
+      hostTheme = hostRoot.getAttribute('data-theme') || '';
+    }
+  } catch (e) {
+    // Cross-origin: the attribute is unreachable by design. Media queries cover it.
+    hostTheme = '';
+  }
+
+  var root = document.documentElement;
+  if (hostTheme === 'dark' || hostTheme === 'white') {
+    root.setAttribute('data-theme', hostTheme);
+  } else {
+    // No explicit host choice: let prefers-color-scheme decide.
+    root.removeAttribute('data-theme');
+  }
+}
+
+adoptHostTheme();
+setInterval(adoptHostTheme, 3000);
+
 function showTab(id, link) {
   // Accept either the full page id ("view-tasks") or the bare name ("tasks").
   // The two callers disagree — the nav passes what its data attribute holds, and

@@ -163,6 +163,30 @@ func (r *growthRunner) run(ctx context.Context, creds *workBuddyCredentials, lab
 	}
 	result.TaskCount = len(tasks)
 
+	// Say what the list contained before touching any of it.
+	//
+	// The run is long and mostly silent otherwise, so the operator cannot tell the
+	// difference between "the list came back empty" and "the pass is still working".
+	// Naming the tasks up front also makes the per-task outcome lines below readable:
+	// a failure there now refers to something the reader has already seen.
+	{
+		names := make([]string, 0, len(tasks))
+		done, pending := 0, 0
+		for _, task := range tasks {
+			label := firstNonEmpty(task.Name, task.Code)
+			names = append(names, label)
+			// A task is finished when its counter reached the target; anything else is
+			// still to do, whatever the status string says.
+			if task.Target > 0 && task.Current >= task.Target {
+				done++
+			} else {
+				pending++
+			}
+		}
+		logger.add("info", "已获取任务清单：%d 个（已完成 %d，待完成 %d）", len(tasks), done, pending)
+		logger.add("info", "任务：%s", strings.Join(names, "、"))
+	}
+
 	// Stage 1: accept everything that is not accepted yet.
 	tasks = r.acceptPending(ctx, creds, tasks, logger)
 

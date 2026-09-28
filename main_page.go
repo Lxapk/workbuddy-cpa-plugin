@@ -21,7 +21,7 @@ import (
 // renderMainPage builds the whole document.
 func renderMainPage() string {
 	var b strings.Builder
-	b.WriteString(`<!doctype html><html lang="zh-CN" data-theme="dark"><head><meta charset="utf-8">`)
+	b.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">`)
 	b.WriteString(`<meta name="viewport" content="width=device-width,initial-scale=1">`)
 	b.WriteString(`<title>WorkBuddy</title><style>` + uiCSS + `</style></head><body>`)
 
@@ -73,13 +73,12 @@ func renderNav() string {
 func renderAccountsView() string {
 	accounts := listWorkBuddyAccounts()
 	total, usable := accountCounts(accounts)
-	routing := routingStatusJSON()
 	settings := state.settings.get()
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-accounts">`)
 	b.WriteString(`<div class="page-head"><div><h1>账号</h1>`)
-	b.WriteString(`<div class="sub">账号池、路由策略与积分</div></div></div>`)
+	b.WriteString(`<div class="sub">账号池与积分</div></div></div>`)
 
 	// ---- summary ----
 	b.WriteString(`<div class="stats">`)
@@ -104,9 +103,6 @@ func renderAccountsView() string {
 		b.WriteString(renderAccountTable(accounts))
 	}
 	b.WriteString(`</div>`)
-
-	// ---- routing strategy ----
-	b.WriteString(renderRoutingBox(routing))
 
 	// ---- credit refresh ----
 	b.WriteString(renderQuotaBox(settings))
@@ -207,7 +203,11 @@ func renderSettingsView() string {
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-settings" hidden>`)
 	b.WriteString(`<div class="page-head"><div><h1>设置</h1>`)
-	b.WriteString(`<div class="sub">本机凭据与供应商选择</div></div></div>`)
+	b.WriteString(`<div class="sub">路由策略、本机凭据与供应商选择</div></div></div>`)
+
+	// Routing is a policy, not a property of the account list, so it belongs with the
+	// other settings.
+	b.WriteString(renderRoutingBox(routingStatusJSON()))
 
 	b.WriteString(`<div class="box">`)
 	b.WriteString(`<header><h3>管理密钥 <span class="hint">仅保存在本机浏览器</span></h3></header>`)

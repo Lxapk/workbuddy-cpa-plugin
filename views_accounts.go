@@ -159,65 +159,6 @@ func renderAccountRow(a workBuddyAccount) string {
 	return b.String()
 }
 
-// renderRoutingBox draws the request-distribution strategy and a preview of the
-// resulting order.
-//
-// The strategy and the pool are the same subject — how requests are spread over
-// these accounts — so they share a page, and the preview sits inside the same card as
-// the control that produces it.
-func renderRoutingBox(routing map[string]any) string {
-	var b strings.Builder
-	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>路由策略 <span class="hint">请求如何在这些账号之间分配</span></h3>`)
-	b.WriteString(`<span class="grow"></span>`)
-	b.WriteString(`<span class="note" id="strategyMsg"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="resetRotation">重置轮巡位置</button>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveStrategy">应用策略</button>`)
-	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-
-	options, _ := routing["options"].([]map[string]any)
-	current, _ := routing["strategy"].(string)
-	for _, opt := range options {
-		value, _ := opt["value"].(string)
-		label, _ := opt["label"].(string)
-		desc, _ := opt["description"].(string)
-		b.WriteString(`<label class="opt"><input type="radio" name="strategy" value="` + html.EscapeString(value) + `"`)
-		if value == current {
-			b.WriteString(` checked`)
-		}
-		b.WriteString(`><span><span class="name">` + html.EscapeString(label) + `</span><br>` +
-			`<span class="desc">` + html.EscapeString(desc) + `</span></span></label>`)
-	}
-
-	b.WriteString(`<div class="note" style="margin-top:10px">当前：<b>` +
-		html.EscapeString(fmt.Sprint(routing["strategy_label"])) + `</b> · ` +
-		html.EscapeString(nextRotationHint()) + `</div>`)
-	b.WriteString(`</div>`)
-
-	if rows, okRows := routing["order"].([]map[string]any); okRows && len(rows) > 0 {
-		b.WriteString(`<div class="tbl-wrap"><table><thead><tr>`)
-		b.WriteString(`<th class="num">#</th><th>账号</th><th class="num">积分</th><th class="num">已选中</th>`)
-		b.WriteString(`</tr></thead><tbody>`)
-		for _, row := range rows {
-			cv := "—"
-			if knownValue, _ := row["known"].(bool); knownValue {
-				cv = fmt.Sprint(row["credits"])
-			}
-			b.WriteString(`<tr><td class="num">` + fmt.Sprint(row["position"]) + `</td>`)
-			b.WriteString(`<td>` + html.EscapeString(fmt.Sprint(row["label"])) + `</td>`)
-			b.WriteString(`<td class="num">` + html.EscapeString(cv) + `</td>`)
-			b.WriteString(`<td class="num">` + fmt.Sprint(row["picks"]) + `</td></tr>`)
-		}
-		b.WriteString(`</tbody></table></div>`)
-	} else {
-		b.WriteString(`<div class="empty">暂无可用账号，无法预览顺序。</div>`)
-	}
-
-	b.WriteString(`</div>`)
-	return b.String()
-}
-
 // renderQuotaBox draws the outcome of the last credit sweep.
 //
 // The schedule controls used to live here too. They are gone: the panel fetches every
