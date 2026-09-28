@@ -262,15 +262,17 @@ func quotaLoop() {
 
 	// Startup pass so the page has data without waiting a whole interval.
 	//
-	// It runs through guardLoop like every scheduled tick: an unguarded panic in
-	// the startup pass would kill this goroutine before the select loop is ever
-	// reached, leaving the scheduler permanently dead with no visible symptom.
-	cfg := state.settings.get().Quota
-	if cfg.Enabled && cfg.RefreshOnStart {
-		guardLoop("quota-startup", func() {
-			_, _ = runQuotaRefresh("startup")
-		})
-	}
+	// It always runs, regardless of the schedule settings. The credit readings are the
+	// panel's main table, and an operator who opens it wants to see current numbers,
+	// not last session's — so the only sensible default is to fetch them on load. The
+	// periodic refresh stays opt-in, because that one spends upstream quota on a timer.
+	//
+	// It goes through guardLoop like every scheduled tick: an unguarded panic in the
+	// startup pass would kill this goroutine before the select loop is ever reached,
+	// leaving the scheduler permanently dead with no visible symptom.
+	guardLoop("quota-startup", func() {
+		_, _ = runQuotaRefresh("startup")
+	})
 
 	for {
 		select {

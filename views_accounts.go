@@ -218,10 +218,11 @@ func renderRoutingBox(routing map[string]any) string {
 	return b.String()
 }
 
-// renderQuotaBox draws the credit auto-refresh schedule and the last sweep's detail.
+// renderQuotaBox draws the outcome of the last credit sweep.
 //
-// The readings themselves are columns on the pool table; this card is about keeping
-// them fresh, so it lives with the pool rather than on a page of its own.
+// The schedule controls used to live here too. They are gone: the panel fetches every
+// account's balance on load, which is what the operator actually wanted — the
+// per-schedule toggles only asked them to configure something the panel could decide.
 func renderQuotaBox(settings gatewaySettings) string {
 	state.quota.mu.Lock()
 	lastRun := append([]quotaRefreshResult(nil), state.quota.lastRun...)
@@ -229,29 +230,14 @@ func renderQuotaBox(settings gatewaySettings) string {
 
 	var b strings.Builder
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>积分自动刷新 <span class="hint">积分决定账号选用顺序</span></h3>`)
+	b.WriteString(`<header><h3>积分刷新结果 <span class="hint">进入面板时自动刷新</span></h3>`)
 	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="quotaMsg"></span>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveQuotaSettings">保存</button>`)
 	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qEnabled"`)
-	if settings.Quota.Enabled {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启用定时刷新</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field">每 <input type="number" id="qInterval" min="5" max="1440" value="` +
-		fmt.Sprint(clampIntervalMinutes(settings.Quota.IntervalMinutes)) + `"> 分钟刷新一次</label></div>`)
-	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qOnStart"`)
-	if settings.Quota.RefreshOnStart {
-		b.WriteString(` checked`)
-	}
-	b.WriteString(`> 启动时刷新一次</label></div>`)
-	b.WriteString(`</div>`)
 
 	b.WriteString(`<div id="quotaResults">`)
 	if len(lastRun) == 0 {
-		b.WriteString(`<div class="empty">点上方「刷新账号与积分」一次获取所有账号的积分。</div>`)
+		b.WriteString(`<div class="empty">正在查询各账号的积分…若长时间没有结果，点上方「刷新账号与积分」。</div>`)
 	} else {
 		b.WriteString(renderQuotaResults(lastRun))
 	}

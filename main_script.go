@@ -157,7 +157,8 @@ func mainPageScript() string {
           (payload.checkin ? renderCheckin(payload.checkin) : '') +
           (payload.quota ? renderQuota(payload.quota) : '');
       }
-      setTimeout(function () { location.reload(); }, 1500);
+      // No reload: the result above is already on the page, and reloading a moment
+      // later is what made it flash by. Counters catch up on the next poll.
     }).catch(function (e) {
       msgSet('runMsg', '执行失败：' + e.message, 'bad');
     }).then(function () { if (btn) btn.disabled = false; });
@@ -200,9 +201,8 @@ func mainPageScript() string {
       msgSet('runMsg', '签到完成：成功 ' + (run.succeeded || 0) + ' / 失败 ' + (run.failed || 0), 'ok');
       var box = document.getElementById('taskResult');
       if (box) box.innerHTML = renderCheckin(run);
-      // The account table and the task counts are server-rendered, so reload once
-      // the run is in. Sign-in changes them for every account at once.
-      setTimeout(function () { location.reload(); }, 1500);
+      // No reload: the run's detail is rendered above and would otherwise be wiped
+      // before it could be read.
     }).catch(function (e) { msgSet('runMsg', '签到失败：' + e.message, 'bad'); });
   };
 
@@ -245,27 +245,8 @@ func mainPageScript() string {
     return isNaN(parsed) ? fallback : parsed;
   }
 
+
   // ---- quota -----------------------------------------------------------
-  window.saveQuotaSettings = function () {
-    msgSet('quotaMsg', '保存中…', 'muted');
-    call(BASE + '/quota/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        enabled: readChecked('qEnabled', false),
-        interval_minutes: readNumber('qInterval', 30),
-        on_start: readChecked('qOnStart', false)
-      })
-    }).then(function () {
-      msgSet('quotaMsg', '设置已保存', 'ok');
-      // The schedule text on this tab is server-rendered, so a reload is the
-      // simplest way to show the new value. Saving is an explicit act, unlike a
-      // background refresh, so losing the scroll position here is expected.
-      setTimeout(function () { location.reload(); }, 700);
-    }).catch(function (e) {
-      msgSet('quotaMsg', '保存失败：' + e.message, 'bad');
-    });
-  };
 
   window.refreshQuota = function () {
     msgSet('quotaMsg', '查询中…', 'muted');
@@ -398,7 +379,7 @@ func mainPageScript() string {
           (payload.checkin ? renderCheckin(payload.checkin) : '') +
           (payload.quota ? renderQuota(payload.quota) : '');
       }
-      setTimeout(function () { location.reload(); }, 1500);
+      // No reload: same reason as the sign-in path — the detail is already rendered.
     }).catch(function (e) {
       msgSet('taskMsg', '执行失败：' + e.message, 'bad');
     }).then(function () { if (btn) btn.disabled = false; });
@@ -620,7 +601,9 @@ func mainPageScript() string {
       if (box) {
         box.innerHTML = renderGrowthResult(lines, earned, payload.accounts_count || 0);
       }
-      setTimeout(function () { location.reload(); }, 2500);
+      // No reload here. The result is rendered in place, and reloading would wipe it
+      // a moment later — which is exactly what "the detail flashes by" meant. The
+      // page's counters catch up on the next poll.
     }).catch(function (e) {
       msgSet('taskMsg', '执行失败：' + e.message, 'bad');
     }).then(function () {

@@ -561,7 +561,7 @@ func TestQuotaPageRenders(t *testing.T) {
 		t.Fatalf("status=%d len=%d", mr.StatusCode, len(mr.Body))
 	}
 	page := string(mr.Body)
-	for _, want := range []string{"积分自动刷新", "quotaResults"} {
+	for _, want := range []string{"积分刷新结果", "quotaResults"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("combined page missing %q", want)
 		}

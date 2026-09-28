@@ -300,7 +300,7 @@ func TestSinglePageContainsEverything(t *testing.T) {
 		"账号池",      // account list
 		"账号总数",     // account summary
 		"每日签到",     // check-in schedule (on the tasks tab)
-		"积分自动刷新",   // quota schedule (on the account tab)
+		"积分刷新结果",   // credit sweep outcome (refreshed automatically on load)
 		"最近调用",     // usage
 		"Acct One", // the account is rendered server-side
 	} {
@@ -632,14 +632,21 @@ func TestPageScriptDefinesEveryCalledFunction(t *testing.T) {
 	}
 
 	// Handlers the markup references must exist too.
+	//
+	// saveQuotaSettings 不在此列：积分改为进入面板时自动刷新，那张设置卡已移除，
+	// 对应的处理器也一并删掉。
 	for _, handler := range []string{
 		"runAll", "refreshAccounts", "saveStrategy", "resetRotation",
-		"runCheckin", "saveCheckinSettings", "refreshQuota", "saveQuotaSettings",
+		"runCheckin", "saveCheckinSettings", "refreshQuota",
 		"saveKey", "clearKey",
 	} {
 		if !strings.Contains(page, "window."+handler+" =") {
 			t.Errorf("handler %s is referenced by the markup but never defined", handler)
 		}
+	}
+	// 已移除的处理器不应残留，也不应再被标记引用。
+	if strings.Contains(page, "saveQuotaSettings") {
+		t.Error("saveQuotaSettings 应已随积分设置卡一并移除")
 	}
 }
 
