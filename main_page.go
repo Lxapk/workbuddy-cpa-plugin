@@ -77,7 +77,7 @@ func renderTaskPage() string {
 	queued, _ := status["queued"].(int)
 
 	var b strings.Builder
-	b.WriteString(`<div id="tab-tasks" class="panel">`)
+	b.WriteString(`<div id="tab-tasks" class="wb-panel">`)
 	b.WriteString(`<div class="card"><h2>任务列表</h2><div class="grid stats">`)
 	stat := func(k string, v any) {
 		b.WriteString(`<div class="stat"><div class="v">` + fmt.Sprint(v) + `</div><div class="k">` + k + `</div></div>`)
@@ -245,7 +245,7 @@ func renderMainPage() string {
 	b.WriteString(`</div>`)
 
 	// ---------------- tab: accounts ----------------
-	b.WriteString(`<div id="tab-accounts" class="panel active">`)
+	b.WriteString(`<div id="tab-accounts" class="wb-panel active">`)
 	b.WriteString(`<div class="grid stats">`)
 	stat := func(k string, v any) {
 		b.WriteString(`<div class="stat"><div class="v">` +
@@ -262,10 +262,9 @@ func renderMainPage() string {
 	stat("已查积分", fmt.Sprintf("%d / %d", known, total))
 	b.WriteString(`</div>`)
 
-	b.WriteString(`<div class="card"><h2>账号列表 <span class="hint">读取自 CPA 认证存储，登录后自动出现</span></h2>`)
+	b.WriteString(`<div class="card"><h2>账号列表 <span class="hint">登录后自动出现</span></h2>`)
 	b.WriteString(`<input type="hidden" id="accountsSignature" value="` + html.EscapeString(accountsSignature(accounts)) + `">`)
-	b.WriteString(`<div class="muted small" id="accountsStamp"></div>`)
-	b.WriteString(`<div class="muted small" id="accountMsg"></div>`)
+	b.WriteString(`<div id="accountMsg"></div>`)
 	if len(accounts) > 0 {
 		// Filter bar. Rendering is client-side because the list is already on the
 		// page: a round trip per keystroke would be slower and would lose the
@@ -273,14 +272,12 @@ func renderMainPage() string {
 		//
 		// The input takes the flexible width and the controls after it size to their
 		// content, so the bar fills the card instead of leaving a gap on the right.
-		// A fixed-width input left roughly 40px of dead space next to the select at
-		// phone width.
 		b.WriteString(`<div class="filter-bar">`)
 		b.WriteString(`<span class="filter-search">`)
 		b.WriteString(`<svg class="filter-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">` +
 			`<circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.7"/>` +
 			`<path d="M10.4 10.4L14 14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`)
-		b.WriteString(`<input type="search" id="accountFilter" placeholder="搜索账号 / UID / 备注" autocomplete="off">`)
+		b.WriteString(`<input type="search" id="accountFilter" placeholder="搜索账号或备注" autocomplete="off">`)
 		b.WriteString(`<button type="button" class="filter-clear" id="accountFilterClear" title="清除" aria-label="清除搜索" hidden>` +
 			`<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">` +
 			`<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>` +
@@ -297,6 +294,11 @@ func renderMainPage() string {
 			b.WriteString(`<option value="` + option.value + `">` + option.label + `</option>`)
 		}
 		b.WriteString(`</select>`)
+		// Refresh moves next to the filter controls, where it acts on what is shown.
+		// It fetches the credit readings too, so a single press answers "which
+		// accounts do I have" and "what are they worth" at once.
+		b.WriteString(`<button type="button" class="ghost" data-call="refreshAccountsAndQuota" ` +
+			`title="重新读取账号列表并刷新积分">刷新</button>`)
 		b.WriteString(`<span class="filter-count muted small" id="accountFilterCount"></span>`)
 		b.WriteString(`</div>`)
 	}
@@ -342,7 +344,7 @@ func renderMainPage() string {
 
 	// ---------------- tab: switching strategy ----------------
 	routing := routingStatusJSON()
-	b.WriteString(`<div id="tab-switch" class="panel">`)
+	b.WriteString(`<div id="tab-switch" class="wb-panel">`)
 	b.WriteString(`<div class="card"><h2>账号切换策略 <span class="hint">请求如何在这些账号之间分配</span></h2>`)
 	options, _ := routing["options"].([]map[string]any)
 	current, _ := routing["strategy"].(string)
@@ -403,7 +405,7 @@ func renderMainPage() string {
 	// the two halves of the panel in one place while still producing a single
 	// container in the output.
 	// ---------------- tab: credits ----------------
-	b.WriteString(`<div id="tab-credits" class="panel">`)
+	b.WriteString(`<div id="tab-credits" class="wb-panel">`)
 	b.WriteString(`<div class="card"><h2>自动刷新积分</h2>`)
 	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="qEnabled"`)
 	if settings.Quota.Enabled {
@@ -439,7 +441,7 @@ func renderMainPage() string {
 	b.WriteString(`</div></div>`)
 
 	// ---------------- tab: usage ----------------
-	b.WriteString(`<div id="tab-usage" class="panel">`)
+	b.WriteString(`<div id="tab-usage" class="wb-panel">`)
 	b.WriteString(`<div class="grid stats">`)
 	stat("总调用", totals.TotalCalls)
 	stat("今日", totals.TodayCalls)
@@ -481,7 +483,7 @@ func renderMainPage() string {
 	// ---------------- tab: tasks ----------------
 	b.WriteString(renderTaskPage())
 	// ---------------- tab: settings ----------------
-	b.WriteString(`<div id="tab-settings" class="panel">`)
+	b.WriteString(`<div id="tab-settings" class="wb-panel">`)
 	b.WriteString(`<div class="card"><h2>管理密钥 <span class="hint">仅保存在本机浏览器</span></h2>`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" style="flex:1 1 320px">`)
 	b.WriteString(`<button type="button" data-call="saveKey">保存到浏览器</button>`)
@@ -907,7 +909,7 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 	}
 
 	b.WriteString(`<div class="table-wrap"><table data-account-table="1"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>UID</th><th class="num">积分</th><th>到期</th><th>状态</th><th class="actions">操作</th></tr></thead><tbody>`)
+	b.WriteString(`<th>账号</th><th class="num">积分</th><th>到期</th><th>状态</th><th class="actions">操作</th></tr></thead><tbody>`)
 	for _, a := range accounts {
 		pillClass, statusText := "ok", "可用"
 		detail := ""
@@ -958,15 +960,18 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		case a.CreditsExpireAt > 0:
 			expiry, expiryClass = fmt.Sprintf("%d 天后", a.CreditsExpireDays), "muted"
 		}
+		// The label carries everything the operator needs to identify a row: the
+		// upstream's display name, and the uid underneath in small type. A separate
+		// uid column was removed — the two read almost the same, so a second column
+		// spent width without adding information.
+		ident := firstNonEmpty(a.UID, a.AuthIndex)
 		b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">` +
-			`<td data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong></td>`)
-		b.WriteString(`<td data-label="UID"><code>` + html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `</code></td>`)
-		// The credit cell carries the uid so a per-account refresh can update just
-		// this number. Reloading the page would also show the new value, but it
-		// costs the operator their scroll position and the tab they are on — for a
-		// single number that is a bad trade.
-		b.WriteString(`<td class="num" data-label="积分" data-credits-for="` +
-			html.EscapeString(firstNonEmpty(a.UID, a.AuthIndex)) + `">` +
+			`<td data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong>`)
+		if ident != "" && ident != a.Label {
+			b.WriteString(`<div class="muted small mono">` + html.EscapeString(ident) + `</div>`)
+		}
+		b.WriteString(`</td>`)
+		b.WriteString(`<td class="num" data-label="积分" data-credits-for="` + html.EscapeString(ident) + `">` +
 			html.EscapeString(cv) + `</td>`)
 		b.WriteString(`<td class="` + expiryClass + `" data-label="到期">` + html.EscapeString(expiry) + `</td>`)
 		b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + statusText + `</span>`)
@@ -976,14 +981,12 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 		b.WriteString(`</td>`)
 
 		uid := firstNonEmpty(a.UID, a.AuthIndex)
-		// Labelled buttons, kept narrow by short text.
+		// Only the enable/disable toggle lives on the row.
 		//
-		// Icons were tried and reverted: they need the operator to learn what each
-		// glyph means, and the labels here are only two characters each ("启用" is
-		// the longest at 2), so three of them fit the last column without widening
-		// the row. The column keeps `white-space: nowrap` and the table scrolls if
-		// the viewport is too narrow, which is preferable to actions described by
-		// pictures nobody can decode at a glance.
+		// Per-account check-in and credit refresh were removed at the operator's
+		// request: the panel already has a button that refreshes every account's
+		// credits at once, and sign-in runs on a schedule for everyone. A row-level
+		// copy of both added clutter without adding a capability.
 		rowAction := "disable"
 		rowActionLabel := "禁用"
 		if a.DisabledByUser || a.Disabled || a.AutoDisabled {
@@ -994,10 +997,6 @@ func renderAccountGroup(title, variantKey string, accounts []workBuddyAccount) s
 			`<button type="button" class="ghost mini" data-account-toggle="1" data-uid="` + html.EscapeString(uid) +
 			`" data-action="` + rowAction + `" data-auth-index="` + html.EscapeString(a.AuthIndex) + `">` +
 			rowActionLabel + `</button>` +
-			`<button type="button" class="ghost mini" data-account-checkin="1" data-uid="` + html.EscapeString(uid) +
-			`" data-variant="` + html.EscapeString(a.Variant) + `">签到</button>` +
-			`<button type="button" class="ghost mini" data-account-quota="1" data-uid="` + html.EscapeString(uid) +
-			`" data-variant="` + html.EscapeString(a.Variant) + `">积分</button>` +
 			`</td>`)
 		b.WriteString(`</tr>`)
 	}

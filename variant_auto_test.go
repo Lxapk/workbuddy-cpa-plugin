@@ -403,7 +403,7 @@ func TestMainPageDeclaresPollingContract(t *testing.T) {
 	page := renderMainPage()
 	for _, needle := range []string{
 		`id="accountsSignature"`,
-		`id="accountsStamp"`,
+		`id="accountMsg"`,
 		`id="taskMsg"`,
 		`id="btnRunAllTasks"`,
 		`id="taskResult"`,

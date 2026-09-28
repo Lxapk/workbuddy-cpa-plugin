@@ -14,9 +14,10 @@ func TestAccountCellsCarryDataLabels(t *testing.T) {
 	seedPanelAccounts(t)
 	page := renderMainPage()
 
+	// UID 不再是独立列：它与账号名几乎重复，占宽度不带来新信息。uid 现在作为
+	// 账号名下方的小字出现，仍可被搜索命中。
 	for _, label := range []string{
 		`data-label="账号"`,
-		`data-label="UID"`,
 		`data-label="积分"`,
 		`data-label="到期"`,
 		`data-label="状态"`,
@@ -24,6 +25,9 @@ func TestAccountCellsCarryDataLabels(t *testing.T) {
 		if !strings.Contains(page, label) {
 			t.Errorf("账号表缺少 %s", label)
 		}
+	}
+	if strings.Contains(page, `<th>UID</th>`) {
+		t.Error("UID 列应已移除")
 	}
 }
 
@@ -61,14 +65,13 @@ func TestActionCellIsMarked(t *testing.T) {
 	if !strings.Contains(page, `<th class="actions">操作</th>`) {
 		t.Error("操作列表头缺少 class")
 	}
-	// 三个操作都要在
-	for _, action := range []string{
-		`data-account-toggle="1"`,
-		`data-account-checkin="1"`,
-		`data-account-quota="1"`,
-	} {
-		if !strings.Contains(page, action) {
-			t.Errorf("操作列缺少 %s", action)
+	// 行内只保留启停开关；逐账号的签到与积分按钮已按需求移除。
+	if !strings.Contains(page, `data-account-toggle="1"`) {
+		t.Error("操作列缺少启停按钮")
+	}
+	for _, removed := range []string{`data-account-checkin`, `data-account-quota`} {
+		if strings.Contains(page, removed) {
+			t.Errorf("操作列仍含已移除的 %s", removed)
 		}
 	}
 }

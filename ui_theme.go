@@ -92,8 +92,8 @@ body {
 }
 .tabs button:hover { color: var(--text); background: var(--panel-2); }
 .tabs button.active { color: var(--accent-dark); border-bottom-color: var(--accent); background: var(--accent-soft); }
-.panel { display: none; }
-.panel.active { display: block; }
+.wb-panel { display: none; }
+.wb-panel.active { display: block; }
 /* ---------- cards ---------- */
 .card {
   background: var(--card-bg);
@@ -110,6 +110,13 @@ body {
 .card > h2 .hint { color: var(--muted); font-weight: 500; font-size: .78rem; }
 .grid { display: grid; gap: 12px; }
 .grid.stats { grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }
+/* The stats strip on the account tab is a bare grid, not wrapped in a card, so it
+   needs its own bottom margin. Without it the strip sits flush against the account
+   list below and the two read as one overlapping block. */
+.grid.stats { margin-bottom: 14px; }
+/* A .grid.stats inside a card already gets the card's padding; adding the strip's
+   own margin there would double the gap. */
+.card .grid.stats { margin-bottom: 0; }
 .stat {
   position: relative; overflow: hidden;
   background: linear-gradient(135deg, var(--card-bg), var(--panel-2));
@@ -177,6 +184,10 @@ td.actions { white-space: nowrap; padding-right: 12px; }
   width: 100%; box-sizing: border-box;
   /* Left padding clears the icon; right padding clears the clear button. */
   padding-left: 31px; padding-right: 30px;
+  /* Taller than a default input: this is the main control on the tab, and at the
+     default height it read as a minor field next to the select. */
+  min-height: 40px;
+  padding-top: 9px; padding-bottom: 9px;
   border-radius: 10px;
 }
 /* The platform's own decorations duplicate the clear button and look foreign. */
@@ -464,7 +475,7 @@ details.log-group .count + * { margin-left: 0; }
 const uiTabsScript = `
 function showTab(id, btn) {
   var root = document;
-  root.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+  root.querySelectorAll('.wb-panel').forEach(function (p) { p.classList.remove('active'); });
   root.querySelectorAll('.tabs button').forEach(function (b) { b.classList.remove('active'); });
   var panel = document.getElementById(id);
   if (panel) panel.classList.add('active');

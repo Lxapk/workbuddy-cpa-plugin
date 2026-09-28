@@ -25,8 +25,6 @@ func TestRenderPanelWithAccounts(t *testing.T) {
 		`id="accountFilter"`,
 		`id="accountStatusFilter"`,
 		`data-account-table="1"`,
-		`data-account-checkin="1"`,
-		`data-account-quota="1"`,
 		`data-account-toggle="1"`,
 		`data-status="`,
 		`data-search="`,
@@ -67,15 +65,21 @@ func TestPanelScriptHasNewFunctions(t *testing.T) {
 		"function toast(",
 		"function renderUsageTrend(",
 		"function applyAccountFilter(",
-		"window.runAccountCheckin",
-		"window.runAccountQuota",
-		"data-account-checkin",
-		"data-account-quota",
+		"window.refreshAccountsAndQuota",
 		"data-task-toggle",
 		"refreshUsageTrend",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("脚本缺少 %s", want)
+		}
+	}
+	// 逐账号的签到/积分按钮已移除，对应的处理函数不应残留。
+	for _, gone := range []string{
+		"window.runAccountCheckin", "window.runAccountQuota",
+		"data-account-checkin", "data-account-quota",
+	} {
+		if strings.Contains(script, gone) {
+			t.Errorf("脚本仍含已移除的 %s", gone)
 		}
 	}
 	// escapeHTML 必须只是委托：两份实现曾经各自漂移，修了一份漏了另一份。

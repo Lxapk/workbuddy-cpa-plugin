@@ -150,7 +150,7 @@ func stripBlock(page, open, close string) string {
 // top-level panel, so the marker is an unambiguous boundary and finding the matching
 // close tag would need real nesting analysis.
 func sectionOf(page, tab string) string {
-	marker := `<div id="` + tab + `" class="panel`
+	marker := `<div id="` + tab + `" class="wb-panel`
 	start := strings.Index(page, marker)
 	if start < 0 {
 		return ""
@@ -212,22 +212,23 @@ func TestActionButtonsUseShortLabels(t *testing.T) {
 	if cell == "" {
 		t.Fatal("未找到操作列")
 	}
-	// 三个动作的钩子必须在。
-	for _, hook := range []string{
-		`data-account-toggle="1"`, `data-account-checkin="1"`, `data-account-quota="1"`,
-	} {
-		if !strings.Contains(cell, hook) {
-			t.Errorf("操作列缺少 %s", hook)
+	// 行内只保留启停开关。逐账号的签到与积分按钮已按需求移除：面板上已有一次性
+	// 刷新全部积分、签到也由计划对所有人执行，行内再放一份只是增加杂乱。
+	if !strings.Contains(cell, `data-account-toggle="1"`) {
+		t.Error("操作列缺少启停按钮")
+	}
+	for _, removed := range []string{`data-account-checkin`, `data-account-quota`} {
+		if strings.Contains(cell, removed) {
+			t.Errorf("操作列仍含已移除的 %s", removed)
 		}
 	}
 	// 启停按钮的文字随状态变化，但二者之一必须出现。
 	if !strings.Contains(cell, "禁用") && !strings.Contains(cell, "启用") {
 		t.Error("操作列缺少启停按钮")
 	}
-	for _, label := range []string{"签到", "积分"} {
-		if !strings.Contains(cell, label) {
-			t.Errorf("操作列缺少按钮 %q", label)
-		}
+	// 只有启停按钮的文字，且随状态在「启用/禁用」之间切换。
+	if !strings.Contains(cell, "启用") && !strings.Contains(cell, "禁用") {
+		t.Error("操作列缺少启停按钮文字")
 	}
 	if !strings.Contains(cell, `class="ghost mini"`) {
 		t.Error("操作按钮缺少 mini 类，窄屏下会撑宽")

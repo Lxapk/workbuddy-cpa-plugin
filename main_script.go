@@ -227,6 +227,27 @@ func mainPageScript() string {
   };
 
   // ---- quota -----------------------------------------------------------
+  window.saveQuotaSettings = function () {
+    msgSet('quotaMsg', '保存中…', 'muted');
+    call(BASE + '/quota/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: !!document.getElementById('qEnabled').checked,
+        interval_minutes: parseInt(document.getElementById('qInterval').value, 10) || 30,
+        on_start: !!document.getElementById('qOnStart').checked
+      })
+    }).then(function () {
+      msgSet('quotaMsg', '设置已保存', 'ok');
+      // The schedule text on this tab is server-rendered, so a reload is the
+      // simplest way to show the new value. Saving is an explicit act, unlike a
+      // background refresh, so losing the scroll position here is expected.
+      setTimeout(function () { location.reload(); }, 700);
+    }).catch(function (e) {
+      msgSet('quotaMsg', '保存失败：' + e.message, 'bad');
+    });
+  };
+
   window.refreshQuota = function () {
     msgSet('quotaMsg', '查询中…', 'muted');
 
@@ -263,26 +284,6 @@ func mainPageScript() string {
   };
 
   // refreshQuotaOneAccount is not a separate entry point: the per-row button calls
-  // runAccountQuota, which already writes the single cell it fetched.
-
-  window.saveQuotaSettings = function () {
-    var msg = document.getElementById('runMsg');
-    if (msg) { msg.textContent = '保存中…'; msg.className = 'small muted'; }
-    call(BASE + '/quota/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        enabled: !!document.getElementById('qEnabled').checked,
-        interval_minutes: parseInt(document.getElementById('qInterval').value, 10) || 30,
-        refresh_on_start: !!document.getElementById('qOnStart').checked
-      })
-    }).then(function () {
-      if (msg) { msg.textContent = '设置已保存'; msg.className = 'small ok'; }
-      setTimeout(function () { location.reload(); }, 700);
-    }).catch(function (e) {
-      if (msg) { msg.textContent = '保存失败：' + e.message; msg.className = 'small bad'; }
-    });
-  };
 
   // ---- variant override -----------------------------------------------
   // savePanelChoice posts one panel selection.
@@ -696,65 +697,45 @@ func mainPageScript() string {
   // HTML attribute: escaping for HTML was not enough, a quote in the uid would end
   // the literal and the attribute. Reading the value from a data attribute keeps
   // the data out of code entirely.
-  // runAccountCheckin signs in the single account behind a row button.
+
+  // refreshAccountsAndQuota re-reads the account list and fetches every account's
+  // credit balance.
   //
-  // The per-account button exists so an operator does not have to sign in the
-  // whole pool (and wait for its upstream traffic) to test one credential.
-  window.runAccountCheckin = function (uid, button) {
-    if (!uid) return;
+  // One button for both because they answer the same question — "what do I have and
+  // what is it worth" — and the credit readings are only meaningful against a fresh
+  // list. Doing them separately left the operator pressing one and then the other.
+  window.refreshAccountsAndQuota = function (button) {
     var original = button ? button.textContent : '';
     if (button) {
       button.disabled = true;
-      button.textContent = '签到中';
+      button.textContent = '刷新中';
     }
-    call(BASE + '/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
-      .then(function (data) {
-        var accounts = (data && data.accounts) || [];
-        var hit = accounts[0] || {};
-        var message = hit.error ? ('失败：' + hit.error)
-                                : ('完成' + (hit.message ? '（' + hit.message + '）' : ''));
-        toast(message, hit.error ? 'bad' : 'ok');
-      })
-      .catch(function (err) { toast('签到失败：' + err.message, 'bad'); })
-      .then(function () {
-        if (button) {
-          button.disabled = false;
-          button.textContent = original;
-        }
-      });
-  };
+    msgSet('accountMsg', '正在重新读取账号并刷新积分…', 'muted');
 
-  // runAccountQuota refreshes one account's credit reading.
-  window.runAccountQuota = function (uid, button) {
-    if (!uid) return;
-    var original = button ? button.textContent : '';
-    if (button) {
-      button.disabled = true;
-      button.textContent = '查询中';
-    }
-    call(BASE + '/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
-      .then(function (data) {
-        var results = (data && data.results) || [];
-        var hit = null;
+    call(BASE + '/accounts')
+      .then(function () {
+        // The list itself is rendered server-side, so re-read it from the plugin
+        // before fetching balances: an account added since page load would
+        // otherwise be missed.
+        return call(BASE + '/quota/refresh', { method: 'POST' });
+      })
+      .then(function (payload) {
+        var results = (payload && payload.results) || [];
+        var updated = 0;
         for (var i = 0; i < results.length; i++) {
-          if (results[i] && results[i].uid === uid) { hit = results[i]; break; }
+          var hit = results[i];
+          if (!hit) continue;
+          var key = hit.uid || hit.auth_id;
+          if (key && updateCreditCell(key, hit)) updated++;
         }
-        if (!hit && results.length === 1) hit = results[0];
-
-        var updated = updateCreditCell(uid, hit);
-        var message;
-        if (hit && hit.error) {
-          message = '积分查询失败：' + hit.error;
-        } else if (hit && hit.known) {
-          message = '剩余积分 ' + hit.credits + (updated ? '（已更新）' : '');
-        } else if (hit) {
-          message = '已查询，但上游未返回积分数值';
-        } else {
-          message = '已查询，未匹配到该账号的返回';
+        msgSet('accountMsg', '完成：' + updated + ' 个账号的积分已更新。', 'ok');
+        // The credit totals in the stat strip are server-rendered, so refresh the
+        // page once the data is in — this is the one place a reload is worth it.
+        if (updated > 0) {
+          setTimeout(function () { location.reload(); }, 800);
         }
-        toast(message, hit && hit.error ? 'bad' : 'ok');
       })
-      .catch(function (err) { toast('积分查询失败：' + err.message, 'bad'); })
+      .catch(function (e) { msgSet('accountMsg', '刷新失败：' + e.message, 'bad'); })
       .then(function () {
         if (button) {
           button.disabled = false;
@@ -762,6 +743,8 @@ func mainPageScript() string {
         }
       });
   };
+
+
 
   // updateCreditCell writes a fresh credit reading into the row's credit cell.
   //
@@ -967,16 +950,6 @@ func mainPageScript() string {
       if (node.hasAttribute && node.hasAttribute('data-task-toggle')) {
         ev.preventDefault();
         toggleAccountTask(node.getAttribute('data-uid'), node.getAttribute('data-action'));
-        return;
-      }
-      if (node.hasAttribute && node.hasAttribute('data-account-checkin')) {
-        ev.preventDefault();
-        runAccountCheckin(node.getAttribute('data-uid'), node);
-        return;
-      }
-      if (node.hasAttribute && node.hasAttribute('data-account-quota')) {
-        ev.preventDefault();
-        runAccountQuota(node.getAttribute('data-uid'), node);
         return;
       }
       if (node.id === 'accountFilterClear') {
