@@ -163,10 +163,11 @@ func runScheduledGrowth(trigger string) {
 	growthSchedule.lastSummary = summary
 	growthSchedule.mu.Unlock()
 
-	state.log.add(callRecord{
+	// A notice: the run is a task pass, not a model call, and counting it would make
+	// the usage figures include work that consumed no tokens.
+	state.log.addNotice(callRecord{
 		ProviderID: workBuddyProviderKey,
 		Model:      "growth",
-		StatusCode: 200,
 		Error:      summary + "（" + trigger + "）",
 	})
 }

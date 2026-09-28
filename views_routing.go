@@ -35,12 +35,17 @@ func renderRoutingBox(routing map[string]any) string {
 		value, _ := opt["value"].(string)
 		label, _ := opt["label"].(string)
 		desc, _ := opt["description"].(string)
+		tradeoff, _ := opt["tradeoff"].(string)
 		b.WriteString(`<label class="opt"><input type="radio" name="strategy" value="` + html.EscapeString(value) + `"`)
 		if value == current {
 			b.WriteString(` checked`)
 		}
-		b.WriteString(`><span><span class="name">` + html.EscapeString(label) + `</span><br>` +
-			`<span class="desc">` + html.EscapeString(desc) + `</span></span></label>`)
+		b.WriteString(`><span><span class="name">` + html.EscapeString(label) + `</span>` +
+			`<span class="desc">` + html.EscapeString(desc) + `</span>`)
+		if tradeoff != "" {
+			b.WriteString(`<span class="desc tradeoff">` + html.EscapeString(tradeoff) + `</span>`)
+		}
+		b.WriteString(`</span></label>`)
 	}
 
 	b.WriteString(`<div class="note" style="margin-top:10px">当前：<b>` +

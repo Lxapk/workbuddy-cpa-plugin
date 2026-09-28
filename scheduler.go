@@ -488,10 +488,10 @@ func schedulerPick(request []byte) ([]byte, error) {
 		state.scheduler.lastOffer = offer
 		lanes := len(state.pool.snapshot())
 		if len(req.Candidates) != lanes {
-			state.log.add(callRecord{
+			// A notice, not a call: it must not move the usage counters.
+			state.log.addNotice(callRecord{
 				ProviderID: req.Provider,
 				Model:      req.Model,
-				StatusCode: http.StatusOK,
 				Error: fmt.Sprintf("选号：host 提供 %d 个，本地 lanes=%d（数量不一致）",
 					len(req.Candidates), lanes),
 			})

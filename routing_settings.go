@@ -89,6 +89,7 @@ func routingStatusJSON() map[string]any {
 			"value":       string(s),
 			"label":       s.label(),
 			"description": strategyDescription(s),
+			"tradeoff":    strategyTradeoff(s),
 		})
 	}
 
@@ -124,16 +125,39 @@ func routingStatusJSON() map[string]any {
 }
 
 // strategyDescription explains each mode, shown in the panel.
+// strategyDescription explains a strategy in terms of when to pick it.
+//
+// The previous wording described the mechanism ("取剩余积分最多的账号") without saying
+// what it is good for, so an operator had to already understand the pool to choose. A
+// description now answers "when would I want this" first and the mechanism second.
 func strategyDescription(s schedulerStrategy) string {
 	switch s {
 	case strategyRoundRobin:
-		return "按顺序轮流使用每个账号，请求分布最均匀"
+		return "轮流使用，负载最均匀。适合多个账号额度相当、想平摊消耗的场景。"
 	case strategyRandom:
-		return "每次随机挑选，避免总是命中同一个账号"
+		return "每次随机挑选。适合账号之间差异不大、又想避免固定顺序被上游看出规律的场景。"
 	case strategyByExpiry:
-		return "优先使用积分最快到期的账号（避免积分过期浪费），带冷却与防抖动"
+		return "先用积分快过期的账号，减少浪费。适合各账号到期时间不一致、想榨干每一份额度的场景。"
 	default:
-		return "优先使用剩余积分最多的账号（源应用的行为）"
+		return "先用剩余积分最多的账号。适合想尽快消耗某个账号额度、或某个账号额度明显更充裕的场景。"
+	}
+}
+
+// strategyTradeoff states what a strategy gives up, shown under the options.
+//
+// Every choice here is a trade: even distribution costs you expiry-awareness, and
+// expiry-awareness costs you evenness. Saying so up front is cheaper than letting an
+// operator discover it after a week of unexpected throttling.
+func strategyTradeoff(s schedulerStrategy) string {
+	switch s {
+	case strategyRoundRobin:
+		return "代价：不看积分到期时间，可能让快到期的额度闲置作废。"
+	case strategyRandom:
+		return "代价：分布随机，某个账号可能连续被选中而先耗尽。"
+	case strategyByExpiry:
+		return "代价：到期时间接近时会在几个账号之间来回切换，负载不如轮巡均匀。"
+	default:
+		return "代价：高积分账号会承担大部分请求，额度少的账号长期闲置。"
 	}
 }
 

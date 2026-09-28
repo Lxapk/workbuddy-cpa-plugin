@@ -17,19 +17,26 @@ type callRecord struct {
 	// Variant is the supplier realm that served the call ("cn" / "ai").
 	// ProviderID alone cannot distinguish them: it is the constant "codebuddy"
 	// for both realms.
-	Variant          string    `json:"variant,omitempty"`
-	UID              string    `json:"uid"`
-	Label            string    `json:"label"`
-	Model            string    `json:"model"`
-	RequestedModel   string    `json:"requested_model"`
-	Stream           bool      `json:"stream"`
-	StatusCode       int       `json:"status_code"`
-	PromptTokens     int64     `json:"prompt_tokens"`
-	CompletionTokens int64     `json:"completion_tokens"`
-	TotalTokens      int64     `json:"total_tokens"`
-	LatencyMillis    int64     `json:"latency_millis"`
-	Error            string    `json:"error,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
+	Variant          string `json:"variant,omitempty"`
+	UID              string `json:"uid"`
+	Label            string `json:"label"`
+	Model            string `json:"model"`
+	RequestedModel   string `json:"requested_model"`
+	Stream           bool   `json:"stream"`
+	StatusCode       int    `json:"status_code"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
+	LatencyMillis    int64  `json:"latency_millis"`
+	Error            string `json:"error,omitempty"`
+	// Notice marks a record that is informational rather than the outcome of a call.
+	//
+	// Diagnostic lines ("the host offered 3 credentials") were being written as call
+	// records with an Error string, and the counters treat any Error as a failure — so
+	// a note about scheduling showed up in the failure column and in the usage trend.
+	// Records carrying this flag are stored and displayed but never counted.
+	Notice    bool      `json:"notice,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 // callLog ports V1.f2.C1121t: a bounded, newest-first ring of call records
@@ -100,6 +107,18 @@ func (l *callLog) rollDaily(rec callRecord) {
 	bucket.Completion += rec.CompletionTokens
 }
 
+// addNotice stores an informational record without touching any counter.
+func (l *callLog) addNotice(rec callRecord) {
+	rec.Notice = true
+	rec.StartedAt = time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recs = append([]callRecord{rec}, l.recs...)
+	if len(l.recs) > l.max {
+		l.recs = l.recs[:l.max]
+	}
+}
+
 // dailyUsage returns a copy of the per-day trend, oldest first.
 func (l *callLog) dailyUsage() []dailyUsage {
 	l.mu.Lock()
@@ -122,9 +141,18 @@ func (l *callLog) add(rec callRecord) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	// A notice is not a call: it is stored so the panel can show it, but it must not
+	// move any counter. Writing it as a zero-value record would otherwise inflate the
+	// call count, and giving it an Error string would put it in the failure column —
+	// which is how a note about the scheduler ended up in the failure trend.
+	notice := rec.Notice
+
 	l.recs = append([]callRecord{rec}, l.recs...)
 	if len(l.recs) > l.max {
 		l.recs = l.recs[:l.max]
+	}
+	if notice {
+		return
 	}
 
 	l.totalCalls++

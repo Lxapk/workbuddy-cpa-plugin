@@ -439,8 +439,11 @@ label.field input[type=number] { width: 74px; }
 }
 .opt:hover { border-color: var(--border-hover); background: var(--bg-tertiary); }
 .opt input { margin-top: 3px; }
-.opt .name { font-weight: 550; font-size: 13px; }
-.opt .desc { color: var(--text-tertiary); font-size: 12px; }
+.opt .name { font-weight: 600; font-size: 13.5px; display: block; }
+.opt .desc { display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6; margin-top: 3px; }
+/* The trade-off line is deliberately quieter than the description: it is context, not
+   the reason to pick the option. */
+.opt .desc.tradeoff { color: var(--text-tertiary); font-size: 12px; margin-top: 2px; }
 
 /* Segmented control. */
 .seg {

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 路由策略必须在设置页，而不是账号页。
@@ -477,3 +478,77 @@ func TestExplicitConfigSectionsWin(t *testing.T) {
 		t.Errorf("显式配置未被采纳：%+v", got)
 	}
 }
+
+// 诊断信息不得进入用量统计。
+//
+// 用户在用量趋势里看到了「选号：host 提供 3 个……」这条记录，并且它被算成了一次
+// 失败——因为它的 callRecord 带 Error 字段，而计数器把任何 Error 都当作失败。
+// 诊断写的是「系统状态如何」，不是「一次调用发生了什么」，两者不能混在一起计。
+func TestNoticesDoNotAffectUsageCounters(t *testing.T) {
+	log := newCallLog(50)
+
+	// 一次真实失败。
+	log.add(callRecord{ProviderID: "p", StatusCode: 429, Error: "限流", StartedAt: timeNowForTest()})
+	// 三条诊断信息。
+	for i := 0; i < 3; i++ {
+		log.addNotice(callRecord{ProviderID: "p", Model: "growth", Error: "选号：host 提供 3 个"})
+	}
+
+	totals := log.totals()
+	if totals.TotalCalls != 1 {
+		t.Errorf("诊断被算成了调用：total_calls=%d, want 1", totals.TotalCalls)
+	}
+	if totals.TotalFailed != 1 {
+		t.Errorf("诊断被算成了失败：total_failed=%d, want 1（只有那次 429）", totals.TotalFailed)
+	}
+
+	// 日趋势同样不应受影响。
+	daily := log.dailyUsage()
+	if len(daily) != 1 {
+		t.Fatalf("日桶数量异常：%d", len(daily))
+	}
+	if daily[0].Calls != 1 || daily[0].Failed != 1 {
+		t.Errorf("日趋势被诊断污染：calls=%d failed=%d, want 1/1", daily[0].Calls, daily[0].Failed)
+	}
+
+	// 但诊断本身要留下来，面板上能看到。
+	if len(log.recent(10)) != 4 {
+		t.Errorf("诊断没有进入记录列表：%d 条", len(log.recent(10)))
+	}
+}
+
+// 直接写入带 Notice 标记的记录，也走同一条不受统计的路径。
+func TestNoticeFlagIsHonouredByAdd(t *testing.T) {
+	log := newCallLog(50)
+	log.add(callRecord{ProviderID: "p", Notice: true, Error: "只是一个提示", StartedAt: timeNowForTest()})
+
+	if totals := log.totals(); totals.TotalCalls != 0 || totals.TotalFailed != 0 {
+		t.Errorf("带 Notice 标记的记录仍被计数：calls=%d failed=%d",
+			totals.TotalCalls, totals.TotalFailed)
+	}
+	if len(log.recent(10)) != 1 {
+		t.Error("带 Notice 标记的记录应仍然可见")
+	}
+}
+
+// 路由策略的描述要说「什么时候用」，并给出代价。
+func TestRoutingOptionsExplainWhenToUseThem(t *testing.T) {
+	for _, s := range []schedulerStrategy{
+		strategyByCredits, strategyRoundRobin, strategyRandom, strategyByExpiry,
+	} {
+		desc := strategyDescription(s)
+		if len(desc) < 20 {
+			t.Errorf("%s 的描述过短：%q", s, desc)
+		}
+		if !strings.Contains(desc, "适合") {
+			t.Errorf("%s 的描述没有说明适用场景：%q", s, desc)
+		}
+		trade := strategyTradeoff(s)
+		if !strings.Contains(trade, "代价") {
+			t.Errorf("%s 缺少代价说明：%q", s, trade)
+		}
+	}
+}
+
+// timeNowForTest is the clock used by the usage-counter tests.
+func timeNowForTest() time.Time { return time.Now() }
