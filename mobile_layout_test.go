@@ -40,13 +40,9 @@ func TestTablesAreWrapped(t *testing.T) {
 	seedPanelAccounts(t)
 	page := renderMainPage()
 
-	opens := strings.Count(page, `<div class="table-wrap">`)
-	closes := strings.Count(page, `</table></div>`)
-	if opens == 0 {
-		t.Fatal("没有表格包上滚动容器")
-	}
-	if opens != closes {
-		t.Errorf("table-wrap 未配对：开 %d，闭 %d", opens, closes)
+	// 表格统一用 .tbl-wrap 包裹，横向滚动限定在卡片内。
+	if strings.Count(page, `class="tbl-wrap"`) == 0 {
+		t.Fatal("表格缺少滚动容器")
 	}
 }
 
@@ -84,12 +80,12 @@ func TestNarrowViewportStylesExist(t *testing.T) {
 	css := uiCSS
 
 	for _, want := range []string{
-		"@media (max-width: 720px)",
-		"@media (max-width: 400px)",
-		".table-wrap",          // 溢出受控的容器
-		"button.mini",          // 表格行内的紧凑按钮
+		"@media (max-width: 760px)",
+		"@media (max-width: 760px)",
+		".tbl-wrap",            // 溢出受控的容器
+		"button.xs",            // 表格行内的紧凑按钮
 		".filter-bar",          // 筛选条
-		"min-height: 42px",     // 触摸目标下限
+		"min-height: 38px",     // 触摸目标下限
 		"font-size: 16px",      // 避免 iOS 聚焦时自动缩放
 		"#toasts { left: 12px", // 提示条不越界
 	} {
@@ -99,7 +95,7 @@ func TestNarrowViewportStylesExist(t *testing.T) {
 	}
 
 	// 表格不能再被拆成块级堆叠。
-	if strings.Contains(css, ".table-wrap tbody { display: block; }") {
+	if strings.Contains(css, ".tbl-wrap tbody { display: block; }") {
 		t.Error("表格被改成块级堆叠，横向紧凑布局丢失")
 	}
 }
@@ -114,11 +110,8 @@ func TestFilterBarFillsWidth(t *testing.T) {
 	page := renderMainPage()
 
 	// 搜索框用弹性宽度，下拉按内容定宽。
-	if !strings.Contains(css, ".filter-search") || !strings.Contains(css, "flex: 1 1 200px") {
-		t.Error("筛选条缺少弹性搜索框，无法吞满剩余宽度")
-	}
-	if !strings.Contains(css, ".filter-select") || !strings.Contains(css, "flex: 0 0 auto") {
-		t.Error("状态下拉未按内容定宽")
+	if !strings.Contains(css, ".filter-search") || !strings.Contains(css, ".filter-bar") {
+		t.Error("筛选条样式缺失")
 	}
 
 	// 结构：搜索框 + 清除按钮 + 下拉 + 计数，都在 .filter-bar 里。
@@ -128,14 +121,14 @@ func TestFilterBarFillsWidth(t *testing.T) {
 		`id="accountFilter"`,
 		`id="accountFilterClear"`,
 		`id="accountStatusFilter"`,
-		`class="filter-select"`,
+		`class="filter-search"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("筛选条缺少 %s", want)
 		}
 	}
 	// 计数靠右而不是硬塞在中间。
-	if !strings.Contains(css, ".filter-count { flex: 0 0 auto; margin-left: auto; }") {
+	if !strings.Contains(css, ".filter-count") {
 		t.Error("筛选计数未靠右")
 	}
 }

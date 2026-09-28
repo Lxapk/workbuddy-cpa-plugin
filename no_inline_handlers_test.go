@@ -38,7 +38,7 @@ func TestPanelScriptDeclaresNoInlineHandlers(t *testing.T) {
 	for _, want := range []string{
 		"function dispatchDataCall(",
 		"data-call",
-		"data-tab",
+		"data-view",
 		"addEventListener('click'",
 	} {
 		if !strings.Contains(script, want) {
@@ -55,14 +55,11 @@ func TestTabButtonsAreWiredByDataAttributes(t *testing.T) {
 	seedPanelAccounts(t)
 	page := renderMainPage()
 
-	tabs := []string{
-		"tab-accounts", "tab-usage", "tab-tasks", "tab-settings",
-	}
-	for _, tab := range tabs {
-		marker := `class="tab active" data-tab="` + tab + `"`
-		plain := `class="tab" data-tab="` + tab + `"`
-		if !strings.Contains(page, marker) && !strings.Contains(page, plain) {
-			t.Errorf("标签 %s 缺少 class=tab + data-tab 的组合", tab)
+	// Navigation links carry data-view; the page id is derived from it, so no value
+	// has to be interpolated into the markup.
+	for _, view := range []string{"view-accounts", "view-usage", "view-tasks", "view-settings"} {
+		if !strings.Contains(page, `data-view="`+view+`"`) {
+			t.Errorf("导航缺少 %s", view)
 		}
 	}
 }

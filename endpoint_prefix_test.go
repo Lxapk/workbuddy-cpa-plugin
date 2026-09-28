@@ -40,15 +40,15 @@ func TestCheckinLivesOnTheTasksTab(t *testing.T) {
 	page := renderMainPage()
 
 	// 有 tasks 标签，没有 checkin 标签。
-	if !strings.Contains(page, `data-tab="tab-tasks"`) {
+	if !strings.Contains(page, `data-view="view-tasks"`) {
 		t.Error("缺少任务标签页")
 	}
-	if strings.Contains(page, `data-tab="tab-checkin"`) {
-		t.Error("签到不应再有独立标签页")
+	if strings.Contains(page, `id="view-checkin"`) {
+		t.Error("签到不应再有独立页面")
 	}
 
-	// 签到的卡片出现在任务面板内部。
-	tasks := sectionOf(page, "tab-tasks")
+	// 签到的卡片出现在任务页面内部。
+	tasks := sectionOf(page, "view-tasks")
 	if tasks == "" {
 		t.Fatal("未找到任务面板")
 	}
@@ -68,11 +68,11 @@ func TestCheckinLivesOnTheTasksTab(t *testing.T) {
 
 // 存过旧标签 id 的浏览器要落到任务页，而不是被丢回第一个标签。
 func TestRestoreTabMigratesCheckinToTasks(t *testing.T) {
-	script := mainPageScript()
-	if !strings.Contains(script, "saved === 'tab-checkin'") {
-		t.Error("restoreTab 未把旧的 tab-checkin 迁移到 tab-tasks")
+	script := uiTabsScript
+	if !strings.Contains(script, "'view-checkin'") {
+		t.Error("restoreTab 未把旧的签到视图名迁移到任务页")
 	}
-	if !strings.Contains(script, "saved = 'tab-tasks'") {
-		t.Error("restoreTab 缺少迁移目标")
+	if !strings.Contains(script, "moved[saved]") {
+		t.Error("restoreTab 缺少迁移映射")
 	}
 }

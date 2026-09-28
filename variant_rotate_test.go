@@ -435,7 +435,8 @@ func TestPanelShowsCreditExpiry(t *testing.T) {
 	}
 
 	page := renderMainPage()
-	for _, want := range []string{"积分", "到期", "天后", "版本"} {
+	// 「版本」列随 UID 列一并移除：账号名已能区分，多一列只占宽度。
+	for _, want := range []string{"积分", "到期", "天后"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("panel missing %q", want)
 		}

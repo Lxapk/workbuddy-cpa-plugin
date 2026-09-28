@@ -297,7 +297,7 @@ func TestSinglePageContainsEverything(t *testing.T) {
 	page := renderMainPage()
 	for _, want := range []string{
 		"管理密钥",     // key section lives in the settings tab
-		"账号列表",     // account list
+		"账号池",      // account list
 		"账号总数",     // account summary
 		"每日签到",     // check-in schedule (on the tasks tab)
 		"积分自动刷新",   // quota schedule (on the account tab)
@@ -312,17 +312,19 @@ func TestSinglePageContainsEverything(t *testing.T) {
 	if strings.Contains(page, "<form") {
 		t.Error("combined page must not use HTML forms")
 	}
-	// Every feature is reachable from one tab bar rather than separate screens.
-	// Sign-in has no tab of its own: it is a task, and lives on the tasks tab.
-	for _, tab := range []string{"tab-accounts", "tab-usage", "tab-tasks", "tab-settings"} {
-		if !strings.Contains(page, `data-tab="`+tab+`"`) {
-			t.Errorf("expected a tab %q", tab)
+	// 四个功能域各是一个页面，导航用 data-view 指过去。
+	for _, view := range []string{"view-accounts", "view-usage", "view-tasks", "view-settings"} {
+		if !strings.Contains(page, `data-view="`+view+`"`) {
+			t.Errorf("导航缺少 %s", view)
+		}
+		if !strings.Contains(page, `id="`+view+`"`) {
+			t.Errorf("缺少页面容器 %s", view)
 		}
 	}
 	// 签到、切换策略与积分都并入了各自最相关的标签页。
-	for _, gone := range []string{"tab-checkin", "tab-switch", "tab-credits"} {
-		if strings.Contains(page, `data-tab="`+gone+`"`) {
-			t.Errorf("%s 不应再有独立的标签页", gone)
+	for _, gone := range []string{"view-checkin", "view-switch", "view-credits"} {
+		if strings.Contains(page, `id="`+gone+`"`) {
+			t.Errorf("%s 不应再有独立的页面", gone)
 		}
 	}
 	// 但签到的内容仍必须在（在任务页里）。

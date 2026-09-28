@@ -407,15 +407,18 @@ func TestMainPageDeclaresPollingContract(t *testing.T) {
 		`id="taskMsg"`,
 		`id="btnRunAllTasks"`,
 		`id="taskResult"`,
-		`data-variant="auto"`,
-		`data-variant="cn"`,
-		`data-variant="ai"`,
+		// 供应商切换用段控（data-call="setVariant"），值通过 data-arg0 传递，
+		// 不再是 radio 的 data-variant 属性。
+		`data-call="setVariant"`,
+		`data-arg0="auto"`,
+		`data-arg0="cn"`,
+		`data-arg0="ai"`,
 	} {
 		if !strings.Contains(page, needle) {
 			t.Errorf("main page is missing %s", needle)
 		}
 	}
-	// Every onclick target must have a definition, or the button is dead.
+	// Every data-call target must have a definition, or the button is dead.
 	for _, handler := range []string{"runAllTasks", "toggleAccountTask", "setVariant", "toggleAccount"} {
 		if !strings.Contains(page, "window."+handler+" = function") {
 			t.Errorf("handler %s is referenced but never defined", handler)
@@ -434,13 +437,16 @@ func TestMainPageVariantNoteExplainsScope(t *testing.T) {
 	resetState()
 	page := renderMainPage()
 
-	// It must say the selector scopes which accounts participate.
-	if !strings.Contains(page, "决定<strong>调用</strong>时使用哪些账号") {
-		t.Fatal("the switch must state that it scopes which accounts are called")
+	// 文案说明「调用设置」只决定哪些账号参与调用，不改账号归属。
+	if !strings.Contains(page, "调用设置") {
+		t.Fatal("供应商卡缺少调用设置分组")
 	}
-	// And that it does NOT re-label them.
-	if !strings.Contains(page, "不影响已登录账号的归属") {
-		t.Fatal("the switch must say accounts are not re-labelled")
+	if !strings.Contains(page, "授权来源") {
+		t.Fatal("供应商卡缺少授权来源分组")
+	}
+	// 两组必须分开呈现：一组管调用，一组管新授权走哪边。
+	if !strings.Contains(page, "只决定授权走哪一侧") {
+		t.Fatal("授权来源没有说明它管什么")
 	}
 	// The stale claim must be gone.
 	if strings.Contains(page, "则强制全部账号") {
@@ -461,8 +467,8 @@ func TestMainPageSplitsCallScopeFromAuthorisation(t *testing.T) {
 	page := renderMainPage()
 
 	// The call-scope switch.
-	if !strings.Contains(page, "供应商切换") {
-		t.Fatal("missing the 供应商切换 heading")
+	if !strings.Contains(page, "供应商") {
+		t.Fatal("missing the 供应商 heading")
 	}
 	if !strings.Contains(page, "仅影响模型调用") {
 		t.Fatal("the call switch must say it only affects model calls")
@@ -472,8 +478,11 @@ func TestMainPageSplitsCallScopeFromAuthorisation(t *testing.T) {
 			t.Errorf("the call switch is missing the %s option", needle)
 		}
 	}
-	if !strings.Contains(page, "决定<strong>调用</strong>时使用哪些账号") {
+	if !strings.Contains(page, "决定<b>调用</b>时使用哪些账号") {
 		t.Fatal("the call switch does not explain that it scopes which accounts are called")
+	}
+	if !strings.Contains(page, "不影响已登录账号的归属") {
+		t.Fatal("the call switch must say accounts are not re-labelled")
 	}
 
 	// The authorisation switch, directly below it.

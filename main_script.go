@@ -144,12 +144,10 @@ func mainPageScript() string {
   }
 
   // ---- combined action ------------------------------------------------
-  window.runAll = function () {
-    var btn = document.getElementById('btnRun');
-    var box = document.getElementById('runResult');
-    if (btn) btn.disabled = true;
+  window.runAll = function (button) {
+    var box = document.getElementById('taskResult');
     if (box) box.innerHTML = '';
-    msgSet('runMsg', '执行中…', 'muted');
+    msgSet('taskMsg', '执行中…', 'muted');
 
     call(BASE + '/run', { method: 'POST' }).then(function (payload) {
       var c = payload.checkin || {};
@@ -200,8 +198,10 @@ func mainPageScript() string {
     msgSet('runMsg', '签到中…', 'muted');
     call(BASE + '/checkin/run', { method: 'POST' }).then(function (run) {
       msgSet('runMsg', '签到完成：成功 ' + (run.succeeded || 0) + ' / 失败 ' + (run.failed || 0), 'ok');
-      var box = document.getElementById('runResult');
-      if (box) box.innerHTML = '<h2>签到结果</h2>' + renderCheckin(run);
+      var box = document.getElementById('taskResult');
+      if (box) box.innerHTML = renderCheckin(run);
+      // The account table and the task counts are server-rendered, so reload once
+      // the run is in. Sign-in changes them for every account at once.
       setTimeout(function () { location.reload(); }, 1500);
     }).catch(function (e) { msgSet('runMsg', '签到失败：' + e.message, 'bad'); });
   };
@@ -520,9 +520,16 @@ func mainPageScript() string {
   var AUTO_REFRESH_MS = 20000;
   var autoRefreshTimer = null;
 
+  // Visibility is read from the hidden attribute, which is how showTab switches
+  // pages. Reading a class name instead would silently stop working the day the
+  // class is renamed or another rule starts setting display.
+  function pageVisible(id) {
+    var panel = document.getElementById(id);
+    return !!panel && !panel.hidden;
+  }
+
   function accountsTabVisible() {
-    var panel = document.getElementById('tab-accounts');
-    return !!panel && panel.classList.contains('active');
+    return pageVisible('view-accounts');
   }
 
   // refreshUsageTrend pulls the per-day totals and draws them.
@@ -542,14 +549,13 @@ func mainPageScript() string {
   window.refreshUsageTrend = refreshUsageTrend;
 
   function usageTabVisible() {
-    var panel = document.getElementById('tab-usage');
-    return !!(panel && panel.classList.contains('active'));
+    return pageVisible('view-usage');
   }
 
   function pollAccounts() {
     if (!key() || !accountsTabVisible()) return;
     call(BASE + '/accounts').then(function (d) {
-      var stamp = document.getElementById('accountsStamp');
+      var stamp = document.getElementById('accountMsg');
       if (stamp) {
         stamp.textContent = '账号 ' + (d.total || 0) + ' 个，可用 ' + (d.usable || 0) +
           ' 个 · 数据读取于 ' + new Date().toLocaleTimeString();
@@ -946,15 +952,149 @@ func mainPageScript() string {
     return true;
   }
 
+  // refreshUsage re-reads the usage page's numbers.
+  //
+  // The stat strip and the table are server-rendered, so the only way to refresh them
+  // without a reload is to reload — but the chart is drawn client-side and can be
+  // redrawn, which is the part that changes minute to minute. The button therefore
+  // redraws the chart and reloads once, which is what the operator expects from a
+  // refresh control on this page.
+  window.refreshUsage = function (button) {
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '刷新中';
+    }
+    refreshUsageTrend();
+    setTimeout(function () { location.reload(); }, 400);
+    if (button) {
+      button.textContent = original;
+      button.disabled = false;
+    }
+  };
+
+  // selectAllTaskAccounts / clearAllTaskAccounts flip every account's participation
+  // in the task runs.
+  //
+  // Done one request at a time rather than as a batch endpoint: the pool is small,
+  // the calls are cheap, and a partial failure is then visible per account instead of
+  // aborting the whole sweep.
+  function setAllTaskAccounts(action, button) {
+    var rows = document.querySelectorAll('[data-task-toggle]');
+    if (!rows.length) return;
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '处理中';
+    }
+    var pending = 0;
+    var failed = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var node = rows[i];
+      var uid = node.getAttribute('data-uid');
+      var current = node.getAttribute('data-action');
+      // Only send the ones whose state would actually change: the toggle applies the
+      // action it is given, so re-sending it for an account already in that state is
+      // a wasted request.
+      var wanted = action === 'enable' ? 'enable' : 'disable';
+      if (current !== wanted) continue;
+      pending++;
+      call(BASE + '/account/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: uid, action: wanted })
+      }).catch(function () { failed++; });
+    }
+    if (pending === 0) {
+      toast(action === 'enable' ? '所有账号都已启用' : '所有账号都已停用', 'ok');
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+      return;
+    }
+    // Give the requests a moment, then reload so the table shows the new state.
+    setTimeout(function () {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+      toast(failed ? ('完成，' + failed + ' 个失败') : '已更新', failed ? 'bad' : 'ok');
+      setTimeout(function () { location.reload(); }, 600);
+    }, 400 + pending * 60);
+  }
+
+  window.selectAllTaskAccounts = function (button) { setAllTaskAccounts('enable', button); };
+  window.clearAllTaskAccounts = function (button) { setAllTaskAccounts('disable', button); };
+
+  // loadTaskDetail fetches the per-task breakdown for the first account that has run.
+  //
+  // The panel has no account picker here: runs are per account but the interesting
+  // detail is always the most recent one, and adding a selector for a list that is
+  // usually one entry long would be more chrome than information.
+  window.loadTaskDetail = function (button) {
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = '查询中';
+    }
+    msgSet('growthMsg', '查询中…', 'muted');
+    var box = document.getElementById('growthDetail');
+    if (box) box.innerHTML = '';
+
+    call(BASE + '/growth/tasks').then(function (runs) {
+      var list = (runs && runs.runs) || [];
+      if (!list.length) {
+        msgSet('growthMsg', '还没有运行记录，先执行一次任务', 'muted');
+        return;
+      }
+      var first = list[0];
+      return call(BASE + '/growth/tasks?uid=' + encodeURIComponent(first.uid || '')).then(function (payload) {
+        if (box) box.innerHTML = renderGrowthDetail(payload);
+        msgSet('growthMsg', '账号 ' + (first.label || first.uid || '—') + ' 的明细', 'ok');
+      });
+    }).catch(function (e) {
+      msgSet('growthMsg', '查询失败：' + e.message, 'bad');
+    }).then(function () {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  };
+
+  // renderGrowthDetail draws one account's per-task outcome as grouped rows.
+  function renderGrowthDetail(payload) {
+    if (!payload) return '';
+    if (payload.ok === false) {
+      return '<div class="note">' + esc(payload.error || '查询失败') +
+        (payload.detail ? ' — ' + esc(payload.detail) : '') + '</div>';
+    }
+    var tasks = payload.tasks || [];
+    if (!tasks.length) {
+      return '<div class="empty">这次运行没有任务记录。</div>';
+    }
+    var out = '<div class="tbl-wrap"><table class="stack"><thead><tr>' +
+      '<th>任务</th><th>状态</th><th>说明</th></tr></thead><tbody>';
+    for (var i = 0; i < tasks.length; i++) {
+      var t = tasks[i] || {};
+      var cls = t.error ? 'bad' : (t.skipped ? 'idle' : 'ok');
+      out += '<tr><td data-label="任务">' + esc(t.label || t.code || '—') + '</td>' +
+        '<td data-label="状态"><span class="pill ' + cls + '">' +
+        esc(t.status || (t.skipped ? '跳过' : (t.error ? '失败' : '完成'))) + '</span></td>' +
+        '<td class="note" data-label="说明">' + esc(t.error || t.message || '') + '</td></tr>';
+    }
+    return out + '</tbody></table></div>';
+  }
+
+
   document.addEventListener('click', function (ev) {
     var node = ev.target;
     while (node && node !== document) {
-      // Tabs carry only data-tab; the panel id and the button are derived from
-      // it, so no value has to be interpolated into the markup.
-      if (node.hasAttribute && node.hasAttribute('data-tab') && node.classList &&
-          node.classList.contains('tab')) {
+      // Nav links carry data-view; the page id is derived from it.
+      if (node.hasAttribute && node.hasAttribute('data-view')) {
         ev.preventDefault();
-        showTab(node.getAttribute('data-tab'), node);
+        showTab('view-' + node.getAttribute('data-view'), node);
         return;
       }
       if (dispatchDataCall(node)) {

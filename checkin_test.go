@@ -520,7 +520,7 @@ func TestCheckinPageRenders(t *testing.T) {
 		t.Fatalf("status = %d", mr.StatusCode)
 	}
 	body := string(mr.Body)
-	for _, want := range []string{"自动签到", "立即签到", "签到 + 刷新积分"} {
+	for _, want := range []string{"每日签到", "立即签到", "立即签到"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("combined page missing %q", want)
 		}

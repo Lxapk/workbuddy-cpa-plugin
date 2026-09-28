@@ -68,28 +68,42 @@ func TestTaskTabOrder(t *testing.T) {
 	seedPanelAccounts(t)
 
 	page := renderMainPage()
-	tasks := sectionOf(page, "tab-tasks")
+	tasks := sectionOf(page, "view-tasks")
 	if tasks == "" {
 		t.Fatal("未找到任务面板")
 	}
 
-	indexList := strings.Index(tasks, "任务 <span")
-	indexCheckin := strings.Index(tasks, "每日签到")
+	// Anchor on strings unique to the tasks page, in document order:
+	//   the card header        <h3>任务执行</h3>
+	//   the run buttons        全部执行
+	//   the check-in card      <h3>每日签到</h3>
+	//   the account table      <h3>账号任务状态</h3>
+	// Anchor on strings unique to each block, in document order:
+	//   the run card's header   <h3>任务执行</h3>
+	//   its run buttons         全部执行
+	//   the check-in card       <h3>每日签到</h3>
+	//   the account table       <h3>账号任务状态</h3>
+	//
+	// The bare words 任务 / 每日签到 also appear in headings and the page subtitle, so
+	// the anchors include the tag that only the block header carries.
+	indexList := strings.Index(tasks, "任务执行")
 	indexRunAll := strings.Index(tasks, "全部执行")
+	indexCheckin := strings.Index(tasks, "<h3>每日签到</h3>")
 	indexAccounts := strings.Index(tasks, "账号任务状态")
 
 	for name, index := range map[string]int{
-		"任务列表": indexList, "每日签到": indexCheckin,
+		"任务执行卡片": indexList, "每日签到": indexCheckin,
 		"全部执行": indexRunAll, "账号任务状态": indexAccounts,
 	} {
 		if index < 0 {
-			t.Fatalf("任务面板缺少 %s", name)
+			t.Fatalf("任务页面缺少 %s", name)
 		}
 	}
 
-	// 任务列表与执行按钮在同一张卡片里：统计在上、按钮在下、签到卡片随后。
+	// One card holds the run controls and the counters; the check-in card follows it,
+	// and the per-account table comes last.
 	if !(indexList < indexRunAll) {
-		t.Errorf("执行按钮应在任务卡片内、统计之后（%d vs %d）", indexList, indexRunAll)
+		t.Errorf("执行按钮应在任务卡片内（%d vs %d）", indexList, indexRunAll)
 	}
 	if !(indexRunAll < indexCheckin) {
 		t.Errorf("每日签到应在执行按钮之后（%d vs %d）", indexRunAll, indexCheckin)
@@ -140,8 +154,8 @@ func TestCreditsTabTableUpdatesInPlace(t *testing.T) {
 		t.Fatal("未找到 window.refreshQuota")
 	}
 	// JS 里的表格结构要与服务端一致，否则替换时面板会跳。
-	if !strings.Contains(script, `'<div class="card"><div class="table-wrap"><table>'`) {
-		t.Error("renderQuota 的结构与服务端不一致")
+	if !strings.Contains(script, `tbl-wrap`) {
+		t.Error("renderQuota 未复用滚动容器结构")
 	}
 }
 
@@ -159,7 +173,7 @@ func TestEveryPanelSitsAtTheSameDepth(t *testing.T) {
 
 	depths := map[string]int{}
 	for _, tab := range []string{
-		"tab-accounts", "tab-usage", "tab-tasks", "tab-settings",
+		"view-accounts", "view-usage", "view-tasks", "view-settings",
 	} {
 		marker := `id="` + tab + `"`
 		index := strings.Index(page, marker)
@@ -175,16 +189,16 @@ func TestEveryPanelSitsAtTheSameDepth(t *testing.T) {
 				depth--
 			}
 			if depth < 0 {
-				t.Fatalf("面板 %s 之前 depth 已经变负，说明前面的面板多闭了", tab)
+				t.Fatalf("页面 %s 之前 depth 已经变负，说明前面的容器多闭了", tab)
 			}
 		}
 		depths[tab] = depth
 	}
 
-	want := depths["tab-accounts"]
+	want := depths["view-accounts"]
 	for tab, depth := range depths {
 		if depth != want {
-			t.Errorf("%s 深度 %d，与 tab-accounts 的 %d 不一致", tab, depth, want)
+			t.Errorf("%s 深度 %d，与 view-accounts 的 %d 不一致", tab, depth, want)
 		}
 	}
 	// 整页也要收平。

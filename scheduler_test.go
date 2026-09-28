@@ -659,14 +659,18 @@ func TestMainPageShowsStrategySection(t *testing.T) {
 	resetState()
 	installAuthList(t, nil)
 	page := renderMainPage()
-	for _, want := range []string{"账号切换策略", "按额度", "轮巡", "随机", "应用策略", "重置轮巡位置"} {
+	// 策略卡现在是「路由策略」，且「应用」按钮与「应用策略」文案随之调整。
+	for _, want := range []string{"路由策略", "按额度", "轮巡", "随机", "应用策略", "重置轮巡位置"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("combined page missing %q", want)
 		}
 	}
-	// The strategy lives on the account tab, together with the list it governs.
-	if !strings.Contains(page, "账号切换策略") {
-		t.Error("expected the switching strategy on the account page")
+	// The strategy lives on the account page, together with the list it governs.
+	if !strings.Contains(page, "路由策略") {
+		t.Error("expected the routing strategy on the account page")
+	}
+	if strings.Contains(page, `data-view="view-switch"`) {
+		t.Error("切换策略不应再有独立页面")
 	}
 	if strings.Contains(page, `data-tab="tab-switch"`) {
 		t.Error("切换策略不应再有独立标签页")
