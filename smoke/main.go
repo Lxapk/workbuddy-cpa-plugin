@@ -552,7 +552,7 @@ func main() {
 	}
 	mustUnmarshal(quotaPage.Result, &quotaPageEnv)
 	qp := string(quotaPageEnv.Body)
-	for _, want := range []string{"路由策略", "积分刷新结果", "quotaResults"} {
+	for _, want := range []string{"路由策略", "账号 <span", "quotaMsg"} {
 		if !strings.Contains(qp, want) {
 			die("quota page missing %q", want)
 		}
@@ -577,7 +577,7 @@ func main() {
 		die("combined page status=%d len=%d", homeEnv.StatusCode, len(homeEnv.Body))
 	}
 	home := string(homeEnv.Body)
-	for _, want := range []string{"管理密钥", "账号池", "每日签到", "积分刷新结果", "最近调用"} {
+	for _, want := range []string{"管理密钥", "账号池", "每日签到", "账号 <span", "最近调用"} {
 		if !strings.Contains(home, want) {
 			die("combined page missing %q", want)
 		}

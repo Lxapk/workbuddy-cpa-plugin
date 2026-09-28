@@ -103,8 +103,13 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 /* The nav sits above the content as a horizontal bar.
    A side column was tried and rejected: this panel is usually viewed in a narrow
    in-app webview, where 196px of chrome costs more than it gives, and the horizontal
-   strip keeps the full width for the tables. */
-.shell { display: block; }
+   strip keeps the full width for the tables.
+ *
+ * The top padding is deliberate: the page runs inside an iframe on CPA's management
+ * UI, and the browser's own floating controls (translation prompt, and any overlay the
+ * host adds) sit over the frame's top-right corner. Without the gap they cover the
+ * first nav item. */
+.shell { display: block; padding-top: 38px; }
 .nav {
   background: var(--surface); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
@@ -330,44 +335,95 @@ details > summary { cursor: pointer; }
 @keyframes value-flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .flash { animation: value-flash .9s ease-out; }
 
+/* A toggle that states its own state rather than relying on colour alone.
+   "已启用 / 未启用" is readable in a screenshot and to a screen reader. */
+button.ok-btn { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+button.ok-btn:hover { border-color: var(--ok); }
+button.idle-btn { background: var(--surface-2); color: var(--ink-3); }
+button.idle-btn:hover { border-color: var(--accent); color: var(--ink); }
+
 /* ======================= narrow ======================= */
 @media (max-width: 760px) {
+  /* The host's floating controls sit over the frame's top-right; on a phone they are
+     wider relative to the viewport, so the gap grows. */
+  .shell { padding-top: 46px; }
   .nav { padding: 0 12px; gap: 10px; }
   .brand .sub { display: none; }
   .nav .foot { display: none; }
-  .nav a { padding: 12px 10px; font-size: 13px; }
+  .nav ul { gap: 0; }
+  .nav a { padding: 12px 11px; font-size: 13.5px; }
   .main { padding: 14px 12px 36px; }
+  .page-head { margin-bottom: 14px; }
   .page-head h1 { font-size: 17px; }
+  .page-head .sub { font-size: 12px; }
 
-  button, .btn, select, input { min-height: 38px; }
-  button.xs { min-height: 30px; }
-  /* 16px keeps iOS from zooming the page when a field is focused. */
+  /* Touch targets. 44px is the accepted minimum; the desktop sizes land near 30px. */
+  button, .btn, select, input[type=text], input[type=password], input[type=number], input[type=search] {
+    min-height: 40px;
+  }
+  button.xs { min-height: 34px; padding: 6px 11px; }
+  /* 16px stops iOS from zooming the page when a field is focused, which would leave
+     the viewport scaled up afterwards. */
   input[type=search], input[type=text], input[type=password], input[type=number] { font-size: 16px; }
+  input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
 
-  .box > header { padding: 10px 12px; }
+  .box { border-radius: 10px; margin-bottom: 14px; }
+  .box > header { padding: 10px 12px; gap: 8px; }
+  .box > header h3 { font-size: 13px; }
   .box .pad { padding: 12px; }
-  .stats { grid-template-columns: 1fr 1fr; }
+  .box .foot { padding: 9px 12px; }
+
+  .stats { grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
   .stat { padding: 11px 12px; }
   .stat .v { font-size: 20px; }
+  .stat .k { font-size: 11px; }
+
+  /* Stacked rows keep every value readable without horizontal scrolling. */
+  table.stack thead { display: none; }
+  table.stack tr { display: block; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  table.stack tbody tr:last-child { border-bottom: none; }
+  table.stack td {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 3px 12px; border: none; white-space: normal;
+  }
+  table.stack td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 4.5em; color: var(--ink-3); font-size: 11.5px;
+  }
+  /* The account cell is a heading for the stacked block, so it loses the label. */
+  table.stack td[data-label="账号"] { padding-bottom: 6px; }
+  table.stack td[data-label="账号"]::before { display: none; }
+  table.stack td[data-label="账号"] strong { font-size: 14.5px; }
+  table.stack td.actions { margin-top: 6px; }
 
   .filter-bar { padding: 10px 12px; }
   .filter-count { flex-basis: 100%; text-align: right; }
+  .filter-search { flex: 1 1 100%; }
 
-  .trend { padding: 4px 12px 0; }
-  .trend-svg { min-width: 400px; }
-  .trend { overflow-x: auto; }
+  .trend { padding: 4px 0 0; overflow-x: auto; }
+  .trend-svg { min-width: 420px; }
+  .trend-legend { padding: 8px 12px 12px; }
 
+  .opt { padding: 11px 12px; }
+  .seg { flex-wrap: wrap; }
+  .seg button { border-radius: 8px !important; border: 1px solid var(--line); }
+  .seg button + button { border-left: 1px solid var(--line); }
+
+  /* Toasts span the width instead of hanging off the right edge, where a long message
+     would be clipped. */
   #toasts { left: 12px; right: 12px; bottom: 12px; align-items: stretch; max-width: none; }
+  .toast { padding: 10px 13px; }
 
-  /* Stacked cells keep every value readable without horizontal scrolling. */
-  table.stack { min-width: 0; }
-  table.stack thead { display: none; }
-  table.stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  table.stack td { display: flex; gap: 10px; border: none; padding: 3px 12px; white-space: normal; }
-  table.stack td[data-label]::before {
-    content: attr(data-label); flex: 0 0 4.5em; color: var(--ink-3); font-size: 11.5px;
-  }
-  table.stack td.actions { margin-top: 6px; }
+  /* The bounded log height is a desktop convenience; a phone viewport is already
+     short, so let the page scroll rather than nesting a second scroller. */
+  .log-scroll { max-height: none; overflow: visible; }
+}
+
+/* Very narrow: the two-column stat grid stops being useful. */
+@media (max-width: 400px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+  .stat .v { font-size: 18px; }
+  .hero { gap: 10px; }
 }
 `
 

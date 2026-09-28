@@ -73,7 +73,6 @@ func renderNav() string {
 func renderAccountsView() string {
 	accounts := listWorkBuddyAccounts()
 	total, usable := accountCounts(accounts)
-	settings := state.settings.get()
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-accounts">`)
@@ -90,22 +89,28 @@ func renderAccountsView() string {
 	b.WriteString(`</div>`)
 
 	// ---- pool ----
+	//
+	// One card holds the whole account view: the filter bar, the rows (each with its
+	// balance and its own controls), and the outcome of the last credit sweep. They
+	// were two cards — the pool and the sweep result — which showed the same numbers
+	// twice and made the reader check which one was current.
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>账号池 <span class="hint">登录后自动出现</span></h3><span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="refreshAccountsAndQuota">刷新账号与积分</button>`)
+	b.WriteString(`<header><h3>账号 <span class="hint">登录后自动出现</span></h3><span class="grow"></span>`)
+	b.WriteString(`<span class="note" id="accountMsg"></span>`)
+	b.WriteString(`<span class="note" id="quotaMsg"></span>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="refreshAccountsAndQuota">刷新账号与积分</button>`)
 	b.WriteString(`</header>`)
 	b.WriteString(`<input type="hidden" id="accountsSignature" value="` + html.EscapeString(accountsSignature(accounts)) + `">`)
-	b.WriteString(`<div id="accountMsg"></div>`)
 	if len(accounts) == 0 {
 		b.WriteString(`<div class="empty">还没有账号。在 CPA 里完成一次 WorkBuddy 授权后会自动出现。</div>`)
 	} else {
 		b.WriteString(renderAccountFilterBar())
 		b.WriteString(renderAccountTable(accounts))
 	}
+	// Sweep failures are the one thing the per-row view cannot express: a row shows
+	// the balance it has, not that the last attempt to read it failed.
+	b.WriteString(renderQuotaSweepNotes())
 	b.WriteString(`</div>`)
-
-	// ---- credit refresh ----
-	b.WriteString(renderQuotaBox(settings))
 
 	b.WriteString(`</section>`)
 	return b.String()

@@ -85,7 +85,7 @@ func TestNarrowViewportStylesExist(t *testing.T) {
 		".tbl-wrap",            // 溢出受控的容器
 		"button.xs",            // 表格行内的紧凑按钮
 		".filter-bar",          // 筛选条
-		"min-height: 38px",     // 触摸目标下限
+		"min-height: 40px",     // 触摸目标下限
 		"font-size: 16px",      // 避免 iOS 聚焦时自动缩放
 		"#toasts { left: 12px", // 提示条不越界
 	} {

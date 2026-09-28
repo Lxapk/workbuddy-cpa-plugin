@@ -90,11 +90,11 @@ func TestTaskTabOrder(t *testing.T) {
 	indexList := strings.Index(tasks, "任务执行")
 	indexRunAll := strings.Index(tasks, "全部执行")
 	indexCheckin := strings.Index(tasks, "<h3>每日签到</h3>")
-	indexAccounts := strings.Index(tasks, "账号任务状态")
+	indexAccounts := strings.Index(tasks, "参与账号")
 
 	for name, index := range map[string]int{
 		"任务执行卡片": indexList, "每日签到": indexCheckin,
-		"全部执行": indexRunAll, "账号任务状态": indexAccounts,
+		"全部执行": indexRunAll, "参与账号": indexAccounts,
 	} {
 		if index < 0 {
 			t.Fatalf("任务页面缺少 %s", name)
@@ -126,11 +126,13 @@ func TestCreditsTabTableUpdatesInPlace(t *testing.T) {
 	seedPanelAccounts(t)
 	page := renderMainPage()
 
-	if !strings.Contains(page, `id="quotaResults"`) {
-		t.Error("积分页的表格没有可替换的容器")
+	// 积分不再有独立的第二张表：读数就是账号表的「积分」列，刷新时按行就地更新。
+	// 所以这里检查的是「逐行更新」的机制，而不是一个汇总容器。
+	if !strings.Contains(page, `data-credits-for="`) {
+		t.Error("账号表缺少可按行更新的积分单元格")
 	}
 	if !strings.Contains(page, `id="quotaMsg"`) {
-		t.Error("积分页缺少状态提示元素")
+		t.Error("账号卡缺少积分查询的状态位")
 	}
 
 	script := mainPageScript()

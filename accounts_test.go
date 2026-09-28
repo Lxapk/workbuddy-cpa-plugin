@@ -297,10 +297,10 @@ func TestSinglePageContainsEverything(t *testing.T) {
 	page := renderMainPage()
 	for _, want := range []string{
 		"管理密钥",     // key section lives in the settings tab
-		"账号池",      // account list
+		"账号 <span", // the single account card
 		"账号总数",     // account summary
-		"每日签到",     // check-in schedule (on the tasks tab)
-		"积分刷新结果",   // credit sweep outcome (refreshed automatically on load)
+		"每日签到",     // check-in card (on the tasks tab)
+		"参与账号",     // task participation table
 		"最近调用",     // usage
 		"Acct One", // the account is rendered server-side
 	} {

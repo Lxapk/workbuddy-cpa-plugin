@@ -59,10 +59,10 @@ func renderCheckinBox() string {
 func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 	var b strings.Builder
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>账号任务状态</h3><span class="grow"></span>`)
+	b.WriteString(`<header><h3>参与账号 <span class="hint">哪些账号执行成长任务</span></h3><span class="grow"></span>`)
 	b.WriteString(`<button type="button" class="xs" data-call="selectAllTaskAccounts">全部启用</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="clearAllTaskAccounts">全部停用</button>`)
-	b.WriteString(`<button type="button" class="xs" data-call="loadTaskDetail">查询任务明细</button>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="loadTaskDetail">查看任务明细</button>`)
 	b.WriteString(`</header>`)
 
 	if len(accounts) == 0 {
@@ -72,35 +72,39 @@ func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 	}
 
 	b.WriteString(`<div class="tbl-wrap"><table class="stack"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>任务</th><th>上次</th><th>结果</th>`)
+	b.WriteString(`<th>账号</th><th>参与</th><th>最近任务</th><th>执行时间</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, a := range accounts {
 		label := firstNonEmpty(a.Label, a.UID, a.AuthIndex)
 		uid := firstNonEmpty(a.UID, a.AuthIndex)
 		enabled, running := taskAccountState(uid)
-		enableCls, enableText := "idle", "未启用"
+
+		// The toggle reads as a switch with an explicit state word, not a pill whose
+		// colour is the only difference. "已启用 / 未启用" is unambiguous at a glance.
+		stateCls, stateText := "idle", "未启用"
 		if enabled {
-			enableCls, enableText = "ok", "已启用"
+			stateCls, stateText = "ok", "已启用"
 		}
 		action := "enable"
 		if enabled {
 			action = "disable"
 		}
+
 		rowClass := "bar"
 		if running {
 			rowClass += " warn"
 		}
 		b.WriteString(`<tr><td class="` + rowClass + `" data-label="账号"><strong>` + html.EscapeString(label) + `</strong>`)
 		if running {
-			b.WriteString(` <span class="pill warn">运行中</span>`)
+			b.WriteString(` <span class="pill warn">执行中</span>`)
 		}
 		b.WriteString(`</td>`)
-		b.WriteString(`<td data-label="任务"><span class="pill ` + enableCls + `" style="cursor:pointer"` +
+		b.WriteString(`<td data-label="参与"><button type="button" class="xs ` + stateCls + `-btn"` +
 			` data-task-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + action + `">` +
-			enableText + `</span></td>`)
-		b.WriteString(`<td class="note mono" data-label="上次">` + html.EscapeString(taskLastRun(uid)) + `</td>`)
-		b.WriteString(`<td data-label="结果">` + html.EscapeString(taskLastOutcome(uid)) + `</td></tr>`)
+			stateText + `</button></td>`)
+		b.WriteString(`<td class="note" data-label="最近任务">` + html.EscapeString(taskLastLabel(uid)) + `</td>`)
+		b.WriteString(`<td class="note mono" data-label="执行时间">` + html.EscapeString(taskLastRunTime(uid)) + `</td></tr>`)
 	}
 
 	b.WriteString(`</tbody></table></div>`)
@@ -145,8 +149,8 @@ func taskAccountState(uid string) (bool, bool) {
 	return false, false
 }
 
-// taskLastRun returns the most recent task execution time for an account, or "—".
-func taskLastRun(uid string) string {
+// taskLastRunTime returns the most recent task execution time for an account, or "—".
+func taskLastRunTime(uid string) string {
 	status := taskStatusSnapshot()
 	accounts, _ := status["accounts"].([]map[string]any)
 	for _, acct := range accounts {
@@ -167,8 +171,8 @@ func taskLastRun(uid string) string {
 	return "—"
 }
 
-// taskLastOutcome returns a one-line summary of an account's most recent task run.
-func taskLastOutcome(uid string) string {
+// taskLastLabel returns the name of the task an account touched most recently.
+func taskLastLabel(uid string) string {
 	status := taskStatusSnapshot()
 	accounts, _ := status["accounts"].([]map[string]any)
 	for _, acct := range accounts {

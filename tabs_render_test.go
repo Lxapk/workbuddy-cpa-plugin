@@ -189,10 +189,10 @@ func TestTableWrappersAreBalanced(t *testing.T) {
 	}
 	state.quota.mu.Unlock()
 
-	// 积分刷新结果现在在账号页里。
+	// 积分读数就是账号表的一列，刷新时按行就地更新，不再有独立的汇总表。
 	accountsTab := sectionOf(renderMainPage(), "view-accounts")
-	if !strings.Contains(accountsTab, `id="quotaResults"`) {
-		t.Error("账号页缺少积分刷新结果的容器")
+	if !strings.Contains(accountsTab, `data-credits-for="`) {
+		t.Error("账号页的积分单元格缺少就地更新的锚点")
 	}
 
 	// 结果表自带 table-wrap，开闭必须配平。
