@@ -427,7 +427,7 @@ func main() {
 	}
 	mustUnmarshal(ckPage.Result, &ckPageEnv)
 	page := string(ckPageEnv.Body)
-	for _, want := range []string{"自动签到", "立即签到", "签到 + 刷新积分"} {
+	for _, want := range []string{"每日签到", "立即签到", "启用每日自动签到"} {
 		if !strings.Contains(page, want) {
 			die("check-in page missing %q", want)
 		}
@@ -552,7 +552,7 @@ func main() {
 	}
 	mustUnmarshal(quotaPage.Result, &quotaPageEnv)
 	qp := string(quotaPageEnv.Body)
-	for _, want := range []string{"积分合计", "立即刷新积分", "账号切换策略"} {
+	for _, want := range []string{"账号切换策略", "积分自动刷新", "quotaResults"} {
 		if !strings.Contains(qp, want) {
 			die("quota page missing %q", want)
 		}
@@ -577,7 +577,7 @@ func main() {
 		die("combined page status=%d len=%d", homeEnv.StatusCode, len(homeEnv.Body))
 	}
 	home := string(homeEnv.Body)
-	for _, want := range []string{"管理密钥", "账号列表", "自动签到", "自动刷新积分", "最近调用"} {
+	for _, want := range []string{"管理密钥", "账号列表", "每日签到", "积分自动刷新", "最近调用"} {
 		if !strings.Contains(home, want) {
 			die("combined page missing %q", want)
 		}
