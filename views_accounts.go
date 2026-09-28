@@ -46,15 +46,61 @@ func renderAccountFilterBar() string {
 	return b.String()
 }
 
+// accountCallStats returns how many calls an account has served and how many failed.
+//
+// Counted from the call history rather than tracked separately: the history already
+// records every request with its account and outcome, and a second counter would have
+// to be kept in step with it. The window is the same as the usage page shows.
+func accountCallStats(uid string) (success, failed int) {
+	if uid == "" {
+		return 0, 0
+	}
+	for _, rec := range state.log.recent(500) {
+		if rec.UID != uid && rec.Label != uid {
+			continue
+		}
+		if rec.StatusCode >= 400 || rec.Error != "" {
+			failed++
+		} else {
+			success++
+		}
+	}
+	return success, failed
+}
+
+// accountInflightCount returns how many task runs are currently in flight for an
+// account. Zero means idle; a non-zero value is what the row shows as 在途.
+func accountInflightCount(uid string) int {
+	if uid == "" {
+		return 0
+	}
+	status := taskStatusSnapshot()
+	accounts, _ := status["accounts"].([]map[string]any)
+	for _, acct := range accounts {
+		acctUID, _ := acct["uid"].(string)
+		if acctUID != uid {
+			continue
+		}
+		inflight, _ := acct["inflight"].(int)
+		if queuedFlag, _ := acct["queued"].(bool); queuedFlag {
+			inflight++
+		}
+		return inflight
+	}
+	return 0
+}
+
 // renderAccountTable draws the pool.
 //
-// Columns: the account (name with its uid underneath), credits, expiry, status, and
-// the rows own controls. There is no separate uid column — it read almost the same as
-// the name and spent a column's width saying so.
+// Columns follow the reference layout: the account, its state, the credit ratio with a
+// bar, the call tally, anything in flight, a small usage breakdown, and the row's own
+// controls. The uid sits under the name in small type — it is an identifier, not a
+// column the operator scans by.
 func renderAccountTable(accounts []workBuddyAccount) string {
 	var b strings.Builder
-	b.WriteString(`<div class="tbl-wrap"><table class="stack" data-account-table="1"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th class="num">积分</th><th>到期</th><th>状态</th><th class="actions">操作</th>`)
+	b.WriteString(`<div class="tbl-wrap"><table class="accounts" data-account-table="1"><thead><tr>`)
+	b.WriteString(`<th>账号</th><th>状态</th><th>积分</th><th class="num">成功 / 失败</th>`)
+	b.WriteString(`<th class="num">在途</th><th>用量</th><th>最近成功</th><th class="actions">操作</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, a := range accounts {
@@ -86,10 +132,7 @@ func renderAccountRow(a workBuddyAccount) string {
 		detail = "至 " + a.CooldownUntil.Local().Format("15:04")
 	}
 
-	cv := "—"
-	if a.CreditsKnown {
-		cv = fmt.Sprint(a.Credits)
-	}
+	ident := firstNonEmpty(a.UID, a.AuthIndex)
 
 	// Health tone for the strip on the first cell: green serving, amber parked,
 	// red retired.
@@ -99,16 +142,6 @@ func renderAccountRow(a workBuddyAccount) string {
 		bar = "bad"
 	case !a.CooldownUntil.IsZero() && time.Now().Before(a.CooldownUntil):
 		bar = "warn"
-	}
-
-	expiry, expiryClass := "—", ""
-	switch {
-	case a.CreditsExpired:
-		expiry, expiryClass = "已过期", "bad"
-	case a.CreditsExpireAt > 0 && a.CreditsExpiringSoon:
-		expiry, expiryClass = fmt.Sprintf("%d 天后", a.CreditsExpireDays), "warn"
-	case a.CreditsExpireAt > 0:
-		expiry = fmt.Sprintf("%d 天后", a.CreditsExpireDays)
 	}
 
 	filterStatus := "usable"
@@ -125,8 +158,7 @@ func renderAccountRow(a workBuddyAccount) string {
 		a.Label, a.UID, a.AuthIndex, a.Variant, a.DisabledReason, a.Reason, statusText,
 	}, " ")
 
-	ident := firstNonEmpty(a.UID, a.AuthIndex)
-	rowAction, rowActionLabel := "disable", "停用"
+	rowAction, rowActionLabel := "disable", "禁用"
 	if a.DisabledByUser || a.Disabled || a.AutoDisabled {
 		rowAction, rowActionLabel = "enable", "启用"
 	}
@@ -134,29 +166,168 @@ func renderAccountRow(a workBuddyAccount) string {
 	var b strings.Builder
 	b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">`)
 
-	// Name, with the uid underneath in small type when it says something the name
-	// does not.
+	// Name with the uid abbreviated underneath.
 	b.WriteString(`<td class="bar ` + bar + `" data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong>`)
 	if ident != "" && ident != a.Label {
-		b.WriteString(`<div class="note mono">` + html.EscapeString(ident) + `</div>`)
+		b.WriteString(`<div class="uid mono" title="` + html.EscapeString(ident) + `">` +
+			html.EscapeString(shortenUID(ident)) + `</div>`)
 	}
 	b.WriteString(`</td>`)
 
-	b.WriteString(`<td class="num" data-label="积分" data-credits-for="` + html.EscapeString(ident) + `">` +
-		html.EscapeString(cv) + `</td>`)
-	b.WriteString(`<td data-label="到期" class="` + expiryClass + `">` + html.EscapeString(expiry) + `</td>`)
 	b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + statusText + `</span>`)
 	if detail != "" {
-		b.WriteString(` <span class="note">` + html.EscapeString(detail) + `</span>`)
+		b.WriteString(`<div class="uid">` + html.EscapeString(detail) + `</div>`)
 	}
 	b.WriteString(`</td>`)
-	b.WriteString(`<td class="actions"><button type="button" class="xs ghost ` +
-		map[bool]string{true: "", false: "danger"}[rowAction == "enable"] + `"` +
+
+	b.WriteString(renderCreditsCell(a, ident))
+
+	success, failed := accountCallStats(ident)
+	b.WriteString(`<td class="num mono" data-label="成功 / 失败">` +
+		fmt.Sprint(success) + ` <span class="sep">/</span> ` +
+		`<span class="` + map[bool]string{true: "bad-text", false: ""}[failed > 0] + `">` +
+		fmt.Sprint(failed) + `</span></td>`)
+
+	inflight := accountInflightCount(ident)
+	inflightText := "0"
+	inflightCls := "uid"
+	if inflight > 0 {
+		inflightText = fmt.Sprint(inflight)
+		inflightCls = "pill warn"
+	}
+	if inflightCls == "uid" {
+		b.WriteString(`<td class="num" data-label="在途"><span class="uid">0</span></td>`)
+	} else {
+		b.WriteString(`<td class="num" data-label="在途"><span class="pill warn">` + inflightText + `</span></td>`)
+	}
+
+	b.WriteString(`<td data-label="用量">` + renderUsagePills(success, failed) + `</td>`)
+
+	lastOK := "—"
+	for _, rec := range state.log.recent(500) {
+		if rec.UID != ident && rec.Label != ident {
+			continue
+		}
+		if rec.StatusCode < 400 && rec.Error == "" && !rec.StartedAt.IsZero() {
+			lastOK = humanizeSince(rec.StartedAt)
+			break
+		}
+	}
+	b.WriteString(`<td class="uid" data-label="最近成功">` + html.EscapeString(lastOK) + `</td>`)
+
+	// Row controls: sign in, refresh this account's balance, run its tasks, disable.
+	b.WriteString(`<td class="actions">`)
+	b.WriteString(`<button type="button" class="xs" data-row-action="checkin" data-uid="` +
+		html.EscapeString(ident) + `">签到</button>`)
+	b.WriteString(`<button type="button" class="xs" data-row-action="quota" data-uid="` +
+		html.EscapeString(ident) + `">余额</button>`)
+	b.WriteString(`<button type="button" class="xs" data-row-action="tasks" data-uid="` +
+		html.EscapeString(ident) + `">任务</button>`)
+	b.WriteString(`<button type="button" class="xs ` +
+		map[bool]string{true: "danger", false: ""}[rowAction == "disable"] + `"` +
 		` data-account-toggle="1" data-uid="` + html.EscapeString(ident) + `"` +
 		` data-action="` + rowAction + `" data-auth-index="` + html.EscapeString(a.AuthIndex) + `">` +
-		rowActionLabel + `</button></td>`)
+		rowActionLabel + `</button>`)
+	b.WriteString(`</td>`)
 	b.WriteString(`</tr>`)
 	return b.String()
+}
+
+// renderCreditsCell draws the balance as "remaining / total" over a progress bar.
+//
+// The ratio is what makes the number readable: 3735 alone says nothing, 3735 / 4600
+// says four fifths of the cycle is still available. When the upstream reported no
+// capacity there is nothing to divide by, so the bare remainder is shown instead.
+func renderCreditsCell(a workBuddyAccount, ident string) string {
+	var b strings.Builder
+	b.WriteString(`<td data-label="积分" data-credits-for="` + html.EscapeString(ident) + `">`)
+
+	if !a.CreditsKnown {
+		b.WriteString(`<span class="uid">—</span></td>`)
+		return b.String()
+	}
+
+	if a.CreditsTotal > 0 {
+		pct := float64(a.Credits) / float64(a.CreditsTotal) * 100
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		tone := "ok"
+		switch {
+		case pct <= 10:
+			tone = "bad"
+		case pct <= 30:
+			tone = "warn"
+		}
+		b.WriteString(`<span class="credit-ratio mono"><span class="credit-remaining ` + tone + `">` +
+			fmt.Sprint(a.Credits) + `</span><span class="uid"> / ` + fmt.Sprint(a.CreditsTotal) +
+			`</span></span>`)
+		b.WriteString(`<div class="credit-bar"><span class="` + tone + `" style="width:` +
+			fmt.Sprintf("%.1f", pct) + `%"></span></div>`)
+	} else {
+		b.WriteString(`<span class="credit-ratio mono">` + fmt.Sprint(a.Credits) + `</span>`)
+	}
+
+	if a.CreditsExpired {
+		b.WriteString(`<div class="uid bad-text">已过期</div>`)
+	} else if a.CreditsExpiringSoon && a.CreditsExpireDays > 0 {
+		b.WriteString(`<div class="uid warn-text">` + fmt.Sprint(a.CreditsExpireDays) + ` 天后过期</div>`)
+	}
+	b.WriteString(`</td>`)
+	return b.String()
+}
+
+// renderUsagePills shows a compact breakdown of what an account has served.
+//
+// Four counts in coloured chips: the reference layout uses the same idea because a row
+// of small figures reads as "how is this account doing" at a glance, where a sentence
+// would have to be parsed.
+func renderUsagePills(success, failed int) string {
+	if success == 0 && failed == 0 {
+		return `<span class="uid">—</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="usage-pills">`)
+	b.WriteString(`<span class="upill info">` + fmt.Sprint(success+failed) + ` 次</span>`)
+	b.WriteString(`<span class="upill ok">` + fmt.Sprint(success) + `</span>`)
+	if failed > 0 {
+		b.WriteString(`<span class="upill bad">` + fmt.Sprint(failed) + `</span>`)
+	} else {
+		b.WriteString(`<span class="upill idle">0</span>`)
+	}
+	b.WriteString(`</span>`)
+	return b.String()
+}
+
+// shortenUID trims a long identifier for display, keeping both ends so it is still
+// recognisable against the full value shown on hover.
+func shortenUID(uid string) string {
+	if len(uid) <= 22 {
+		return uid
+	}
+	return uid[:12] + "…" + uid[len(uid)-6:]
+}
+
+// humanizeSince renders how long ago an instant was, in the compact form the table
+// uses ("12 秒前", "3 分钟前", "2 小时前").
+func humanizeSince(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%d 秒前", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+	}
 }
 
 // renderVariantBox draws the provider selection.

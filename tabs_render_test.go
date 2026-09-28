@@ -230,12 +230,17 @@ func TestActionButtonsUseShortLabels(t *testing.T) {
 			t.Errorf("操作列仍含已移除的 %s", removed)
 		}
 	}
-	// 启停按钮的文字随状态变化：可用时显示「停用」，已停用时显示「启用」。
-	// 用「停用」而不是「禁用」——后者听起来是彻底关掉，而这里只是让它暂时不参与。
-	if !strings.Contains(cell, "停用") && !strings.Contains(cell, "启用") {
-		t.Errorf("操作列缺少启停按钮文字；cell=%s", cell)
+	// 四个行内操作，与参考布局一致。
+	for _, label := range []string{"签到", "余额", "任务"} {
+		if !strings.Contains(cell, ">"+label+"</button>") {
+			t.Errorf("操作列缺少按钮 %q", label)
+		}
 	}
-	if !strings.Contains(cell, `class="xs ghost`) {
+	// 启停按钮的文字随状态变化。
+	if !strings.Contains(cell, "禁用") && !strings.Contains(cell, "启用") {
+		t.Errorf("操作列缺少启停按钮；cell=%s", cell)
+	}
+	if !strings.Contains(cell, `class="xs`) {
 		t.Error("操作按钮缺少紧凑类，窄屏下会撑宽")
 	}
 	if strings.Contains(cell, "<svg") {

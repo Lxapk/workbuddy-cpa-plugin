@@ -300,6 +300,47 @@ tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 70%, transpar
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.actions { white-space: nowrap; text-align: right; }
 
+/* ---------- account rows ---------- */
+/* The account table has eight columns, so it gets its own rules rather than reusing
+   the generic table: the credit bar and the usage chips need sizes tuned to what they
+   contain, and the row would be unreadable if everything were left to auto layout. */
+table.accounts { min-width: 940px; }
+table.accounts td, table.accounts th { vertical-align: top; }
+/* The account cell is a heading for the row, so it gets a little more room. */
+table.accounts td:first-child { min-width: 150px; }
+/* The secondary line under a label: the uid, a cooldown detail, an expiry note. */
+.uid { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; }
+.bad-text { color: var(--error-color); }
+.warn-text { color: var(--quota-medium-color); }
+.sep { color: var(--text-quaternary); }
+
+.credit-ratio { font-size: 13px; white-space: nowrap; }
+.credit-remaining { font-weight: 600; }
+.credit-remaining.ok { color: var(--success-color); }
+.credit-remaining.warn { color: var(--quota-medium-color); }
+.credit-remaining.bad { color: var(--error-color); }
+/* The bar shows the share of the cycle still available. */
+.credit-bar {
+  margin-top: 5px; height: 4px; width: 100%; min-width: 76px;
+  background: var(--bg-tertiary); border-radius: var(--radius-full); overflow: hidden;
+}
+.credit-bar > span { display: block; height: 100%; border-radius: var(--radius-full); }
+.credit-bar > span.ok { background: var(--success-color); }
+.credit-bar > span.warn { background: var(--quota-medium-color); }
+.credit-bar > span.bad { background: var(--error-color); }
+
+.usage-pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.upill {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px; border-radius: var(--radius-sm);
+  font: 500 11.5px/1.5 var(--mono);
+  background: var(--bg-tertiary); color: var(--text-secondary);
+}
+.upill.info { background: color-mix(in srgb, var(--primary-color) 18%, transparent); color: var(--text-primary); }
+.upill.ok { background: color-mix(in srgb, var(--success-color) 14%, transparent); color: var(--success-color); }
+.upill.bad { background: color-mix(in srgb, var(--error-color) 16%, transparent); color: var(--error-color); }
+.upill.idle { color: var(--text-tertiary); }
+
 /* ======================= badges ======================= */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -518,6 +559,20 @@ details > summary { cursor: pointer; }
   table.stack td[data-label="账号"]::before { display: none; }
   table.stack td[data-label="账号"] strong { font-size: 14.5px; }
   table.stack td.actions { margin-top: 6px; }
+
+  /* The account table stays a table on a phone and scrolls sideways.
+     Stacking eight cells per row would make each account taller than the screen, and
+     the whole point of this layout is comparing accounts — which needs them side by
+     side. The wrapper carries the scroll; the page frame stays put. */
+  table.accounts { min-width: 880px; }
+  table.accounts thead { display: table-header-group; }
+  table.accounts tr { display: table-row; }
+  table.accounts td { display: table-cell; white-space: nowrap; }
+  table.accounts td[data-label]::before { display: none; }
+  table.accounts td.actions { margin-top: 0; }
+  /* The action cluster wraps onto two lines rather than widening the row further. */
+  table.accounts td.actions { max-width: 168px; white-space: normal; }
+  table.accounts td.actions button { margin: 0 3px 3px 0; }
 
   .filter-bar { padding: 10px 12px; }
   .filter-search { flex: 1 1 100%; }

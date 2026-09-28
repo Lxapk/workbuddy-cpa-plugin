@@ -18,9 +18,12 @@ func TestAccountCellsCarryDataLabels(t *testing.T) {
 	// 账号名下方的小字出现，仍可被搜索命中。
 	for _, label := range []string{
 		`data-label="账号"`,
-		`data-label="积分"`,
-		`data-label="到期"`,
 		`data-label="状态"`,
+		`data-label="积分"`,
+		`data-label="成功 / 失败"`,
+		`data-label="在途"`,
+		`data-label="用量"`,
+		`data-label="最近成功"`,
 	} {
 		if !strings.Contains(page, label) {
 			t.Errorf("账号表缺少 %s", label)

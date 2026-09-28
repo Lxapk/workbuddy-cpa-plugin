@@ -74,6 +74,12 @@ type workBuddyAccount struct {
 
 	// Credits is the latest known remaining quota (0 when never queried).
 	Credits int64 `json:"credits"`
+	// CreditsTotal is the cycle capacity the balance is drawn from. Shown next to
+	// the remaining figure ("3735 / 4600") because a bare remainder says nothing
+	// about how much of the allowance is left.
+	CreditsTotal int64 `json:"credits_total"`
+	// CreditsUsed is the spent portion, computed as total - remaining.
+	CreditsUsed int64 `json:"credits_used"`
 	// CreditsKnown reports whether a quota figure is available.
 	CreditsKnown bool `json:"credits_known"`
 	// CreditsAt is when the quota was last read.
@@ -520,6 +526,15 @@ func enrichWithRuntime(accounts []workBuddyAccount) []workBuddyAccount {
 			a.CreditsExpiringSoon = q.expiringSoon()
 			a.CreditsExpired = q.expired()
 			a.CreditPackages = q.Labels
+			// The cycle capacity, so the row can show a ratio and a progress bar.
+			// Total is a float upstream; the panel works in whole credits.
+			a.CreditsTotal = int64(q.Summary.Total)
+			a.CreditsUsed = int64(q.Summary.Used)
+			// A summary with no capacity is a reading, not a budget: leave the
+			// total at zero and the row falls back to the bare remainder.
+			if a.CreditsTotal <= 0 {
+				a.CreditsUsed = 0
+			}
 		}
 		if a.CreditsExpireAt > 0 {
 			days := (a.CreditsExpireAt - time.Now().Unix()) / 86400

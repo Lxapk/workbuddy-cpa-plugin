@@ -299,3 +299,64 @@ func TestCardEntranceMatchesHost(t *testing.T) {
 		t.Error("缺少减弱动效的处理")
 	}
 }
+
+// 账号行按参考布局呈现：状态、积分比值与进度条、调用计数、在途、用量、操作。
+//
+// 积分要显示成「剩余 / 总量」并配一条进度条：只有剩余数时说不出用了多少，比值才
+// 读得出周期余量。总量由上游的 cycle capacity 提供，取不到时退回只显示剩余数。
+func TestAccountRowShowsTheReferenceColumns(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+
+	for _, col := range []string{"账号", "状态", "积分", "成功 / 失败", "在途", "用量", "最近成功", "操作"} {
+		if !strings.Contains(page, ">"+col+"<") && !strings.Contains(page, col+"</th>") &&
+			!strings.Contains(page, col+"<") {
+			t.Errorf("账号表缺少列 %s", col)
+		}
+	}
+
+	for _, want := range []string{
+		"credit-ratio",      // 剩余 / 总量
+		"credit-bar",        // 进度条
+		"upill",             // 用量小标签
+		`data-credits-for=`, // 可按行更新的锚点
+		`data-row-action="checkin"`,
+		`data-row-action="quota"`,
+		`data-row-action="tasks"`,
+		`data-account-toggle="1"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("账号行缺少 %s", want)
+		}
+	}
+
+	// 账号单元格里带上短 uid，完整值放 title 供悬停查看。
+	accounts := sectionOf(page, "view-accounts")
+	if !strings.Contains(accounts, `class="uid mono"`) {
+		t.Error("账号行缺少 uid 小字")
+	}
+}
+
+// 账号表在手机上横滑，而不是堆叠。
+//
+// 八列堆叠会让每个账号比屏幕还高，而这个布局的意义正是横向比较账号——那需要它们
+// 并排。滚动限定在表格容器内，页面框架不动。
+func TestAccountTableScrollsOnPhone(t *testing.T) {
+	css := uiCSS
+	phone := css[strings.Index(css, "@media (max-width: 768px)"):]
+
+	for _, want := range []string{
+		"table.accounts { min-width: 880px; }",
+		"table.accounts thead { display: table-header-group; }",
+		"table.accounts td { display: table-cell;",
+	} {
+		if !strings.Contains(phone, want) {
+			t.Errorf("手机端账号表缺少 %s", want)
+		}
+	}
+	// 通用堆叠规则不得作用到账号表上：它的 td 必须是表格单元。
+	if !strings.Contains(phone, "table.accounts td[data-label]::before { display: none; }") {
+		t.Error("手机端账号表仍会套用堆叠标签")
+	}
+}

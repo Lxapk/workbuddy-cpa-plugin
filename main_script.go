@@ -1071,6 +1071,69 @@ func mainPageScript() string {
   }
 
 
+  // runRowAction performs one of the per-row controls.
+  //
+  // The three actions share a shape: call an endpoint, replace the row's own figures
+  // in place, report through the card's message slot. "任务" is different — it toggles
+  // the account in or out of task runs and needs a reload because the task page's
+  // table is rendered server-side.
+  window.runRowAction = function (action, uid, button) {
+    if (!uid) return;
+    var original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+    }
+
+    var done = function (message, ok) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+      toast(message, ok ? 'ok' : 'bad');
+    };
+
+    if (action === 'checkin') {
+      msgSet('accountMsg', '正在为 ' + uid + ' 签到…', 'muted');
+      call(BASE + '/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
+        .then(function (data) {
+          var hit = ((data && data.accounts) || [])[0] || {};
+          done(hit.error ? ('签到失败：' + hit.error) : '签到完成', !hit.error);
+        })
+        .catch(function (e) { done('签到失败：' + e.message, false); });
+      return;
+    }
+
+    if (action === 'quota') {
+      msgSet('accountMsg', '正在查询 ' + uid + ' 的余额…', 'muted');
+      call(BASE + '/quota/refresh?uid=' + encodeURIComponent(uid), { method: 'POST' })
+        .then(function (data) {
+          var results = (data && data.results) || [];
+          var hit = results[0] || {};
+          updateCreditCell(uid, hit);
+          done(hit.error ? ('查询失败：' + hit.error)
+                         : ('余额 ' + (hit.credits != null ? hit.credits : '未知')), !hit.error);
+        })
+        .catch(function (e) { done('查询失败：' + e.message, false); });
+      return;
+    }
+
+    if (action === 'tasks') {
+      // A reload rather than an in-place update: the tasks page's table is rendered by
+      // the server, and its state is what this button changes.
+      call(BASE + '/account/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: uid, action: 'enable' })
+      }).then(function () {
+        done('已让该账号参与任务', true);
+        setTimeout(function () { location.reload(); }, 500);
+      }).catch(function (e) { done('操作失败：' + e.message, false); });
+      return;
+    }
+
+    if (button) button.disabled = false;
+  };
+
   document.addEventListener('click', function (ev) {
     var node = ev.target;
     while (node && node !== document) {
@@ -1090,6 +1153,11 @@ func mainPageScript() string {
       if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
         ev.preventDefault();
         toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-row-action')) {
+        ev.preventDefault();
+        runRowAction(node.getAttribute('data-row-action'), node.getAttribute('data-uid'), node);
         return;
       }
       if (node.hasAttribute && node.hasAttribute('data-task-toggle')) {
