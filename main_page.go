@@ -379,14 +379,18 @@ func renderMainPage() string {
 			b.WriteString(`<td class="num">` + html.EscapeString(cv) + `</td>`)
 			b.WriteString(`<td class="num">` + fmt.Sprint(row["picks"]) + `</td></tr>`)
 		}
+		// Closes the scroll wrapper, then the card. The card is opened above and the
+		// wrapper inside it; leaving the card open here makes this panel one level
+		// short of closed, and every later tab ends up nested inside it.
 		b.WriteString(`</tbody></table></div>`)
+		b.WriteString(`</div>`)
 	} else {
+		// The card closes on the same line: an empty state does not need a wrapper,
+		// and adding one here would need a matching close further down that the
+		// populated branch does not have.
 		b.WriteString(`<div class="card"><div class="empty">暂无可用账号，无法预览顺序。</div></div>`)
 	}
-	// Closes the preview card, then the tab-switch panel itself. Only the card was
-	// closed before, so the panel stayed open and every following tab was nested
-	// one level too deep — which is what made them render blank.
-	b.WriteString(`</div>`)
+	// Closes the tab-switch panel itself.
 	b.WriteString(`</div>`)
 
 	// ---------------- check-in (lives inside the tasks tab) ----------------
@@ -422,11 +426,16 @@ func renderMainPage() string {
 	state.quota.mu.Lock()
 	lastRun := append([]quotaRefreshResult(nil), state.quota.lastRun...)
 	state.quota.mu.Unlock()
+	// Wrapped in a container the script can replace after a refresh, so the table
+	// updates in place instead of the whole page reloading.
+	b.WriteString(`<div id="quotaResults">`)
 	if len(lastRun) == 0 {
 		b.WriteString(`<div class="empty">点「立即刷新积分」查询各账号的剩余积分与到期时间。</div>`)
 	} else {
 		b.WriteString(renderQuotaResults(lastRun))
 	}
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="muted small" id="quotaMsg"></div>`)
 	b.WriteString(`</div></div>`)
 
 	// ---------------- tab: usage ----------------

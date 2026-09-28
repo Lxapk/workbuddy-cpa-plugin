@@ -97,3 +97,157 @@ func TestTaskTabOrder(t *testing.T) {
 		t.Errorf("「全部执行」应在账号状态之前（%d vs %d）", indexRunAll, indexAccounts)
 	}
 }
+
+// 积分页的表格必须能被就地替换。
+//
+// 用户报告：账号页的积分刷新了，但积分页的表格不动。
+//
+// refreshQuota 把结果写进了 #runResult——那是账号页的元素，积分页的表格从未被
+// 更新。现在积分页的表格包在 #quotaResults 里，刷新后替换它，并同步写回账号表的
+// 积分单元格。
+func TestCreditsTabTableUpdatesInPlace(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+
+	if !strings.Contains(page, `id="quotaResults"`) {
+		t.Error("积分页的表格没有可替换的容器")
+	}
+	if !strings.Contains(page, `id="quotaMsg"`) {
+		t.Error("积分页缺少状态提示元素")
+	}
+
+	script := mainPageScript()
+	// 刷新后同时更新两处：积分页表格与账号表的单元格。
+	if !strings.Contains(script, "applyResults") {
+		t.Error("refreshQuota 没有就地的更新函数")
+	}
+	if !strings.Contains(script, "updateCreditCell(hit.uid") {
+		t.Error("refreshQuota 没有同步账号表的积分单元格")
+	}
+	// 不应再用整页重载来做积分刷新本身。
+	// 其它动作（执行全部、签到）重载是有意的——它们会同时改变多个面板；这里只
+	// 盯着 refreshQuota 的函数体。
+	if body := functionBody(script, "window.refreshQuota"); body != "" {
+		if strings.Contains(body, "location.reload") {
+			t.Error("积分刷新仍在整页重载，会丢掉滚动位置")
+		}
+		if !strings.Contains(body, "quotaResults") {
+			t.Error("积分刷新没有更新积分页的表格")
+		}
+	} else {
+		t.Fatal("未找到 window.refreshQuota")
+	}
+	// JS 里的表格结构要与服务端一致，否则替换时面板会跳。
+	if !strings.Contains(script, `'<div class="card"><div class="table-wrap"><table>'`) {
+		t.Error("renderQuota 的结构与服务端不一致")
+	}
+}
+
+// 每个标签页面板的 div 深度必须一致。
+//
+// 两次「标签页空白」都源于同一个形状：某个面板多闭（或少闭）一个 div，于是从它
+// 之后的每个面板都嵌套错位，内容落到不显示的位置。这里直接量深度——比数总量可靠，
+// 因为它能指出是哪一个面板开始出问题。
+func TestEveryPanelSitsAtTheSameDepth(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+
+	page := stripScriptBlocks(renderMainPage())
+	page = stripStyleBlocks(page)
+
+	depths := map[string]int{}
+	for _, tab := range []string{
+		"tab-accounts", "tab-switch", "tab-credits",
+		"tab-usage", "tab-tasks", "tab-settings",
+	} {
+		marker := `id="` + tab + `"`
+		index := strings.Index(page, marker)
+		if index < 0 {
+			t.Fatalf("缺少面板 %s", tab)
+		}
+		// 数到该标记为止的 div 净值。
+		depth := 0
+		for _, token := range tokenizeDivs(page[:index]) {
+			if token == "<div" {
+				depth++
+			} else {
+				depth--
+			}
+			if depth < 0 {
+				t.Fatalf("面板 %s 之前 depth 已经变负，说明前面的面板多闭了", tab)
+			}
+		}
+		depths[tab] = depth
+	}
+
+	want := depths["tab-accounts"]
+	for tab, depth := range depths {
+		if depth != want {
+			t.Errorf("%s 深度 %d，与 tab-accounts 的 %d 不一致", tab, depth, want)
+		}
+	}
+	// 整页也要收平。
+	if problem := unbalancedMarkup(renderMainPage()); problem != "" {
+		t.Errorf("整页标记未闭合：%s", problem)
+	}
+}
+
+// tokenizeDivs returns "<div" and "</div>" tokens in order.
+func tokenizeDivs(markup string) []string {
+	var out []string
+	for i := 0; i < len(markup); {
+		if markup[i] != '<' {
+			i++
+			continue
+		}
+		end := strings.IndexByte(markup[i:], '>')
+		if end < 0 {
+			break
+		}
+		token := strings.TrimSpace(markup[i+1 : i+end])
+		i += end + 1
+		if strings.HasPrefix(token, "/div") {
+			out = append(out, "</div>")
+		} else if token == "div" || strings.HasPrefix(token, "div ") {
+			out = append(out, "<div")
+		}
+	}
+	return out
+}
+
+// stripStyleBlocks removes <style> blocks so tag counting sees only markup.
+func stripStyleBlocks(page string) string {
+	return stripBlock(page, "<style", "</style>")
+}
+
+// functionBody returns the source of one function, from its name to the line that
+// closes it at the same brace depth.
+//
+// Scoped assertions need this: the page script has eight location.reload calls, and
+// most of them are deliberate (a full run changes several panels at once). Only the
+// one inside a specific function is a problem.
+func functionBody(script, name string) string {
+	start := strings.Index(script, name)
+	if start < 0 {
+		return ""
+	}
+	open := strings.Index(script[start:], "{")
+	if open < 0 {
+		return ""
+	}
+	open += start
+	depth := 0
+	for i := open; i < len(script); i++ {
+		switch script[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return script[start : i+1]
+			}
+		}
+	}
+	return script[start:]
+}

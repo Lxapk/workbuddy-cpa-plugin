@@ -119,17 +119,27 @@ func mainPageScript() string {
     return out;
   }
 
+  // renderQuota renders a refresh pass as a table.
+  //
+  // Mirrors the server-side renderQuotaResults markup, including the card and the
+  // scroll wrapper: this output replaces that table in place, so a different shape
+  // would make the panel jump on refresh.
   function renderQuota(results) {
-    if (!results || !results.length) return '';
-    var out = '<table><thead><tr><th>账号</th><th>区域</th><th class="num">剩余积分</th><th>说明</th></tr></thead><tbody>';
+    if (!results || !results.length) {
+      return '<div class="empty">本次没有可查询的账号。</div>';
+    }
+    var out = '<div class="card"><div class="table-wrap"><table>' +
+      '<tr><th>账号</th><th>区域</th><th>剩余额度</th><th>说明</th></tr>';
     results.forEach(function (r) {
       var cls = r.error ? 'bad' : 'ok';
-      out += '<tr><td>' + esc(r.label || r.auth_id) + '</td>' +
-        '<td><span class="pill idle">' + esc(r.region) + '</span></td>' +
-        '<td class="num ' + cls + '">' + (r.credits == null ? 0 : r.credits) + '</td>' +
-        '<td>' + esc(r.error || r.message) + '</td></tr>';
+      var label = r.label || r.auth_id || '—';
+      var note = r.error || r.message || '';
+      out += '<tr><td>' + esc(label) + '</td>' +
+        '<td>' + esc(r.region || '') + '</td>' +
+        '<td class="' + cls + '">' + (r.credits == null ? 0 : r.credits) + '</td>' +
+        '<td>' + esc(note) + '</td></tr>';
     });
-    out += '</tbody></table>';
+    out += '</table></div></div>';
     return out;
   }
 
@@ -218,15 +228,42 @@ func mainPageScript() string {
 
   // ---- quota -----------------------------------------------------------
   window.refreshQuota = function () {
-    msgSet('runMsg', '查询中…', 'muted');
-    call(BASE + '/quota/refresh', { method: 'POST' }).then(function (payload) {
-      msgSet('runMsg', '完成：积分合计 ' + (payload.total_credits || 0) +
-        '（' + (payload.accounts_known || 0) + '/' + (payload.accounts_total || 0) + ' 账号已查询）', 'ok');
-      var box = document.getElementById('runResult');
-      if (box) box.innerHTML = '<h2>积分结果</h2>' + renderQuota(payload.results);
-      setTimeout(function () { location.reload(); }, 1500);
-    }).catch(function (e) { msgSet('runMsg', '刷新失败：' + e.message, 'bad'); });
+    msgSet('quotaMsg', '查询中…', 'muted');
+
+    // Update the visible tables in place rather than reloading the page.
+    //
+    // Both the credits tab and the account table show credit readings, so both need
+    // the new numbers. Reloading would also work, but it throws away the operator's
+    // scroll position and can interrupt a query that is still in flight.
+    function applyResults(payload) {
+      var results = (payload && payload.results) || [];
+      var summary = '完成：积分合计 ' + ((payload && payload.total_credits) || 0) +
+        '（' + ((payload && payload.accounts_known) || 0) + '/' +
+        ((payload && payload.accounts_total) || 0) + ' 账号已查询）';
+      msgSet('quotaMsg', summary, 'ok');
+
+      // The credits tab's own table.
+      var box = document.getElementById('quotaResults');
+      if (box) box.innerHTML = renderQuota(results);
+
+      // The account table's per-row credit cells.
+      for (var i = 0; i < results.length; i++) {
+        var hit = results[i];
+        if (hit && hit.uid) {
+          updateCreditCell(hit.uid, hit);
+        } else if (hit && hit.auth_id) {
+          updateCreditCell(hit.auth_id, hit);
+        }
+      }
+    }
+
+    call(BASE + '/quota/refresh', { method: 'POST' })
+      .then(applyResults)
+      .catch(function (e) { msgSet('quotaMsg', '刷新失败：' + e.message, 'bad'); });
   };
+
+  // refreshQuotaOneAccount is not a separate entry point: the per-row button calls
+  // runAccountQuota, which already writes the single cell it fetched.
 
   window.saveQuotaSettings = function () {
     var msg = document.getElementById('runMsg');
