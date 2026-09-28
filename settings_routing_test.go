@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -347,7 +348,7 @@ func TestAccountTableScrollsOnPhone(t *testing.T) {
 	phone := css[strings.Index(css, "@media (max-width: 768px)"):]
 
 	for _, want := range []string{
-		"table.accounts { min-width: 880px; }",
+		"table.accounts { min-width: 1000px; }",
 		"table.accounts thead { display: table-header-group; }",
 		"table.accounts td { display: table-cell;",
 	} {
@@ -358,5 +359,121 @@ func TestAccountTableScrollsOnPhone(t *testing.T) {
 	// 通用堆叠规则不得作用到账号表上：它的 td 必须是表格单元。
 	if !strings.Contains(phone, "table.accounts td[data-label]::before { display: none; }") {
 		t.Error("手机端账号表仍会套用堆叠标签")
+	}
+}
+
+// 每个在 handler 里实现的路径都必须先注册。
+//
+// CPA 的路由表是精确匹配（METHOD + PATH），没注册的路径直接 404。新增
+// /growth/schedule 时就漏了这一步：代码写完、测试通过，但那一路径永远打不通。
+// 这条断言把「实现」与「注册」绑在一起。
+func TestEveryImplementedRouteIsRegistered(t *testing.T) {
+	registered := map[string]bool{}
+	regSrc := readSourceFile(t, "management.go")
+	for _, m := range regexp.MustCompile(`Path:\s+"(/workbuddy/[^"]*)"`).FindAllStringSubmatch(regSrc, -1) {
+		registered[m[1]] = true
+	}
+	if len(registered) == 0 {
+		t.Fatal("没有解析到任何已注册路由")
+	}
+
+	implemented := map[string]bool{}
+	for _, file := range []string{
+		"handler_main.go", "handler_account.go",
+		"checkin_page.go", "quota_page.go", "growth_page.go",
+	} {
+		src := readSourceFile(t, file)
+		for _, m := range regexp.MustCompile(`case "(/[a-z/]*)"`).FindAllStringSubmatch(src, -1) {
+			implemented["/workbuddy"+m[1]] = true
+		}
+	}
+	if len(implemented) == 0 {
+		t.Fatal("没有解析到任何已实现的路径")
+	}
+
+	for path := range implemented {
+		if !registered[path] {
+			t.Errorf("%s 已实现但未在 management.go 注册，请求会 404", path)
+		}
+	}
+}
+
+// 定时任务的设置要能被读写，并且默认是关闭的。
+//
+// 它会按点消耗上游额度，所以必须由使用者显式开启——默认开启等于替人做决定。
+func TestGrowthScheduleIsOptIn(t *testing.T) {
+	def := defaultGrowthSettings()
+	if def.Enabled {
+		t.Error("定时任务默认不应开启")
+	}
+	if def.Hour < 0 || def.Hour > 23 || def.Minute < 0 || def.Minute > 59 {
+		t.Errorf("默认时间越界：%02d:%02d", def.Hour, def.Minute)
+	}
+
+	// 越界输入要被夹回合法范围。
+	cfg := normalizeGrowthSettings(growthSettings{Hour: 99, Minute: -5})
+	if cfg.Hour != 9 || cfg.Minute != 0 {
+		t.Errorf("越界时间未被修正：%02d:%02d", cfg.Hour, cfg.Minute)
+	}
+
+	// 调度器要能报告状态给面板。
+	snap := growthScheduleSnapshot()
+	for _, key := range []string{"enabled", "hour", "minute", "on_start", "running", "ran_today", "last_summary"} {
+		if _, ok := snap[key]; !ok {
+			t.Errorf("调度状态缺少字段 %s", key)
+		}
+	}
+}
+
+// 任务清单要同时列出全部任务与其中未完成的那些。
+func TestGrowthListsPendingTasks(t *testing.T) {
+	src := readSourceFile(t, "growth_engine.go")
+	for _, want := range []string{"已获取任务清单", "待完成：", "所有任务都已完成"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("清单报告缺少 %q", want)
+		}
+	}
+}
+
+// 配置里缺失的段要落到默认值，而不是零值。
+//
+// 宿主的 YAML 只写它认识的键，面板自己的段（checkin/quota/growth/routing）通常不
+// 在其中。原先解码用的是空结构体，于是每个未出现的键都变成零值——定时任务因此显示
+// 成「0 点、启动不补跑」，签到也受影响。这条断言把默认值与解码行为绑在一起。
+func TestMissingConfigSectionsKeepDefaults(t *testing.T) {
+	var store settingsStore
+	// 只给一个宿主的键，面板的段全部缺席。
+	if errDecode := store.decodeLifecycleConfig([]byte("port: 8317\n")); errDecode != nil {
+		t.Fatalf("解码失败：%v", errDecode)
+	}
+	got := store.get()
+
+	if got.Growth.Hour != 9 || got.Growth.Minute != 0 {
+		t.Errorf("任务定时的默认时间被零值覆盖：%02d:%02d", got.Growth.Hour, got.Growth.Minute)
+	}
+	if !got.Growth.OnStart {
+		t.Error("任务定时的「启动补跑」默认值被覆盖")
+	}
+	if got.Growth.Enabled {
+		t.Error("定时任务默认不应开启")
+	}
+	if got.Checkin.Hour != 9 {
+		t.Errorf("签到的默认时间被零值覆盖：%02d", got.Checkin.Hour)
+	}
+	if got.Quota.IntervalMinutes != 30 {
+		t.Errorf("积分刷新的默认间隔被零值覆盖：%d", got.Quota.IntervalMinutes)
+	}
+}
+
+// 显式写出的段要照常被采纳，不能被默认值盖掉。
+func TestExplicitConfigSectionsWin(t *testing.T) {
+	var store settingsStore
+	body := []byte("port: 8317\ngrowth:\n  enabled: true\n  hour: 21\n  minute: 15\n  on_start: false\n")
+	if errDecode := store.decodeLifecycleConfig(body); errDecode != nil {
+		t.Fatalf("解码失败：%v", errDecode)
+	}
+	got := store.get().Growth
+	if !got.Enabled || got.Hour != 21 || got.Minute != 15 || got.OnStart {
+		t.Errorf("显式配置未被采纳：%+v", got)
 	}
 }

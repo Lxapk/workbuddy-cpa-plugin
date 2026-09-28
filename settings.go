@@ -94,6 +94,8 @@ type gatewaySettings struct {
 	Checkin checkinSettings `json:"checkin" yaml:"checkin"`
 	// Quota holds the quota-refresh configuration (nested under "quota").
 	Quota quotaSettings `json:"quota" yaml:"quota"`
+	// Growth holds the scheduled growth-task configuration (nested under "growth").
+	Growth growthSettings `json:"growth" yaml:"growth"`
 	// Routing holds the account-selection strategy (nested under "routing").
 	Routing routingSettings `json:"routing" yaml:"routing"`
 	// VariantOverride scopes which accounts an operation acts on.
@@ -140,6 +142,7 @@ func defaultGatewaySettings() gatewaySettings {
 		DefaultProvider:        workBuddyProviderKey,
 		EnforceDefaultProvider: false,
 		Checkin:                defaultCheckinSettings(),
+		Growth:                 defaultGrowthSettings(),
 		Quota:                  defaultQuotaSettings(),
 		Routing:                defaultRoutingSettings(),
 		VariantOverride:        "",
@@ -288,6 +291,13 @@ func (s *settingsStore) setCheckin(cfg checkinSettings) {
 	s.val.Checkin = cfg
 }
 
+// setGrowth replaces only the growth-schedule block, leaving gateway settings intact.
+func (s *settingsStore) setGrowth(cfg growthSettings) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.val.Growth = cfg
+}
+
 // setQuota replaces only the quota block, leaving gateway settings intact.
 func (s *settingsStore) setQuota(cfg quotaSettings) {
 	s.mu.Lock()
@@ -421,10 +431,31 @@ type lifecycleRequest struct {
 //
 // "enabled" and "priority" are host-owned and ignored here.
 func (s *settingsStore) decodeLifecycleConfig(raw []byte) error {
-	cfg := gatewaySettings{}
+	// Start from the defaults, not from a zero struct: the host's YAML does not carry
+	// every panel field, and decoding into an empty struct turns each missing section
+	// into its zero value. That is how the growth schedule came up as "hour 0,
+	// on_start false" — the defaults were computed and then overwritten by zeros for
+	// every key the YAML did not mention.
+	cfg := defaultGatewaySettings()
 	if len(raw) > 0 {
 		if errUnmarshal := yamlUnmarshalFlattened(raw, &cfg); errUnmarshal != nil {
 			return errUnmarshal
+		}
+		// Fields the host never writes must keep their defaults when absent. The
+		// decoder cannot tell "absent" from "explicitly zero" for value types, so the
+		// sections that are panel-only are restored wholesale when their key is
+		// missing from the YAML.
+		if !yamlHasKey(raw, "checkin") {
+			cfg.Checkin = defaultCheckinSettings()
+		}
+		if !yamlHasKey(raw, "quota") {
+			cfg.Quota = defaultQuotaSettings()
+		}
+		if !yamlHasKey(raw, "growth") {
+			cfg.Growth = defaultGrowthSettings()
+		}
+		if !yamlHasKey(raw, "routing") {
+			cfg.Routing = defaultRoutingSettings()
 		}
 	}
 	s.set(cfg)

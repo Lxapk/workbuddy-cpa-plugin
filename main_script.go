@@ -1046,6 +1046,27 @@ func mainPageScript() string {
     });
   };
 
+  // saveGrowthSchedule stores the scheduled-run settings.
+  window.saveGrowthSchedule = function (button) {
+    msgSet('growthScheduleMsg', '保存中…', 'muted');
+    call(BASE + '/growth/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: readChecked('gsEnabled', false),
+        hour: readNumber('gsHour', 9),
+        minute: readNumber('gsMinute', 0),
+        on_start: readChecked('gsOnStart', true)
+      })
+    }).then(function () {
+      msgSet('growthScheduleMsg', '已保存', 'ok');
+      // The badge next to the title is server-rendered, so reload to show it.
+      setTimeout(function () { location.reload(); }, 600);
+    }).catch(function (e) {
+      msgSet('growthScheduleMsg', '保存失败：' + e.message, 'bad');
+    });
+  };
+
   // renderGrowthDetail draws one account's per-task outcome as grouped rows.
   function renderGrowthDetail(payload) {
     if (!payload) return '';
@@ -1057,7 +1078,7 @@ func mainPageScript() string {
     if (!tasks.length) {
       return '<div class="empty">这次运行没有任务记录。</div>';
     }
-    var out = '<div class="tbl-wrap"><table class="stack"><thead><tr>' +
+    var out = '<div class="tbl-wrap"><table class="data detail"><thead><tr>' +
       '<th>任务</th><th>状态</th><th>说明</th></tr></thead><tbody>';
     for (var i = 0; i < tasks.length; i++) {
       var t = tasks[i] || {};

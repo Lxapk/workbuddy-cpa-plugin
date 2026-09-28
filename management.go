@@ -166,6 +166,16 @@ func managementRegistration() managementRegistrationResponse {
 				Description: "Growth welfare summary (energy, streak, travel state).",
 			},
 			{
+				Method:      http.MethodGet,
+				Path:        "/workbuddy/growth/schedule",
+				Description: "Read the scheduled growth-task run settings.",
+			},
+			{
+				Method:      http.MethodPost,
+				Path:        "/workbuddy/growth/schedule",
+				Description: "Update the scheduled growth-task run settings.",
+			},
+			{
 				Method:      http.MethodPost,
 				Path:        "/workbuddy/growth/run",
 				Description: "Run the full growth-task pass for one account or all of them.",

@@ -286,10 +286,26 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .stat.bad .v { color: var(--error-color); }
 
 /* ======================= table ======================= */
-/* Tables scroll inside their own wrapper rather than moving the page: the tab bar and
-   the frame must stay put while a wide table is scrolled. */
-.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* Every data table gets the same treatment: natural column widths, a minimum that
+   keeps cells from being squeezed into slivers, and horizontal scrolling inside the
+   card when the viewport is narrower than that minimum.
+ *
+ * The "results" column in the call log used to stretch to fill the container, which
+ * left a wide empty band on a desktop display — the last column was absorbing all the
+ * slack. Leaving the width to the content and letting the wrapper scroll removes that
+ * without needing a different rule per table. */
+.tbl-wrap {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  /* Edge shadows hint that there is more to the right; without them a wide table
+     simply looks cut off and nobody tries to scroll it. */
+  background:
+    linear-gradient(to right, var(--bg-primary) 30%, transparent) left / 20px 100% no-repeat,
+    linear-gradient(to left, var(--bg-primary) 30%, transparent) right / 20px 100% no-repeat;
+  background-attachment: local, local;
+}
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+table.data { table-layout: auto; }
+table.data td, table.data th { width: auto; }
 th {
   text-align: left; font-weight: 550; font-size: 12px; color: var(--text-secondary);
   padding: 11px 14px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
@@ -299,15 +315,28 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.actions { white-space: nowrap; text-align: right; }
+/* The error text is the only long cell in the call log; cap it so it wraps instead of
+   pushing the table wider than the card. */
+td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: break-word; }
 
 /* ---------- account rows ---------- */
 /* The account table has eight columns, so it gets its own rules rather than reusing
    the generic table: the credit bar and the usage chips need sizes tuned to what they
-   contain, and the row would be unreadable if everything were left to auto layout. */
-table.accounts { min-width: 940px; }
-table.accounts td, table.accounts th { vertical-align: top; }
+   contain, and the row would be unreadable if everything were left to auto layout.
+
+   min-width keeps the columns from being squeezed into unreadable slivers; the
+   wrapper scrolls when the viewport is narrower. */
+table.accounts { min-width: 900px; }
+table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
 /* The account cell is a heading for the row, so it gets a little more room. */
 table.accounts td:first-child { min-width: 150px; }
+/* Row controls are compact: four of them per row, and at full size they would dominate
+   the table. Padding is trimmed and the label kept short ("禁用" not "停用该账号"). */
+table.accounts td.actions { white-space: nowrap; }
+table.accounts td.actions button {
+  padding: 4px 9px; font-size: 12px; border-radius: 6px; margin-left: 4px;
+}
+table.accounts td.actions button:first-child { margin-left: 0; }
 /* The secondary line under a label: the uid, a cooldown detail, an expiry note. */
 .uid { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; }
 .bad-text { color: var(--error-color); }
@@ -560,19 +589,29 @@ details > summary { cursor: pointer; }
   table.stack td[data-label="账号"] strong { font-size: 14.5px; }
   table.stack td.actions { margin-top: 6px; }
 
-  /* The account table stays a table on a phone and scrolls sideways.
-     Stacking eight cells per row would make each account taller than the screen, and
-     the whole point of this layout is comparing accounts — which needs them side by
-     side. The wrapper carries the scroll; the page frame stays put. */
-  table.accounts { min-width: 880px; }
-  table.accounts thead { display: table-header-group; }
-  table.accounts tr { display: table-row; }
-  table.accounts td { display: table-cell; white-space: nowrap; }
-  table.accounts td[data-label]::before { display: none; }
-  table.accounts td.actions { margin-top: 0; }
-  /* The action cluster wraps onto two lines rather than widening the row further. */
-  table.accounts td.actions { max-width: 168px; white-space: normal; }
-  table.accounts td.actions button { margin: 0 3px 3px 0; }
+  /* Data tables keep their columns on a phone and scroll sideways.
+     Stacking each cell onto its own line made every row taller than the screen, and
+     comparing rows — which is what these tables are for — needs them side by side.
+     The wrapper carries the scroll; the page frame stays put. */
+  table.data { min-width: 640px; }
+  table.data.calls { min-width: 760px; }
+  table.data.tasks { min-width: 560px; }
+  table.data.detail { min-width: 560px; }
+  table.accounts { min-width: 1000px; }
+  table.data thead, table.accounts thead { display: table-header-group; }
+  table.data tr, table.accounts tr { display: table-row; }
+  table.data td, table.accounts td { display: table-cell; white-space: nowrap; }
+  table.data td[data-label]::before, table.accounts td[data-label]::before { display: none; }
+  /* Nowrap everywhere, including the action cluster.
+     Letting the controls wrap turned a 52px row into a 400px one — four buttons
+     stacked vertically, which is what made the table "too tall" on a phone. The
+     column is allowed to be wide instead; the table scrolls. */
+  table.accounts td.actions { white-space: nowrap; }
+  table.accounts td.actions button { margin-left: 4px; }
+  table.accounts td.actions button:first-child { margin-left: 0; }
+  /* The one cell that is allowed to wrap: error text. A nowrap error would make the
+     call log arbitrarily wide. */
+  table.data td.wrap { white-space: normal; }
 
   .filter-bar { padding: 10px 12px; }
   .filter-search { flex: 1 1 100%; }

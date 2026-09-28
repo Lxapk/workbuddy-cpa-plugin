@@ -171,20 +171,31 @@ func (r *growthRunner) run(ctx context.Context, creds *workBuddyCredentials, lab
 	// a failure there now refers to something the reader has already seen.
 	{
 		names := make([]string, 0, len(tasks))
-		done, pending := 0, 0
+		pendingNames := make([]string, 0, len(tasks))
+		done := 0
 		for _, task := range tasks {
 			label := firstNonEmpty(task.Name, task.Code)
-			names = append(names, label)
 			// A task is finished when its counter reached the target; anything else is
 			// still to do, whatever the status string says.
-			if task.Target > 0 && task.Current >= task.Target {
+			finished := task.Target > 0 && task.Current >= task.Target
+			if finished {
 				done++
-			} else {
-				pending++
+				names = append(names, label)
+				continue
 			}
+			// Mark the unfinished ones so the list says which still need work rather
+			// than making the reader compare two lists.
+			names = append(names, label+" ✗")
+			pendingNames = append(pendingNames, label)
 		}
-		logger.add("info", "已获取任务清单：%d 个（已完成 %d，待完成 %d）", len(tasks), done, pending)
+		logger.add("info", "已获取任务清单：%d 个（已完成 %d，待完成 %d）",
+			len(tasks), done, len(pendingNames))
 		logger.add("info", "任务：%s", strings.Join(names, "、"))
+		if len(pendingNames) > 0 {
+			logger.add("info", "待完成：%s", strings.Join(pendingNames, "、"))
+		} else {
+			logger.add("ok", "所有任务都已完成")
+		}
 	}
 
 	// Stage 1: accept everything that is not accepted yet.

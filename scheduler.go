@@ -476,15 +476,26 @@ func schedulerPick(request []byte) ([]byte, error) {
 	// failures that actually need reading out of the call history, and the offer
 	// is the same on almost every call: the host re-sends the same credential set
 	// and only the per-candidate status drifts.
+	// Record the host's offer only when it says something is wrong.
+	//
+	// This was written on every change of the candidate set while I was diagnosing a
+	// report that "three accounts were only ever using one". The diagnosis is done —
+	// the host was offering all three correctly — and the line kept appearing in the
+	// call log where it reads like an error rather than a note. Now it is emitted
+	// only when the two counts disagree, which is the case that would actually need
+	// investigating: the host handed us credentials the pool has no lane for.
 	if offer := describeCandidates(req.Candidates); offer != state.scheduler.lastOffer {
 		state.scheduler.lastOffer = offer
-		state.log.add(callRecord{
-			ProviderID: req.Provider,
-			Model:      req.Model,
-			StatusCode: http.StatusOK,
-			Error: fmt.Sprintf("选号：host 提供 %d 个（%s），本地 lanes=%d",
-				len(req.Candidates), offer, len(state.pool.snapshot())),
-		})
+		lanes := len(state.pool.snapshot())
+		if len(req.Candidates) != lanes {
+			state.log.add(callRecord{
+				ProviderID: req.Provider,
+				Model:      req.Model,
+				StatusCode: http.StatusOK,
+				Error: fmt.Sprintf("选号：host 提供 %d 个，本地 lanes=%d（数量不一致）",
+					len(req.Candidates), lanes),
+			})
+		}
 	}
 	if len(candidates) == 0 {
 		// All candidates may have been parked for this model specifically. Say so,

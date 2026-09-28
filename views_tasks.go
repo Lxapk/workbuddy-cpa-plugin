@@ -13,6 +13,55 @@ import (
 	"strings"
 )
 
+// renderGrowthScheduleBox draws the scheduled run controls.
+//
+// Same shape as the check-in card next to it: a switch, a time of day, and an optional
+// catch-up pass at startup. The two read alike because they are the same kind of
+// thing — something that runs unattended at a chosen hour.
+func renderGrowthScheduleBox() string {
+	snap := growthScheduleSnapshot()
+	enabled, _ := snap["enabled"].(bool)
+	hour, _ := snap["hour"].(int)
+	minute, _ := snap["minute"].(int)
+	onStart, _ := snap["on_start"].(bool)
+	ranToday, _ := snap["ran_today"].(bool)
+	running, _ := snap["running"].(bool)
+	lastSummary, _ := snap["last_summary"].(string)
+
+	var b strings.Builder
+	b.WriteString(`<div class="box">`)
+	b.WriteString(`<header><h3>定时执行 <span class="hint">每天自动完成全部任务</span></h3><span class="grow"></span>`)
+	if running {
+		b.WriteString(`<span class="pill warn">执行中</span>`)
+	} else if enabled && ranToday {
+		b.WriteString(`<span class="pill ok">今日已完成</span>`)
+	}
+	b.WriteString(`<span class="note" id="growthScheduleMsg"></span>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="saveGrowthSchedule">保存</button>`)
+	b.WriteString(`</header>`)
+	b.WriteString(`<div class="pad">`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="gsEnabled"`)
+	if enabled {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启用每天定时执行</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field">每天 <input type="number" id="gsHour" min="0" max="23" value="` +
+		fmt.Sprint(clampHour(hour)) + `"> 时 <input type="number" id="gsMinute" min="0" max="59" value="` +
+		fmt.Sprint(clampMinute(minute)) + `"> 分执行</label></div>`)
+	b.WriteString(`<div class="row tight"><label class="field"><input type="checkbox" id="gsOnStart"`)
+	if onStart {
+		b.WriteString(` checked`)
+	}
+	b.WriteString(`> 启动时补跑（当天尚未执行时）</label></div>`)
+	if lastSummary != "" {
+		b.WriteString(`<div class="note" style="margin-top:9px">上次：` + html.EscapeString(lastSummary) + `</div>`)
+	}
+	b.WriteString(`<div class="note" style="margin-top:9px">定时执行与「全部执行」做同样的事：` +
+		`成长任务、签到与猫猫旅行。它按本机时区判断日期，同一天只跑一次。</div>`)
+	b.WriteString(`</div></div>`)
+	return b.String()
+}
+
 // renderCheckinBox draws the daily sign-in: its schedule and the last run's summary.
 func renderCheckinBox() string {
 	settings := state.settings.get()
@@ -71,7 +120,7 @@ func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 		return b.String()
 	}
 
-	b.WriteString(`<div class="tbl-wrap"><table class="stack"><thead><tr>`)
+	b.WriteString(`<div class="tbl-wrap"><table class="data tasks"><thead><tr>`)
 	b.WriteString(`<th>账号</th><th>参与</th><th>最近任务</th><th>执行时间</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
@@ -192,7 +241,7 @@ func taskLastLabel(uid string) string {
 
 func renderCallTable(recent []callRecord) string {
 	var b strings.Builder
-	b.WriteString(`<div class="tbl-wrap"><table class="stack"><thead><tr>`)
+	b.WriteString(`<div class="tbl-wrap"><table class="data calls"><thead><tr>`)
 	b.WriteString(`<th>时间</th><th>账号</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th><th>结果</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
@@ -213,7 +262,7 @@ func renderCallTable(recent []callRecord) string {
 		b.WriteString(`<td class="num" data-label="状态"><span class="pill ` + cls + `">` +
 			fmt.Sprint(rec.StatusCode) + `</span></td>`)
 		b.WriteString(`<td class="num mono" data-label="Tokens">` + html.EscapeString(tokens) + `</td>`)
-		b.WriteString(`<td class="note" data-label="结果">` + html.EscapeString(rec.Error) + `</td></tr>`)
+		b.WriteString(`<td class="note wrap" data-label="结果">` + html.EscapeString(rec.Error) + `</td></tr>`)
 	}
 
 	b.WriteString(`</tbody></table></div>`)

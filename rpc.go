@@ -12,7 +12,7 @@ import (
 
 const (
 	pluginName    = "workbuddy"
-	pluginVersion = "0.13.62"
+	pluginVersion = "0.13.64"
 	pluginAuthor  = "BlackHawk"
 	pluginRepo    = "https://github.com/router-for-me/CLIProxyAPI"
 )
@@ -135,8 +135,11 @@ func handleMethod(method string, request []byte) ([]byte, error) {
 		if state.settings.get().Checkin.Enabled {
 			startCheckinScheduler()
 		}
-		if state.settings.get().Quota.Enabled {
-			startQuotaScheduler()
+		// The quota loop also performs the startup refresh, which is unconditional —
+		// the credit readings are the panel's main table, so it is always started.
+		startQuotaScheduler()
+		if state.settings.get().Growth.Enabled {
+			startGrowthScheduler()
 		}
 		startTaskScheduler()
 		// Restore credentials parked for a throttle once their deadline passes.

@@ -69,6 +69,57 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 
 	case "/growth/summary":
 		return handleGrowthTasksRequest(req), true
+
+	case "/growth/schedule":
+		if method == http.MethodPost {
+			var body struct {
+				Enabled *bool `json:"enabled"`
+				Hour    *int  `json:"hour"`
+				Minute  *int  `json:"minute"`
+				OnStart *bool `json:"on_start"`
+			}
+			if len(req.Body) > 0 {
+				if errUnmarshal := json.Unmarshal(req.Body, &body); errUnmarshal != nil {
+					return managementResponse{
+						StatusCode: http.StatusBadRequest,
+						Headers:    jsonResponseHeaders(),
+						Body:       mustJSON(map[string]any{"error": errUnmarshal.Error()}),
+					}, true
+				}
+			}
+			// Merge onto the current values so a partial body is a valid update.
+			cfg := state.settings.get().Growth
+			if body.Enabled != nil {
+				cfg.Enabled = *body.Enabled
+			}
+			if body.Hour != nil {
+				cfg.Hour = *body.Hour
+			}
+			if body.Minute != nil {
+				cfg.Minute = *body.Minute
+			}
+			if body.OnStart != nil {
+				cfg.OnStart = *body.OnStart
+			}
+			cfg = normalizeGrowthSettings(cfg)
+			state.settings.setGrowth(cfg)
+
+			// Start the loop the first time it is switched on, so it exists in this
+			// process without needing a restart.
+			if cfg.Enabled {
+				startGrowthScheduler()
+			}
+			return managementResponse{
+				StatusCode: http.StatusOK,
+				Headers:    jsonResponseHeaders(),
+				Body:       mustJSON(map[string]any{"ok": true, "schedule": growthScheduleSnapshot()}),
+			}, true
+		}
+		return managementResponse{
+			StatusCode: http.StatusOK,
+			Headers:    jsonResponseHeaders(),
+			Body:       mustJSON(map[string]any{"schedule": growthScheduleSnapshot()}),
+		}, true
 	}
 
 	if method == http.MethodPost {
