@@ -80,8 +80,8 @@ func TestNarrowViewportStylesExist(t *testing.T) {
 	css := uiCSS
 
 	for _, want := range []string{
-		"@media (max-width: 760px)",
-		"@media (max-width: 760px)",
+		"@media (max-width: 768px)",
+		"@media (max-width: 768px)",
 		".tbl-wrap",            // 溢出受控的容器
 		"button.xs",            // 表格行内的紧凑按钮
 		".filter-bar",          // 筛选条

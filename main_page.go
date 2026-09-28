@@ -43,23 +43,25 @@ func renderMainPage() string {
 	return b.String()
 }
 
-// renderNav builds the side navigation.
+// renderNav builds the tab strip above the content.
+//
+// Tabs rather than a side column: this matches the host's own section navigation, and
+// the panel is usually viewed in a narrow webview where a 196px column costs more than
+// it gives.
 func renderNav() string {
 	var b strings.Builder
-	b.WriteString(`<nav class="nav">`)
-	b.WriteString(`<div class="brand"><div class="name">WorkBuddy</div>`)
-	b.WriteString(`<div class="sub">v` + pluginVersion + `</div></div>`)
-	b.WriteString(`<ul>`)
+	b.WriteString(`<nav class="tabbar">`)
+	b.WriteString(`<span class="brand"><span class="name">WorkBuddy</span>`)
+	b.WriteString(`<span class="ver">v` + pluginVersion + `</span></span>`)
 	for _, item := range []struct{ view, label string }{
 		{"view-accounts", "账号"},
 		{"view-tasks", "任务"},
 		{"view-usage", "用量"},
 		{"view-settings", "设置"},
 	} {
-		b.WriteString(`<li><a data-view="` + item.view + `">` + item.label + `</a></li>`)
+		b.WriteString(`<button type="button" class="tab" data-view="` + item.view + `">` +
+			item.label + `</button>`)
 	}
-	b.WriteString(`</ul>`)
-	b.WriteString(`<div class="foot">把 WorkBuddy 账号反代为<br>OpenAI 兼容接口</div>`)
 	b.WriteString(`</nav>`)
 	return b.String()
 }

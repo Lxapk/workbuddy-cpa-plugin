@@ -352,7 +352,7 @@ func TestCombinedPageServedAtRoot(t *testing.T) {
 		if mr.StatusCode != http.StatusOK || len(mr.Body) == 0 {
 			t.Fatalf("%s -> status=%d len=%d", path, mr.StatusCode, len(mr.Body))
 		}
-		if !strings.Contains(string(mr.Body), "WorkBuddy 账号") {
+		if !strings.Contains(string(mr.Body), "WorkBuddy") {
 			t.Fatalf("%s did not render the combined page", path)
 		}
 	}
@@ -533,7 +533,7 @@ func TestCombinedPageReachableAtHomePath(t *testing.T) {
 	if mr.StatusCode != http.StatusOK || len(mr.Body) == 0 {
 		t.Fatalf("home resource: status=%d len=%d", mr.StatusCode, len(mr.Body))
 	}
-	if !strings.Contains(string(mr.Body), "WorkBuddy 账号") {
+	if !strings.Contains(string(mr.Body), "WorkBuddy") {
 		t.Fatal("home resource did not render the combined page")
 	}
 }
