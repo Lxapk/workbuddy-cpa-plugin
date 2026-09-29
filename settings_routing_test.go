@@ -1901,3 +1901,56 @@ func TestCallRecordsShowStreamKind(t *testing.T) {
 		t.Error("类型文案不对")
 	}
 }
+
+// 调用记录的表头必须和每一行一样多列。
+//
+// 上一版在替换账号列时把「时间」的表头删掉了，数据行却照旧渲染时间，于是时间被顶到
+// 「类型」下面，最后一列还多出来一个没名字的格子——列错位比缺一列更难发现，因为每一格
+// 都有内容，只是都挪了一格。
+func TestCallTableHeaderMatchesRows(t *testing.T) {
+	resetState()
+	page := renderCallTable([]callRecord{
+		{Model: "glm-5.3-flash", StatusCode: 200, Stream: true, PromptTokens: 1, CompletionTokens: 2},
+		{Model: "kimi-k2.5", StatusCode: 429, Stream: false, Error: "限流"},
+	})
+
+	head := page[strings.Index(page, "<thead>"):strings.Index(page, "</thead>")]
+	want := []string{"时间", "类型", "模型", "状态", "Tokens", "结果"}
+	got := headerCells(head)
+	if len(got) != len(want) {
+		t.Fatalf("表头应有 %d 列，实际 %d 列：%v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("第 %d 列表头是 %q，应为 %q", i+1, got[i], want[i])
+		}
+	}
+
+	// 每一行都要有同样多的格子。
+	rows := strings.Split(page[strings.Index(page, "<tbody>"):], "<tr>")[1:]
+	if len(rows) != 2 {
+		t.Fatalf("应有 2 行，实际 %d 行", len(rows))
+	}
+	for i, row := range rows {
+		if n := strings.Count(row, "<td"); n != len(want) {
+			t.Errorf("第 %d 行有 %d 个格子，表头有 %d 列", i+1, n, len(want))
+		}
+	}
+}
+
+// headerCells reads the <th> texts out of a table head fragment.
+func headerCells(head string) []string {
+	var out []string
+	for _, cell := range strings.Split(head, "<th")[1:] {
+		end := strings.Index(cell, "</th>")
+		if end < 0 {
+			continue
+		}
+		text := cell[:end]
+		if i := strings.Index(text, ">"); i >= 0 {
+			text = text[i+1:]
+		}
+		out = append(out, strings.TrimSpace(text))
+	}
+	return out
+}

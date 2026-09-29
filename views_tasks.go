@@ -212,7 +212,7 @@ func renderCallTable(recent []callRecord) string {
 	// for an account the accounts page called cb56d65f-…, so the column told the reader
 	// nothing they could act on. What the record does know reliably is how the request was
 	// served, which the column now reports instead.
-	b.WriteString(`<th>类型</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th><th>结果</th>`)
+	b.WriteString(`<th>时间</th><th>类型</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th><th>结果</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, rec := range recent {
