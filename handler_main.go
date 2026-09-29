@@ -85,6 +85,27 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 			Body:       mustJSON(map[string]any{"ok": true, "removed": removed}),
 		}, true
 
+	case "/debug":
+		// Reports whether verbose logging is on, and emits one line so the operator can
+		// confirm the host actually relays it.
+		//
+		// The setting is read from the plugin's config section, which CPA flattens from
+		// the instance YAML; without this endpoint there is no way to tell "the setting did
+		// not arrive" from "the setting arrived but the log callback is not wired".
+		gateway := state.settings.get()
+		logf("debug probe: debug=%v routing=%s variant=%q",
+			gateway.Debug, gateway.Routing.Strategy, gateway.VariantOverride)
+		return managementResponse{
+			StatusCode: http.StatusOK,
+			Headers:    jsonResponseHeaders(),
+			Body: mustJSON(map[string]any{
+				"ok":               true,
+				"debug":            gateway.Debug,
+				"variant_override": gateway.VariantOverride,
+				"routing":          gateway.Routing.Strategy,
+			}),
+		}, true
+
 	case "/models":
 		return handleModelsRequest(req)
 

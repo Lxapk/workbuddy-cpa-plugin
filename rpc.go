@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ const (
 	// lower-case because it has to be; this is the name that appears in prose, so it
 	// carries the product's capitalisation.
 	pluginDisplayName = "WorkBuddy"
-	pluginVersion     = "0.13.94"
+	pluginVersion     = "0.13.95"
 	pluginAuthor      = "BlackHawk"
 	pluginRepo        = "https://github.com/router-for-me/CLIProxyAPI"
 )
@@ -502,9 +503,21 @@ func statusForKind(k failureKind) int {
 }
 
 // logf forwards a diagnostic line to the CPA host log (pluginabi.MethodHostLog).
-// It is intentionally fire-and-forget: the host may not expose the callback.
-func logf(format string, _ ...any) {
-	_ = format
+//
+// It used to be an empty function — the comment described forwarding, the body dropped
+// the message — so every diagnostic written through it vanished. That made the debug
+// setting appear to do nothing and left no trace to read when the supplier switch turned
+// out not to be honoured. The host call is fire-and-forget: a host that does not expose
+// the callback should not break a request.
+func logf(format string, args ...any) {
+	if !state.settings.get().Debug {
+		return
+	}
+	message := fmt.Sprintf(format, args...)
+	_, _ = callHost("host.log", map[string]any{
+		"level":   "info",
+		"message": "[workbuddy] " + message,
+	})
 }
 
 // recordingEnabled reports whether the plugin should record a call.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
-
+	"strings"
 	"sync"
 	"time"
 )
@@ -80,6 +80,12 @@ type checkinRun struct {
 	// Total == Succeeded + Failed + Skipped always holds.
 	Skipped int             `json:"skipped,omitempty"`
 	Results []checkinResult `json:"results"`
+	// Note explains a pass that had nothing to do, when the reason is not obvious.
+	//
+	// A pool of international accounts yields Total 0 every time, and the panel showed
+	// that as a completed run with no results — indistinguishable from a pass that ran and
+	// found everything already done. The note names the actual cause.
+	Note string `json:"note,omitempty"`
 }
 
 // checkinState holds the scheduler + history.
@@ -213,6 +219,17 @@ func collectCheckinAccounts() ([]checkinAccount, error) {
 		if state.pool.isAccountDisabled(creds.UID, id) {
 			continue
 		}
+		// An international account has no check-in. The upstream endpoint for it does not
+		// exist, so including one produced a run that always failed — the operator saw a
+		// failure they could do nothing about, and the account's error count crept up for
+		// a request that was never going to succeed.
+		//
+		// Only a domain that positively names the international realm is excluded. An
+		// absent domain is not evidence either way, and variableByDomain treats empty as
+		// international — which would drop every credential whose file omits the field.
+		if variantOfDomain(creds.Domain) == string(variantAi) && domainSaysInternational(creds.Domain) {
+			continue
+		}
 		out = append(out, checkinAccount{
 			AuthID: id,
 			Label:  firstNonEmpty(entry.Label, entry.Name, creds.label()),
@@ -286,7 +303,14 @@ func runCheckin(trigger string) *checkinRun {
 	}
 	if len(accounts) == 0 {
 		run.FinishedAt = nowPanel()
-		run.Results = []checkinResult{{Error: "没有可签到的 WorkBuddy 账号"}}
+		// Say which of the two reasons applies. "没有可签到的账号" is true either way, but
+		// when international credentials exist and were excluded the operator would go
+		// looking for a missing login that is in fact present and simply not eligible.
+		run.Note = "没有可签到的账号：国际版账号不支持签到，此操作仅用于国内版"
+		if len(allAccounts) == 0 {
+			run.Note = "没有可签到的账号：尚未添加任何 WorkBuddy 凭证"
+		}
+		run.Results = []checkinResult{{Error: run.Note}}
 		state.checkin.record(run)
 		return run
 	}
@@ -574,4 +598,25 @@ func (s *checkinState) clearHistory() int {
 	n := len(s.history)
 	s.history = nil
 	return n
+}
+
+// domainSaysInternational reports whether a domain positively names the international realm.
+//
+// Separate from variantOfDomain, which answers a different question: that one maps a domain
+// onto the realm to *use*, and falls back to international for anything it does not
+// recognise — the right default when choosing an endpoint, the wrong one when deciding
+// whether an account is eligible for an operation. An empty or unknown domain is not
+// evidence of international; only the known hosts are.
+func domainSaysInternational(domain string) bool {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return false
+	}
+	switch {
+	case strings.Contains(d, "codebuddy.cn"), strings.Contains(d, "copilot.tencent.com"):
+		return false
+	case strings.Contains(d, "workbuddy.ai"), strings.Contains(d, "codebuddy.ai"):
+		return true
+	}
+	return false
 }

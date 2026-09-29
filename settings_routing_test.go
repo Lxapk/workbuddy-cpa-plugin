@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 // 路由策略必须在设置页，而不是账号页。
@@ -1953,4 +1956,119 @@ func headerCells(head string) []string {
 		out = append(out, strings.TrimSpace(text))
 	}
 	return out
+}
+
+// 「供应商切换」约束调用选号，不只是签到与任务。
+//
+// 这个设置项的注释写着「This is the supplier switch for *calls*」，语义上就该决定一次请求
+// 从哪个区域取得服务。实现里它此前只作用于签到与任务，选号是自由的——于是把设置切到
+// 「仅国际」之后，请求仍可能落到国内凭据上，而操作者以为自己已经限定了一侧。
+func TestSupplierSwitchScopesSchedulerCandidates(t *testing.T) {
+	resetState()
+
+	// 两个账号分别是国内与国际，池里的 lane 带 variant（由账号表填充）。
+	installAuthList(t, []map[string]any{
+		{"auth_index": "auth-cn-1", "provider": workBuddyProviderKey, "label": "国内一号",
+			"storage_json": json.RawMessage(`{"accessToken":"t","uid":"cn-1","domain":"copilot.tencent.com"}`)},
+		{"auth_index": "auth-ai-1", "provider": workBuddyProviderKey, "label": "国际一号",
+			"storage_json": json.RawMessage(`{"accessToken":"t","uid":"ai-1","domain":"www.workbuddy.ai"}`)},
+	})
+	state.pool.observe(workBuddyProviderKey, "cn-1", "国内一号")
+	state.pool.observe(workBuddyProviderKey, "ai-1", "国际一号")
+	refreshAccountsAfterLogin()
+
+	req := pluginapi.SchedulerPickRequest{
+		Model: "glm-5.3",
+		Candidates: []pluginapi.SchedulerAuthCandidate{
+			{ID: "cn-1", Provider: workBuddyProviderKey, Status: "active"},
+			{ID: "ai-1", Provider: workBuddyProviderKey, Status: "active"},
+		},
+	}
+
+	// 自动：两侧都可用。
+	state.settings.setVariantOverride("")
+	if got := newSchedulerState().collectCandidates(req); len(got) != 2 {
+		t.Errorf("自动模式应保留两侧，实际 %d 个", len(got))
+	}
+
+	// 仅国际：国内被排除。
+	state.settings.setVariantOverride("ai")
+	got := newSchedulerState().collectCandidates(req)
+	if len(got) != 1 || got[0].ID != "ai-1" {
+		t.Fatalf("仅国际应只剩国际账号，实际 %+v", got)
+	}
+
+	// 仅国内：反过来。
+	state.settings.setVariantOverride("cn")
+	got = newSchedulerState().collectCandidates(req)
+	if len(got) != 1 || got[0].ID != "cn-1" {
+		t.Fatalf("仅国内应只剩国内账号，实际 %+v", got)
+	}
+
+	// 全部被排除时，诊断要说清是被开关排除的，而不是说「都在冷却」。
+	// 池里要有这条 lane，否则它会被算作「没认出」而不是「被排除」。
+	state.settings.setVariantOverride("ai")
+	_, stats := newSchedulerState().collectCandidatesWithStats(pluginapi.SchedulerPickRequest{
+		Model:      "glm-5.3",
+		Candidates: []pluginapi.SchedulerAuthCandidate{{ID: "cn-1", Provider: workBuddyProviderKey}},
+	})
+	if stats.RealmExcluded != 1 {
+		t.Fatalf("应有一个账号被供应商开关排除，实际 %d（Matched=%d）", stats.RealmExcluded, stats.Matched)
+	}
+	msg := describeNoCandidateReason(stats.Offered, stats.Matched, stats.Cooling, stats.Rejected, stats.RealmExcluded, stats.Disabled)
+	if !strings.Contains(msg, "供应商切换") {
+		t.Errorf("诊断应指明是供应商开关排除的，实际 %q", msg)
+	}
+	if strings.Contains(msg, "冷却") {
+		t.Errorf("不该把开关排除说成冷却，实际 %q", msg)
+	}
+}
+
+// 被禁用的账号不参与选号。
+//
+// 账号页的禁用开关只写池里的 lane——CPA 不知道这件事，仍会把该凭据作为候选送来。请求
+// 路径上必须自己把这道闸关上，否则按钮点了没有任何效果：禁用的账号照样接着服务流量。
+func TestDisabledAccountsAreNotSelectable(t *testing.T) {
+	resetState()
+	state.pool.observe(workBuddyProviderKey, "u-1", "一号")
+	state.pool.observe(workBuddyProviderKey, "u-2", "二号")
+
+	req := pluginapi.SchedulerPickRequest{
+		Model: "glm-5.3",
+		Candidates: []pluginapi.SchedulerAuthCandidate{
+			{ID: "u-1", Provider: workBuddyProviderKey, Status: "active"},
+			{ID: "u-2", Provider: workBuddyProviderKey, Status: "active"},
+		},
+	}
+
+	if got := newSchedulerState().collectCandidates(req); len(got) != 2 {
+		t.Fatalf("启用状态两个都该可选，实际 %d 个", len(got))
+	}
+
+	// 手动禁用其中一个。
+	state.pool.disableAccountKeyed("u-1", "", true)
+	got := newSchedulerState().collectCandidates(req)
+	if len(got) != 1 || got[0].ID != "u-2" {
+		t.Fatalf("禁用后应只剩 u-2，实际 %+v", got)
+	}
+
+	// 全部禁用 → 没有候选，且诊断要说清原因是禁用。
+	state.pool.disableAccountKeyed("u-2", "", true)
+	_, stats := newSchedulerState().collectCandidatesWithStats(req)
+	if len(newSchedulerState().collectCandidates(req)) != 0 {
+		t.Fatal("全部禁用时不该还有候选")
+	}
+	if stats.Disabled != 2 {
+		t.Errorf("应有 2 个被计为禁用，实际 %d", stats.Disabled)
+	}
+	msg := describeNoCandidateReason(stats.Offered, stats.Matched, stats.Cooling, stats.Rejected, stats.RealmExcluded, stats.Disabled)
+	if !strings.Contains(msg, "禁用") {
+		t.Errorf("诊断应指明账号被禁用，实际 %q", msg)
+	}
+
+	// 重新启用后恢复可选。
+	state.pool.disableAccountKeyed("u-1", "", false)
+	if got := newSchedulerState().collectCandidates(req); len(got) != 1 || got[0].ID != "u-1" {
+		t.Fatalf("重新启用后 u-1 应可选，实际 %+v", got)
+	}
 }

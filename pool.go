@@ -926,3 +926,29 @@ func (p *credentialPool) clearAutoDisableHistory() int {
 	p.autoDisables = nil
 	return n
 }
+
+// laneFor returns a copy of the lane for an identifier the host may spell either way.
+//
+// The host names a credential by its runtime auth index when it loaded it from disk and by
+// the credential's own uid when it learned it from the wire; the pool keys by uid, so both
+// spellings are accepted along with each one's normalised form.
+//
+// A copy, because snapshot() hands back values: the caller reads Variant and Label only,
+// and returning a pointer into a slice that is rebuilt on every observe would be a race
+// waiting to happen.
+func (p *credentialPool) laneFor(identifier string) (credentialLane, bool) {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return credentialLane{}, false
+	}
+	wanted := map[string]bool{identifier: true}
+	if canonical := canonicalUID(identifier); canonical != "" {
+		wanted[canonical] = true
+	}
+	for _, lane := range p.snapshot() {
+		if wanted[lane.UID] {
+			return lane, true
+		}
+	}
+	return credentialLane{}, false
+}

@@ -86,6 +86,11 @@ func managementRegistration() managementRegistrationResponse {
 				Description: "Recent reverse-proxy calls recorded by the WorkBuddy plugin.",
 			},
 			{
+				Method:      http.MethodGet,
+				Path:        "/workbuddy/debug",
+				Description: "Report whether verbose plugin logging is on.",
+			},
+			{
 				Method:      http.MethodPost,
 				Path:        "/workbuddy/calls/clear",
 				Description: "Clear the call records and the totals derived from them.",

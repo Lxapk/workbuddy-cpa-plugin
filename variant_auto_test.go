@@ -345,17 +345,13 @@ func TestCheckinRunSeparatesSkippedFromFailed(t *testing.T) {
 	defer restore()
 
 	run := runCheckin("manual")
-	if run.Total != 1 {
-		t.Fatalf("Total = %d, want 1", run.Total)
+	// 国际账号不进签到集合——上游没有这个接口，让它进只会得到一次注定失败的运行。
+	// 这与「跳过」不同：跳过是本次没轮到你，这里是这个账号根本不适用。
+	if run.Total != 0 {
+		t.Fatalf("国际账号不该进入签到，Total = %d", run.Total)
 	}
-	if run.Skipped != 1 {
-		t.Fatalf("Skipped = %d, want 1: %+v", run.Skipped, run)
-	}
-	if run.Failed != 0 {
-		t.Fatalf("Failed = %d, want 0 (an international account is not a failure)", run.Failed)
-	}
-	if run.Succeeded != 0 {
-		t.Fatalf("Succeeded = %d, want 0", run.Succeeded)
+	if run.Skipped != 0 || run.Failed != 0 || run.Succeeded != 0 {
+		t.Fatalf("不该有任何计数：%+v", run)
 	}
 	if run.Total != run.Succeeded+run.Failed+run.Skipped {
 		t.Fatalf("totals do not add up: %+v", run)

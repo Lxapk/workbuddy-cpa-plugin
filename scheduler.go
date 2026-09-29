@@ -138,9 +138,11 @@ type schedulerCandidate struct {
 	// Matched reports whether the pool recognised this credential at all. Distinct from
 	// Known: an account the pool holds but has never queried has no credit figure yet,
 	// and conflating the two made a usable account read as "not recognised".
-	Matched  bool
-	Cooldown time.Time
-	HasCool  bool
+	Matched bool
+	// RealmExcluded marks a credential the supplier switch rules out for this request.
+	RealmExcluded bool
+	Cooldown      time.Time
+	HasCool       bool
 	// ModelCooled marks a candidate that is parked for the requested model only.
 	// It stays a candidate so the pick can fall through to the next one; if every
 	// candidate ends up parked for this model, the caller reports that instead of
@@ -160,6 +162,14 @@ type candidateStats struct {
 	Matched  int
 	Cooling  int
 	Rejected int
+	// RealmExcluded counts credentials the supplier switch rules out. Reported apart from
+	// the other exclusions: "全部正在冷却" and "都被供应商开关排除" call for different
+	// actions, and the operator would otherwise go looking for a throttle that is not
+	// there.
+	RealmExcluded int
+	// Disabled counts credentials the pool has retired. Its own case, because the remedy is
+	// different again: the operator has to re-enable the account, not wait.
+	Disabled int
 }
 
 // collectCandidates ports A0/s.java:596's availability guard and folds in the
@@ -177,6 +187,8 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 	tried := triedAuthSet(req.Options.Metadata)
 	now := time.Now()
 	stats := candidateStats{Offered: len(req.Candidates)}
+	// Read once: the supplier switch applies to every candidate in this request.
+	gateway := state.settings.get()
 
 	open := make([]pluginapi.SchedulerAuthCandidate, 0, len(req.Candidates))
 	for _, c := range req.Candidates {
@@ -215,6 +227,47 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 		}
 		state.quota.mu.Unlock()
 
+		// The supplier switch is checked here, outside the !Known block below.
+		//
+		// That block is entered only when the quota reading did not supply a credit
+		// figure — it exists to fill in what the reading missed. Putting the realm check
+		// inside it meant a candidate whose credits were already known skipped the check
+		// entirely, so with the quota cache warm the switch had no effect at all: the
+		// request went wherever the host's first candidate led.
+		//
+		// The realm is resolved now rather than read off the lane: a lane is created by
+		// observe() the first time a credential is seen, and at that moment the account
+		// table may not be loaded, leaving Variant empty.
+		// Realm gating and the disabled check, applied from whatever the host told us about
+		// this candidate plus whatever the pool holds.
+		//
+		// Both must work on the first request. The pool creates a lane when the executor
+		// first sees a credential, so on a cold start — or on any account the executor has
+		// not yet touched — laneFor finds nothing, and an implementation that hangs the
+		// checks off the lane silently skips them. That is how a disabled account kept
+		// serving and how the supplier switch had no effect: the lanes were empty.
+		if lane, found := state.pool.laneFor(c.ID); found {
+			if lane.Disabled || lane.DisabledByUser || lane.AutoDisabled {
+				stats.Disabled++
+				continue
+			}
+		}
+		realm := wbVariant(variantForAuthIndex(c))
+		if realm == "" {
+			if lane, found := state.pool.laneFor(c.ID); found {
+				realm = wbVariant(lane.Variant)
+				if realm == "" {
+					realm = wbVariant(variantForUID(lane.UID, lane.Label))
+				}
+			}
+		}
+		logf("scheduler: realm id=%s realm=%q attrs=%q switch=%q",
+			c.ID, realm, variantForAuthIndex(c), gateway.VariantOverride)
+		if realm != "" && !variantAllowedFor(gateway.VariantOverride, realm) {
+			stats.RealmExcluded++
+			continue
+		}
+
 		if !cand.Known {
 			// The host identifies a candidate by whatever id its own inventory uses —
 			// the runtime auth index for a credential it loaded from disk, the uid for
@@ -226,6 +279,12 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 				if !wanted[lane.UID] && !wanted[laneKey(lane.Provider, lane.UID)] {
 					continue
 				}
+				// Matched: the pool knows this credential — counted before the supplier
+				// check below, because "recognised" and "eligible for this request" are
+				// different questions and the diagnostic reports both.
+				cand.Matched = true
+				stats.Matched++
+
 				// A model-scoped throttle parks only that model: the account is
 				// still a valid candidate for every other model, and skipping it
 				// here is what lets a throttled deepseek-v4.1-flash fall through to
@@ -243,8 +302,6 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 				}
 				// Matched: the pool knows this credential. Credits are recorded
 				// separately because not every account has been queried yet.
-				cand.Matched = true
-				stats.Matched++
 				if lane.CreditsKnown {
 					cand.Credits = lane.Credits
 					cand.Known = true
@@ -252,7 +309,7 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 				break
 			}
 		}
-		if cand.HasCool {
+		if cand.RealmExcluded || cand.HasCool {
 			continue
 		}
 		out = append(out, cand)
@@ -462,6 +519,11 @@ func schedulerPick(request []byte) ([]byte, error) {
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
 
+	// Log the host's offer when debugging is on: the identifier it uses has to be
+	// reconciled with the pool's uid, and a failure there shows up only as a request that
+	// silently picked the wrong realm.
+	debugLogCandidates(req)
+
 	candidates, stats := state.scheduler.collectCandidatesWithStats(req)
 	// Record the host's offer when it changes.
 	//
@@ -508,7 +570,7 @@ func schedulerPick(request []byte) ([]byte, error) {
 		// went unserved and, when it did, why: every account is parked for this model, or
 		// the pool has nothing this request could use. The detail is available from the
 		// accounts page; it does not belong in a table cell.
-		reason := describeNoCandidateReason(stats.Offered, stats.Matched, stats.Cooling, stats.Rejected)
+		reason := describeNoCandidateReason(stats.Offered, stats.Matched, stats.Cooling, stats.Rejected, stats.RealmExcluded, stats.Disabled)
 		state.log.add(callRecord{
 			ProviderID: req.Provider,
 			Model:      req.Model,
@@ -759,17 +821,25 @@ func usableCandidates(candidates []schedulerCandidate) []schedulerCandidate {
 // The account inventories are deliberately omitted. Listing every candidate and every
 // credential CPA holds filled the cell, read like a crash, and buried the one line that
 // matters.
-func describeNoCandidateReason(offered, matched, cooling, rejected int) string {
+func describeNoCandidateReason(offered, matched, cooling, rejected, realmExcluded, disabled int) string {
 	switch {
 	case offered == 0:
 		return "选号无候选：宿主没有为该模型提供任何账号（这个模型可能不由本插件服务）"
+	case disabled >= offered && disabled > 0:
+		return fmt.Sprintf("选号无候选：宿主提供的 %d 个账号都已被禁用；在账号页重新启用即可", offered)
+	case realmExcluded >= offered && realmExcluded > 0:
+		// Every account the host offered belongs to the other supplier. Checked before the
+		// "not recognised" case: with the switch on, an excluded credential never reaches
+		// the match, so matched is zero and the reader would be told the credentials were
+		// missing when in fact they were deliberately ruled out.
+		return fmt.Sprintf("选号无候选：宿主提供的 %d 个账号都被「供应商切换」排除；改用「自动」或切到另一侧", offered)
 	case matched == 0:
 		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地一个也没认出（凭据可能尚未载入）", offered)
-	case matched < offered:
-		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地认出 %d 个，其中 %d 个正在冷却、%d 个被宿主标记为不可用",
-			offered, matched, cooling, rejected)
 	case cooling == matched:
 		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，全部正在为该模型冷却中；稍后会自动恢复", offered)
+	case realmExcluded > 0 || disabled > 0 || matched < offered:
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地认出 %d 个，其中 %d 个已禁用、%d 个被供应商开关排除、%d 个正在冷却、%d 个被宿主标记为不可用",
+			offered, matched, disabled, realmExcluded, cooling, rejected)
 	default:
 		return fmt.Sprintf("选号无候选：宿主提供的 %d 个账号中，%d 个正在冷却、%d 个被宿主标记为不可用",
 			offered, cooling, rejected)
@@ -808,4 +878,70 @@ func candidateIdentifiers(c pluginapi.SchedulerAuthCandidate) map[string]bool {
 func stringFromAny(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// candidateDebugString renders a candidate for the debug log.
+//
+// Used while tracking down why the supplier switch had no effect: the candidates CPA
+// offers are keyed by an identifier that has to be reconciled with the pool's uid, and
+// when that reconciliation fails the candidate is silently treated as unrecognised.
+func candidateDebugString(c pluginapi.SchedulerAuthCandidate) string {
+	keys := make([]string, 0, len(c.Metadata)+2)
+	for k := range c.Metadata {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+stringFromAny(c.Metadata[k]))
+	}
+	// Attributes carry the immutable routing properties the host knows about a credential
+	// — which is where the realm may be, since the pool's own lane has no domain field.
+	attrKeys := make([]string, 0, len(c.Attributes))
+	for k := range c.Attributes {
+		attrKeys = append(attrKeys, k)
+	}
+	sort.Strings(attrKeys)
+	attrs := make([]string, 0, len(attrKeys))
+	for _, k := range attrKeys {
+		attrs = append(attrs, k+"="+c.Attributes[k])
+	}
+	return "id=" + c.ID + " provider=" + c.Provider + " status=" + c.Status +
+		" attrs{" + strings.Join(attrs, ", ") + "} metadata{" + strings.Join(parts, ", ") + "}"
+}
+
+// debugLogCandidates writes the host's offer when the debug setting is on.
+func debugLogCandidates(req pluginapi.SchedulerPickRequest) {
+	if !state.settings.get().Debug {
+		return
+	}
+	for _, c := range req.Candidates {
+		logf("scheduler: candidate %s", candidateDebugString(c))
+	}
+}
+
+// variantForAuthIndex resolves a realm from the host's candidate attributes.
+//
+// The attribute "source" (or "path") names the auth file, e.g.
+// "auths/codebuddy-42213638-….json". The file name carries the credential's uid, which is
+// what the account table is keyed by — so this reaches the table even when the pool's lane
+// has no realm recorded yet.
+func variantForAuthIndex(c pluginapi.SchedulerAuthCandidate) string {
+	for _, key := range []string{"uid", "source", "path"} {
+		raw := strings.TrimSpace(c.Attributes[key])
+		if raw == "" {
+			continue
+		}
+		candidate := raw
+		if idx := strings.LastIndex(candidate, "/"); idx >= 0 {
+			candidate = candidate[idx+1:]
+		}
+		candidate = strings.TrimSuffix(candidate, ".json")
+		candidate = strings.TrimPrefix(candidate, workBuddyProviderKey+"-")
+		candidate = strings.TrimPrefix(candidate, workBuddyDisplayNameLower+"-")
+		if realm := variantForUID(candidate, ""); realm != "" {
+			return realm
+		}
+	}
+	return ""
 }

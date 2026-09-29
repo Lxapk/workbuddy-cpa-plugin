@@ -740,6 +740,21 @@ label.field input[type=number] { width: 74px; }
   border-bottom: 1px solid var(--border-color);
 }
 .filter-search { position: relative; display: flex; align-items: center; flex: 1 1 200px; min-width: 0; }
+/* On a narrow screen the select used to drop to the next line: the search box asked for
+   200px, so the pair no longer fitted and wrap pushed the filter down. The result was a
+   tall two-row toolbar on exactly the devices where vertical space is scarcest.
+
+   Now the search box gives way instead — it keeps a usable width and the select stays
+   beside it. Shrinking a text field costs nothing: it scrolls. Pushing a control to its
+   own row costs a whole line of height and hides it below the fold. */
+@media (max-width: 560px) {
+  .filter-bar { flex-wrap: nowrap; gap: 6px; }
+  .filter-search { flex: 1 1 auto; min-width: 0; }
+  .filter-bar select { flex: 0 0 auto; max-width: 40%; }
+  /* The result count would compete for the same row; it stays where it is readable
+     without shortening the search box further. */
+  .filter-bar .filter-count { display: none; }
+}
 .filter-search .filter-icon { position: absolute; left: 11px; color: var(--text-tertiary); pointer-events: none; }
 .filter-search input[type=search] { width: 100%; padding-left: 32px; padding-right: 30px; }
 .filter-search input[type=search]::-webkit-search-decoration,
