@@ -458,8 +458,10 @@ func TestMissingConfigSectionsKeepDefaults(t *testing.T) {
 	if got.Growth.Hour != 9 || got.Growth.Minute != 0 {
 		t.Errorf("任务定时的默认时间被零值覆盖：%02d:%02d", got.Growth.Hour, got.Growth.Minute)
 	}
-	if !got.Growth.OnStart {
-		t.Error("任务定时的「启动补跑」默认值被覆盖")
+	// 全新的安装不该在插件加载的那一刻替操作者发一次网络请求——那时他甚至还没看到
+	// 这个开关。补跑因此默认关闭，由操作者自己打开。
+	if got.Growth.OnStart {
+		t.Error("任务定时的「启动补跑」默认应为关闭")
 	}
 	if got.Growth.Enabled {
 		t.Error("定时任务默认不应开启")
@@ -1674,9 +1676,12 @@ func TestRecordsPageSplitsCallsAndLog(t *testing.T) {
 	if !strings.Contains(usage, `id="logPaneNotes" hidden`) {
 		t.Error("请求日志默认应是隐藏的")
 	}
-	// 清空按钮存在。
-	if !strings.Contains(usage, `data-call="clearRequestLog"`) {
+	// 清空按钮存在，且默认按调用记录的口径标注。
+	if !strings.Contains(usage, `data-call="clearRecords"`) {
 		t.Error("缺少清空按钮")
+	}
+	if !strings.Contains(usage, `id="clearRecordsBtn"`) || !strings.Contains(usage, `>清空记录<`) {
+		t.Error("清空按钮默认应标注为「清空记录」")
 	}
 }
 

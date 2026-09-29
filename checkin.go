@@ -39,9 +39,12 @@ func defaultCheckinSettings() checkinSettings {
 		Enabled: false,
 		// 08:00 — an hour before the growth pass, so the sign-in reward is banked before
 		// the tasks that may depend on it run.
-		Hour:                     8,
-		Minute:                   0,
-		OnStart:                  true,
+		Hour:   8,
+		Minute: 0,
+		// Catch-up on load is off by default. It runs a network pass the operator never
+		// asked for at the moment the plugin loads, which on a fresh install is the first
+		// thing that happens — before they have seen the setting that enables it.
+		OnStart:                  false,
 		RetryOnDeviceFingerprint: true,
 	}
 }

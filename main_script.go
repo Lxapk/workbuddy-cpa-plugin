@@ -524,6 +524,11 @@ function updateEffectLine(segId, value) {
   // between them without a round trip.
   var trendData = { hourly: [], daily: [], range: 'day' };
 
+  // currentLogTab remembers which list the records page is showing. The clear button acts
+  // on it, and the tab can change while a request is in flight, so the scope is kept here
+  // rather than read back from the DOM at click time.
+  var currentLogTab = 'calls';
+
   // switchLogTab shows one of the two lists on the records page.
   //
   // Calls and operational notes answer different questions, so they get a tab each
@@ -540,22 +545,41 @@ function updateEffectLine(segId, value) {
     var notes = document.getElementById('logPaneNotes');
     if (calls) calls.hidden = which !== 'calls';
     if (notes) notes.hidden = which !== 'notes';
-    // The clear button only applies to the log; leaving it visible beside the call list
-    // would invite clearing the accounting figures.
-    var clear = document.querySelector('[data-call="clearRequestLog"]');
-    if (clear) clear.hidden = which !== 'notes';
+    // The button clears whichever list is on screen, so it is relabelled to match. The
+    // scope is remembered rather than inferred from the DOM at click time: the tab can be
+    // switched while a request is in flight.
+    currentLogTab = which;
+    var clear = document.getElementById('clearRecordsBtn');
+    if (clear) clear.textContent = which === 'notes' ? '清空日志' : '清空记录';
   };
 
-  // clearRequestLog empties the request log after a confirmation.
-  window.clearRequestLog = function (button) {
-    if (!window.confirm('清空请求日志？调用记录不受影响。')) return;
+  // clearRecords empties the list on screen, after a confirmation.
+  //
+  // Scoped to the active tab: on 调用记录 it clears the call records and the figures above
+  // them (which summarise those same records), on 请求日志 it clears the operational log.
+  // One button, two scopes, labelled for the one it will act on.
+  window.clearRecords = function (button) {
+    var isLog = currentLogTab === 'notes';
+    var question = isLog
+      ? '清空请求日志？调用记录不受影响。'
+      : '清空调用记录？上方统计会一并归零。';
+    if (!window.confirm(question)) return;
+
     var original = button ? button.textContent : '';
     if (button) button.disabled = true;
-    call(BASE + '/log/clear', { method: 'POST' })
+    var path = isLog ? '/log/clear' : '/calls/clear';
+    call(BASE + path, { method: 'POST' })
       .then(function (payload) {
         msgSet('logMsg', '已清空 ' + ((payload && payload.removed) || 0) + ' 条', 'ok');
-        var pane = document.getElementById('logPaneNotes');
-        if (pane) pane.innerHTML = '<div class="empty">暂无请求日志。签到、任务、限流与禁用等事件会记在这里。</div>';
+        var pane = document.getElementById(isLog ? 'logPaneNotes' : 'logPaneCalls');
+        if (pane) {
+          pane.innerHTML = isLog
+            ? '<div class="empty">暂无请求日志。签到、任务、限流与禁用等事件会记在这里。</div>'
+            : '<div class="empty">暂无调用记录。发起一次请求后这里会出现明细。</div>';
+        }
+        // The call list feeds the counters and the trend, so refetch them; after clearing
+        // the log they are untouched and this is a cheap no-op.
+        if (!isLog && typeof window.refreshUsage === 'function') window.refreshUsage(null);
       })
       .catch(function (e) { msgSet('logMsg', '清空失败：' + e.message, 'bad'); })
       .then(function () {

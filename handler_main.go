@@ -45,6 +45,23 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 			}),
 		}, true
 
+	case "/calls/clear":
+		if method != http.MethodPost {
+			return managementResponse{
+				StatusCode: http.StatusMethodNotAllowed,
+				Headers:    jsonResponseHeaders(),
+				Body:       mustJSON(map[string]any{"error": "POST required"}),
+			}, true
+		}
+		// The call records and the figures derived from them. Clearing the ring without
+		// the counters would leave the page reporting totals for a list that is now empty.
+		removed := state.log.clearCalls()
+		return managementResponse{
+			StatusCode: http.StatusOK,
+			Headers:    jsonResponseHeaders(),
+			Body:       mustJSON(map[string]any{"ok": true, "removed": removed}),
+		}, true
+
 	case "/log/clear":
 		if method != http.MethodPost {
 			return managementResponse{
@@ -53,13 +70,11 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 				Body:       mustJSON(map[string]any{"error": "POST required"}),
 			}, true
 		}
-		// Only the request log. The call list is the accounting behind the totals and the
-		// trend, so clearing it would leave those figures describing records that no
-		// longer exist.
-		//
-		// The log is assembled from four sources, so all four are cleared — otherwise
-		// pressing the button left the page looking unchanged because the entries the
-		// operator was looking at came from a different store.
+		// The request log only. The call records have their own endpoint now, because the
+		// button's scope follows the tab: on 调用记录 it clears calls, on 请求日志 it clears
+		// this. The log is assembled from four sources, so all four go — otherwise pressing
+		// the button left the page looking unchanged because the entries the operator was
+		// reading came from a different store.
 		removed := state.log.clearNotices()
 		removed += state.pool.clearAutoDisableHistory()
 		removed += state.checkin.clearHistory()

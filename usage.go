@@ -410,3 +410,28 @@ func (l *callLog) clearNotices() int {
 	l.notices = nil
 	return n
 }
+
+// clearCalls drops the call ring and the counters derived from it, and reports how many
+// records went.
+//
+// The totals, the daily and hourly buckets, and the per-model figures are all summaries of
+// this ring. Clearing the ring without them would leave the page reporting numbers for
+// records that are no longer there — the panel would show "总调用 42" above an empty list.
+// Resetting them together is what makes the result coherent: the figures describe exactly
+// the records still on screen.
+func (l *callLog) clearCalls() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	n := len(l.recs)
+	l.recs = nil
+	l.totalCalls = 0
+	l.totalFailed = 0
+	l.totalPrompt = 0
+	l.totalCompl = 0
+	l.todayCalls = 0
+	l.todayDate = ""
+	l.hourly = nil
+	l.daily = nil
+	return n
+}

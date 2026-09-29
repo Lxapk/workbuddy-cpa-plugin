@@ -190,10 +190,11 @@ func renderUsageView() string {
 	b.WriteString(`</div>`)
 	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="logMsg"></span>`)
-	// Clearing only the notes. The call list is the accounting the rest of the page is
-	// built from, so throwing it away would leave the totals describing records that are
-	// no longer there.
-	b.WriteString(`<button type="button" class="xs danger" data-call="clearRequestLog">清空日志</button>`)
+	// One button whose label follows the tab: it clears whichever list is on screen, and
+	// says so. A single fixed label could not be honest about that — "清空日志" beside the
+	// call records reads as the wrong list, and the earlier design, which hid the button
+	// on one of the two tabs, left the operator with no way to clear the other.
+	b.WriteString(`<button type="button" class="xs danger" id="clearRecordsBtn" data-call="clearRecords">清空记录</button>`)
 	b.WriteString(`</header>`)
 
 	b.WriteString(`<div class="log-pane" id="logPaneCalls">`)

@@ -87,6 +87,11 @@ func managementRegistration() managementRegistrationResponse {
 			},
 			{
 				Method:      http.MethodPost,
+				Path:        "/workbuddy/calls/clear",
+				Description: "Clear the call records and the totals derived from them.",
+			},
+			{
+				Method:      http.MethodPost,
 				Path:        "/workbuddy/log/clear",
 				Description: "Clear the request log (operational events, not call records).",
 			},

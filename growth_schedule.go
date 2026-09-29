@@ -27,7 +27,9 @@ type growthSettings struct {
 // defaultGrowthSettings is 09:00 daily, disabled: an operator should opt in to
 // something that spends upstream quota on a timer.
 func defaultGrowthSettings() growthSettings {
-	return growthSettings{Enabled: false, Hour: 9, Minute: 0, OnStart: true}
+	// OnStart off for the same reason as the check-in: a fresh install should not make a
+	// network pass before the operator has enabled anything.
+	return growthSettings{Enabled: false, Hour: 9, Minute: 0, OnStart: false}
 }
 
 // normalizeGrowthSettings clamps the time fields into range.
