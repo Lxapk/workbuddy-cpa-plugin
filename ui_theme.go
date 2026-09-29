@@ -550,15 +550,16 @@ label.field input[type=number] { width: 74px; }
   display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
   margin-top: 4px;
 }
-/* A fixed control column, so both groups align regardless of label length. The column
-   is pushed to the right edge: the controls are what the operator came to change, and
-   putting them on a consistent right-hand rail makes the two groups read as one
-   column of settings rather than two floating blocks. */
+/* A fixed control column, so both groups align regardless of label length. */
 .setting-control {
   flex: 0 0 260px; display: flex; flex-direction: column;
   align-items: stretch; gap: 7px;
-  margin-left: auto;
 }
+/* The supplier card's controls sit on a right-hand rail: they are the thing the operator
+   came to change, and a consistent right edge makes the two groups read as one column of
+   settings. Scoped to that card — the tasks card uses the same wrapper for rows of
+   settings, and pushing those right made the schedule look detached from its labels. */
+.supplier-card .setting-control { margin-left: auto; }
 .setting-control .seg { width: 100%; }
 /* The consequence of the current choice, in one line. A segmented control shows what
    is selected but not what it means. */

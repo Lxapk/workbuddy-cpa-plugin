@@ -283,7 +283,7 @@ func shortenUID(uid string) string {
 // which credentials serve a call, the other which realm a new authorisation belongs to.
 func renderVariantBox(settings gatewaySettings) string {
 	var b strings.Builder
-	b.WriteString(`<div class="box">`)
+	b.WriteString(`<div class="box supplier-card">`)
 	b.WriteString(`<header><h3>供应商</h3><span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="variantMsg"></span>`)
 	b.WriteString(`</header>`)

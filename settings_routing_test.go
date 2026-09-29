@@ -984,3 +984,42 @@ func TestTaskPageMergesScheduleAndManualRuns(t *testing.T) {
 		t.Errorf("保存按钮应有 1 个，实际 %d", got)
 	}
 }
+
+// 只有供应商卡的控件靠右。
+//
+// .setting-control 是定宽列，被两处共用：供应商卡的两组分段按钮，以及任务卡的定时行。
+// 给基础类加 margin-left:auto 会把任务卡的定时行也推到右边，与它的标签脱开——看着像
+// 布局坏了。右对齐是供应商卡自己的事，用类限定住。
+func TestOnlySupplierCardPushesControlsRight(t *testing.T) {
+	css := uiCSS
+
+	// 基础类不得带右推。
+	start := strings.Index(css, ".setting-control {")
+	if start < 0 {
+		t.Fatal("未找到 .setting-control")
+	}
+	block := css[start:]
+	block = block[:strings.Index(block, "}")]
+	if strings.Contains(block, "margin-left: auto") {
+		t.Error(".setting-control 不应自带 margin-left:auto，会波及其他卡片")
+	}
+
+	// 右推只在供应商卡的限定下出现。
+	if !strings.Contains(css, ".supplier-card .setting-control { margin-left: auto; }") {
+		t.Error("供应商卡缺少右对齐规则")
+	}
+
+	// 页面结构上，只有供应商卡带 supplier-card；任务卡用的是宽控件列。
+	page := renderMainPage()
+	if !strings.Contains(page, `class="box supplier-card"`) {
+		t.Error("供应商卡没有 supplier-card 类，右对齐规则落不到它上面")
+	}
+	tasks := sectionOf(page, "view-tasks")
+	if strings.Contains(tasks, "supplier-card") {
+		t.Error("任务卡不应带 supplier-card")
+	}
+	// 任务卡的定时行与它的标签在同一组里，且控件列是宽列。
+	if !strings.Contains(tasks, "setting-control setting-control-wide") {
+		t.Error("任务卡的控件列不是宽列")
+	}
+}
