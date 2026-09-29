@@ -212,36 +212,38 @@ func renderTasksView() string {
 	b.WriteString(`</header>`)
 
 	// ---- automatic ----
-	b.WriteString(`<div class="setting-group">`)
-	b.WriteString(`<div class="setting-label">`)
+	// Description first, then the two jobs side by side, then the save action at the
+	// card's bottom right. The label column is dropped: the heading already says what
+	// this block is, and a paragraph beside it only squeezed the controls.
+	b.WriteString(`<div class="card-block">`)
+	b.WriteString(`<div class="block-head">`)
 	b.WriteString(`<span class="name">每天自动执行</span>`)
 	b.WriteString(`<span class="desc">按本机时区判断日期，同一天各跑一次。</span>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="setting-control setting-control-wide">`)
-	// The two jobs side by side. Stacked, they occupied one half of the card and left the
-	// other half empty.
 	b.WriteString(renderScheduleColumns())
 	b.WriteString(`<div class="sched-foot">`)
 	b.WriteString(`<span class="note">「启动时补跑」指插件加载时若当天尚未执行则补上一次。</span>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存时间</button>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存定时</button>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`</div></div>`)
+	b.WriteString(`</div>`)
 
 	// ---- manual ----
-	b.WriteString(`<div class="setting-group">`)
-	b.WriteString(`<div class="setting-label">`)
+	b.WriteString(`<div class="card-block">`)
+	b.WriteString(`<div class="block-head">`)
 	b.WriteString(`<span class="name">立即执行</span>`)
-	b.WriteString(`<span class="desc">不想等到设定时间时用这里的按钮。「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
+	b.WriteString(`<span class="desc">不想等到设定时间时用这里的按钮。</span>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="setting-control setting-control-wide">`)
+	// Description on the left, actions pushed to the right edge on the same line.
 	b.WriteString(`<div class="action-row">`)
+	b.WriteString(`<span class="note">「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
+	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<button type="button" class="primary" data-call="runAllTasks">全部执行</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runGrowthTasks">成长任务</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runTravel">猫猫旅行</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="empty" id="taskResult" hidden></div>`)
-	b.WriteString(`</div></div>`)
+	b.WriteString(`</div>`)
 
 	b.WriteString(`</div>`)
 

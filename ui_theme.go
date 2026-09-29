@@ -413,6 +413,26 @@ table.accounts td.actions button { padding: 4px 9px; font-size: 12px; border-rad
    figure the operator is watching. */
 .credit-total { font-size: 11.5px; }
 
+/* ---------- card blocks ---------- */
+/* A titled section inside a card. Two of these stack: the heading and its one-line
+   explanation, then whatever the section controls. */
+.card-block {
+  padding: 16px var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+.card-block:last-of-type { border-bottom: none; }
+.block-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
+.block-head .name { font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
+.block-head .desc { color: var(--text-secondary); font-size: 12.5px; line-height: 1.6; }
+
+/* A row that puts its note on the left and its actions on the right. The note is
+   allowed to shrink and the buttons hold their size. */
+.action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.action-row .grow { flex: 1 1 40px; min-width: 0; }
+.action-row .note { flex: 0 1 auto; min-width: 0; }
+.action-row button { margin-left: 0; flex: 0 0 auto; }
+.action-row .primary { padding: 6px 14px; font-size: 13px; }
+
 /* ======================= badges ======================= */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;

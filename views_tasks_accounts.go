@@ -92,8 +92,10 @@ func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 	}
 
 	b.WriteString(`<div class="tbl-wrap"><table class="data tasks" id="taskTable"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>参与</th><th>状态</th><th>最近任务</th><th>执行时间</th>`)
-	b.WriteString(`<th class="actions">操作</th>`)
+	// Realm is its own column, matching the accounts page. The reader comparing the two
+	// tables finds the same column in the same place.
+	b.WriteString(`<th>账号</th><th>区域</th><th>参与</th><th>状态</th>`)
+	b.WriteString(`<th>最近任务</th><th>执行时间</th><th class="actions">操作</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, row := range rows {
@@ -158,12 +160,13 @@ func renderTaskAccountRow(row taskRow) string {
 	b.WriteString(`<tr data-task-row="1" data-uid="` + html.EscapeString(row.UID) + `" data-enabled="` +
 		map[bool]string{true: "1", false: "0"}[row.Enabled] + `">`)
 
-	// Account: name on the first line, realm beneath. Same arrangement as the accounts
-	// page, so a name reads the same wherever it appears.
+	// Account: the name only. The realm is the next column, as on the accounts page.
 	b.WriteString(`<td class="` + rowClass + `" data-label="账号">`)
-	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(row.Label) + `</strong>`)
-	b.WriteString(`<div class="acct-tags">` + variantBadge(row.Variant) + `</div></div>`)
+	b.WriteString(`<strong>` + html.EscapeString(row.Label) + `</strong>`)
 	b.WriteString(`</td>`)
+
+	// Realm.
+	b.WriteString(`<td data-label="区域">` + variantBadge(row.Variant) + `</td>`)
 
 	// Participation toggle: an explicit state word, not a pill whose colour is the only
 	// difference between the two states.
@@ -191,7 +194,7 @@ func renderTaskAccountRow(row taskRow) string {
 	b.WriteString(`</tr>`)
 
 	// The detail slot. Hidden until expanded so an idle page stays short.
-	b.WriteString(`<tr class="task-detail-row" hidden><td colspan="6">` +
+	b.WriteString(`<tr class="task-detail-row" hidden><td colspan="7">` +
 		`<div class="task-detail" data-detail-for="` + html.EscapeString(row.UID) + `"></div></td></tr>`)
 
 	return b.String()

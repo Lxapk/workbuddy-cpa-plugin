@@ -652,7 +652,7 @@ func TestCreditRefreshKeepsTheCellShape(t *testing.T) {
 //
 // 在途 / 用量 / 最近成功 按需求去掉：它们回答的问题在这张表里没人问，每列却各占一份
 // 宽度，剩下几列本可以用上。
-func TestAccountTableHasFiveColumns(t *testing.T) {
+func TestAccountTableColumns(t *testing.T) {
 	resetState()
 	seedPanelAccounts(t)
 	page := renderMainPage()
@@ -671,8 +671,12 @@ func TestAccountTableHasFiveColumns(t *testing.T) {
 	// 只数 <th 元素：<thead> 本身也以 "<th" 开头，直接统计会多算一个。
 	cols := len(regexp.MustCompile(`<th[ >]`).FindAllString(head, -1))
 
-	if cols != 5 {
-		t.Errorf("账号表应有 5 列，实际 %d", cols)
+	// 账号 / 区域 / 状态 / 积分 / 成功·失败 / 操作
+	if cols != 6 {
+		t.Errorf("账号表应有 6 列，实际 %d", cols)
+	}
+	if !strings.Contains(head, "区域") {
+		t.Error("账号表缺少「区域」列")
 	}
 	for _, gone := range []string{"在途", "用量", "最近成功"} {
 		if strings.Contains(head, gone) {

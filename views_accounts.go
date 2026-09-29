@@ -80,8 +80,8 @@ func accountCallStats(uid string) (success, failed int) {
 func renderAccountTable(accounts []workBuddyAccount) string {
 	var b strings.Builder
 	b.WriteString(`<div class="tbl-wrap"><table class="accounts" data-account-table="1"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>状态</th><th>积分</th><th class="num">成功 / 失败</th>`)
-	b.WriteString(`<th class="actions">操作</th>`)
+	b.WriteString(`<th>账号</th><th>区域</th><th>状态</th><th class="num">积分</th>`)
+	b.WriteString(`<th class="num">成功 / 失败</th><th class="actions">操作</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, a := range accounts {
@@ -149,16 +149,18 @@ func renderAccountRow(a workBuddyAccount) string {
 
 	// Name with the uid abbreviated underneath.
 	b.WriteString(`<td class="bar ` + bar + `" data-label="账号">`)
-	// Name on the first line, realm beneath it. Side by side they competed for the same
-	// width and wrapped unpredictably once the name was long — which is how the badge
-	// ended up on its own line for one account and inline for the next.
-	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(a.Label) + `</strong>`)
-	b.WriteString(`<div class="acct-tags">` + variantBadge(a.Variant) + `</div></div>`)
+	// The name only. The realm is its own column: alongside the name it competed for the
+	// same width and wrapped unpredictably, and a column is also what the reader scans
+	// when the question is "which of these is international".
+	b.WriteString(`<strong>` + html.EscapeString(a.Label) + `</strong>`)
 	if ident != "" && ident != a.Label {
 		b.WriteString(`<div class="uid mono" title="` + html.EscapeString(ident) + `">` +
 			html.EscapeString(shortenUID(ident)) + `</div>`)
 	}
 	b.WriteString(`</td>`)
+
+	// Realm, in its own cell.
+	b.WriteString(`<td data-label="区域">` + variantBadge(a.Variant) + `</td>`)
 
 	b.WriteString(`<td data-label="状态"><span class="pill ` + pillClass + `">` + statusText + `</span>`)
 	if detail != "" {
