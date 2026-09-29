@@ -446,6 +446,32 @@ label.field input[type=number] { width: 74px; }
 .seg button.on { background: var(--primary-color); color: var(--primary-contrast); }
 .seg button + button { border-left: 1px solid var(--border-primary); }
 
+/* ---------- run summary ---------- */
+/* The counts sit inline with the note that explains them, so the figure and its
+   meaning are read together rather than in two separate places. */
+.run-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.run-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 4px 10px; border-radius: var(--radius-full);
+  background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px;
+}
+.run-chip .v { font: 650 14px/1 var(--mono); color: var(--text-primary); }
+.run-chip.warn { background: color-mix(in srgb, var(--quota-medium-color) 16%, transparent); }
+.run-chip.warn .v { color: var(--quota-medium-color); }
+
+/* ---------- task detail ---------- */
+/* One account's tasks, opened inside that account's row. */
+.task-detail-row > td { padding: 0; background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent); }
+.task-detail { padding: 12px 16px 14px; }
+.task-detail-head { margin-bottom: 8px; }
+.task-detail table { font-size: 12.5px; }
+.task-detail th, .task-detail td { padding: 7px 10px; }
+.ok-text { color: var(--success-color); }
+.warn-text { color: var(--quota-medium-color); }
+/* A disabled account's left strip is muted so an enabled one stands out in a long
+   list. */
+.bar.idle-bar { opacity: .62; }
+
 /* ---------- schedule rows ---------- */
 /* One row per automatic job: switch, time, state, catch-up. Laid out on a single line
    on a wide screen, and allowed to wrap on a narrow one — the controls keep their

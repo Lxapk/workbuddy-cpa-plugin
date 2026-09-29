@@ -736,3 +736,83 @@ func TestCandidateDiagnosticIsGone(t *testing.T) {
 		}
 	}
 }
+
+// 任务页把账号与任务放在一起，而不是散在三处。
+//
+// 原先：一条只有数字的统计条、一张「参与账号」表、外加浮在上方的结果区。读一个账号
+// 的状态要来回跳，而一次执行的结果出现在与它无关的位置。现在每个账号一行，它的任务
+// 就在这一行下面。
+func TestTaskPageKeepsAccountAndTasksTogether(t *testing.T) {
+	resetState()
+	seedPanelAccounts(t)
+	page := renderMainPage()
+
+	tasks := sectionOf(page, "view-tasks")
+	if tasks == "" {
+		t.Fatal("未找到任务页")
+	}
+
+	// 三个区块，按「设一次 → 现在跑 → 每个账号」排列。
+	for _, want := range []string{"每日自动执行", "<h3>立即执行</h3>", "<h3>账号与任务</h3>"} {
+		if !strings.Contains(tasks, want) {
+			t.Errorf("任务页缺少区块 %s", want)
+		}
+	}
+
+	// 每个账号自带一个详情槽和两个操作：展开与单独执行。
+	for _, want := range []string{
+		`data-task-row="1"`,
+		`class="task-detail-row"`,
+		`data-task-expand="1"`,
+		`data-task-run="1"`,
+	} {
+		if !strings.Contains(tasks, want) {
+			t.Errorf("账号行缺少 %s", want)
+		}
+	}
+
+	// 旧的重复元素必须消失，否则还是三处显示。
+	for _, gone := range []string{`id="growthDetail"`, `id="growthMsg"`, "参与账号", "<h3>任务执行</h3>"} {
+		if strings.Contains(page, gone) {
+			t.Errorf("任务页仍有旧元素 %s", gone)
+		}
+	}
+}
+
+// 任务明细要能说出哪些没做完。
+//
+// 原先每行只有「最近任务」一个名字，屏幕上没有任何地方回答「还差哪些」。详情里每项
+// 都带状态与进度，并在表头给出已完成/未完成的数量。
+func TestTaskDetailListsPendingItems(t *testing.T) {
+	detail := map[string]any{
+		"tasks": []any{
+			map[string]any{"name": "猫猫日常", "current": 1, "target": 1},
+			map[string]any{"name": "create_canvas", "current": 0, "target": 1},
+			map[string]any{"name": "playbook_prompt", "current": 0, "target": 1},
+		},
+	}
+	out := renderTaskDetail(detail)
+
+	if !strings.Contains(out, "已完成") || !strings.Contains(out, "未完成") {
+		t.Error("明细没有区分完成与未完成")
+	}
+	if !strings.Contains(out, "猫猫日常") || !strings.Contains(out, "create_canvas") {
+		t.Error("明细没有列出全部任务名")
+	}
+	// 计数应写进表头，让人一眼看出还剩几项。
+	if !strings.Contains(out, "共 3 项") {
+		t.Error("明细缺少总数")
+	}
+	// 已达标的判为完成，未达标的判为未完成。
+	if strings.Count(out, ">未完成<") != 2 {
+		t.Errorf("未完成计数错误：%d 处，want 2", strings.Count(out, ">未完成<"))
+	}
+}
+
+// 没有任务记录时给出可操作的提示，而不是空白。
+func TestTaskDetailHandlesEmptyRecord(t *testing.T) {
+	out := renderTaskDetail(map[string]any{})
+	if !strings.Contains(out, "还没有任务记录") {
+		t.Error("空记录时应提示先执行一次")
+	}
+}

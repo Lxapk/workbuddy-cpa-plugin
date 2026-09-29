@@ -115,68 +115,6 @@ func renderScheduleBox() string {
 	return b.String()
 }
 
-// renderTaskAccountsBox draws which accounts take part in the task runs, and the
-// per-account switches.
-//
-// The controls live in this card's header rather than on a page toolbar: they act on
-// this table, and a toolbar several blocks away left the operator guessing which
-// button belonged where.
-func renderTaskAccountsBox(accounts []workBuddyAccount) string {
-	var b strings.Builder
-	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>参与账号 <span class="hint">哪些账号执行成长任务</span></h3><span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="selectAllTaskAccounts">全部启用</button>`)
-	b.WriteString(`<button type="button" class="xs" data-call="clearAllTaskAccounts">全部停用</button>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="loadTaskDetail">查看任务明细</button>`)
-	b.WriteString(`</header>`)
-
-	if len(accounts) == 0 {
-		b.WriteString(`<div class="empty">还没有账号。</div>`)
-		b.WriteString(`</div>`)
-		return b.String()
-	}
-
-	b.WriteString(`<div class="tbl-wrap"><table class="data tasks"><thead><tr>`)
-	b.WriteString(`<th>账号</th><th>参与</th><th>最近任务</th><th>执行时间</th>`)
-	b.WriteString(`</tr></thead><tbody>`)
-
-	for _, a := range accounts {
-		label := firstNonEmpty(a.Label, a.UID, a.AuthIndex)
-		uid := firstNonEmpty(a.UID, a.AuthIndex)
-		enabled, running := taskAccountState(uid)
-
-		// The toggle reads as a switch with an explicit state word, not a pill whose
-		// colour is the only difference. "已启用 / 未启用" is unambiguous at a glance.
-		stateCls, stateText := "idle", "未启用"
-		if enabled {
-			stateCls, stateText = "ok", "已启用"
-		}
-		action := "enable"
-		if enabled {
-			action = "disable"
-		}
-
-		rowClass := "bar"
-		if running {
-			rowClass += " warn"
-		}
-		b.WriteString(`<tr><td class="` + rowClass + `" data-label="账号"><strong>` + html.EscapeString(label) + `</strong>`)
-		if running {
-			b.WriteString(` <span class="pill warn">执行中</span>`)
-		}
-		b.WriteString(`</td>`)
-		b.WriteString(`<td data-label="参与"><button type="button" class="xs ` + stateCls + `-btn"` +
-			` data-task-toggle="1" data-uid="` + html.EscapeString(uid) + `" data-action="` + action + `">` +
-			stateText + `</button></td>`)
-		b.WriteString(`<td class="note" data-label="最近任务">` + html.EscapeString(taskLastLabel(uid)) + `</td>`)
-		b.WriteString(`<td class="note mono" data-label="执行时间">` + html.EscapeString(taskLastRunTime(uid)) + `</td></tr>`)
-	}
-
-	b.WriteString(`</tbody></table></div>`)
-	b.WriteString(`</div>`)
-	return b.String()
-}
-
 // taskStatusSnapshot returns the task engine's view, initialised from the account
 // list.
 //

@@ -1015,7 +1015,87 @@ func mainPageScript() string {
   window.selectAllTaskAccounts = function (button) { setAllTaskAccounts('enable', button); };
   window.clearAllTaskAccounts = function (button) { setAllTaskAccounts('disable', button); };
 
-  // loadTaskDetail fetches the per-task breakdown for the first account that has run.
+  // expandTaskDetail shows one account's task list in the row beneath it.
+  //
+  // The old control fetched "the first account that has run" and reported which one it
+  // happened to pick in a status line — so the other accounts had no way to show their
+  // tasks, and the heading was the only clue whose tasks were on screen. Now the
+  // disclosure is per row and the detail lands inside that row.
+  window.expandTaskDetail = function (uid, button) {
+    var row = document.querySelector('tr[data-task-row][data-uid="' + cssEscape(uid) + '"]');
+    if (!row) return;
+    var detailRow = row.nextElementSibling;
+    if (!detailRow || !detailRow.classList.contains('task-detail-row')) return;
+    var slot = detailRow.querySelector('.task-detail');
+    if (!slot) return;
+
+    // Toggle: a second press closes it rather than re-fetching.
+    if (!detailRow.hidden) {
+      detailRow.hidden = true;
+      if (button) button.textContent = '展开任务';
+      return;
+    }
+
+    detailRow.hidden = false;
+    if (button) button.textContent = '收起任务';
+    slot.innerHTML = '<div class="note">查询中…</div>';
+
+    call(BASE + '/growth/tasks?uid=' + encodeURIComponent(uid))
+      .then(function (payload) {
+        slot.innerHTML = renderTaskDetail(payload);
+      })
+      .catch(function (e) {
+        // escapeHTML is defined alongside the other page helpers; the message comes
+        // from the network so it must not reach innerHTML unescaped.
+        slot.innerHTML = '<div class="note bad-text">查询失败：' + escapeHTML(e.message) + '</div>';
+      });
+  };
+
+  // expandAllTaskDetail opens every row's task list.
+  window.expandAllTaskDetail = function (button) {
+    var rows = document.querySelectorAll('tr[data-task-row]');
+    var anyClosed = false;
+    for (var i = 0; i < rows.length; i++) {
+      var d = rows[i].nextElementSibling;
+      if (d && d.classList.contains('task-detail-row') && d.hidden) { anyClosed = true; break; }
+    }
+    // One press opens everything; a second closes everything. Mixed state counts as
+    // closed so the first press always produces a visible result.
+    for (var j = 0; j < rows.length; j++) {
+      var detail = rows[j].nextElementSibling;
+      if (!detail || !detail.classList.contains('task-detail-row')) continue;
+      var uid = rows[j].getAttribute('data-uid');
+      var open = !anyClosed;
+      if (open) {
+        detail.hidden = true;
+      } else {
+        var btn = rows[j].querySelector('[data-task-expand]');
+        expandTaskDetail(uid, btn);
+      }
+    }
+    if (button) button.textContent = anyClosed ? '收起全部任务' : '展开全部任务';
+  };
+
+  // runAccountTask runs the task pass for a single account.
+  window.runAccountTask = function (uid, button) {
+    var original = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = '执行中'; }
+    msgSet('taskMsg', '正在为该账号执行…', 'muted');
+    call(BASE + '/growth/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
+      .then(function () {
+        msgSet('taskMsg', '已开始执行，结果稍后出现在该账号下方', 'ok');
+        // The row's state is server-rendered; reload to show it. The expanded detail
+        // would be lost, so re-open it afterwards is not attempted — the operator can
+        // press expand again, which is a smaller surprise than a stale row.
+        setTimeout(function () { location.reload(); }, 900);
+      })
+      .catch(function (e) {
+        msgSet('taskMsg', '执行失败：' + e.message, 'bad');
+        if (button) { button.disabled = false; button.textContent = original; }
+      });
+  };
+
+  // loadTaskDetail draws the per-task breakdown for the first account that has run.
   //
   // The panel has no account picker here: runs are per account but the interesting
   // detail is always the most recent one, and adding a selector for a list that is
@@ -1255,6 +1335,21 @@ func mainPageScript() string {
       if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
         ev.preventDefault();
         toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-task-expand')) {
+        ev.preventDefault();
+        expandTaskDetail(node.getAttribute('data-uid'), node);
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-task-run')) {
+        ev.preventDefault();
+        runAccountTask(node.getAttribute('data-uid'), node);
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-task-toggle')) {
+        ev.preventDefault();
+        toggleTaskAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node);
         return;
       }
       if (node.hasAttribute && node.hasAttribute('data-row-action')) {

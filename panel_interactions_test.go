@@ -87,30 +87,31 @@ func TestTaskTabOrder(t *testing.T) {
 	//
 	// The bare words 任务 / 每日签到 also appear in headings and the page subtitle, so
 	// the anchors include the tag that only the block header carries.
-	indexList := strings.Index(tasks, "任务执行")
+	indexSchedule := strings.Index(tasks, "每日自动执行")
+	indexList := strings.Index(tasks, "立即执行")
 	indexRunAll := strings.Index(tasks, "全部执行")
-	indexCheckin := strings.Index(tasks, `>每日签到<`)
-	indexAccounts := strings.Index(tasks, "参与账号")
+	indexAccounts := strings.Index(tasks, "账号与任务")
 
 	for name, index := range map[string]int{
-		"任务执行卡片": indexList, "每日签到": indexCheckin,
-		"全部执行": indexRunAll, "参与账号": indexAccounts,
+		"每日自动执行卡片": indexSchedule, "立即执行卡片": indexList,
+		"全部执行": indexRunAll, "账号与任务": indexAccounts,
 	} {
 		if index < 0 {
 			t.Fatalf("任务页面缺少 %s", name)
 		}
 	}
 
-	// One card holds the run controls and the counters; the check-in card follows it,
-	// and the per-account table comes last.
-	if !(indexList < indexRunAll) {
+	// 顺序：自动执行 → 立即执行 → 账号与任务。先答「设一次就好的是什么」，
+	// 再答「现在跑什么」，最后是每个账号的明细。
+	if !(indexSchedule < indexList && indexList < indexRunAll) {
 		t.Errorf("执行按钮应在任务卡片内（%d vs %d）", indexList, indexRunAll)
 	}
-	if !(indexRunAll < indexCheckin) {
-		t.Errorf("每日签到应在执行按钮之后（%d vs %d）", indexRunAll, indexCheckin)
-	}
 	if !(indexRunAll < indexAccounts) {
-		t.Errorf("「全部执行」应在账号状态之前（%d vs %d）", indexRunAll, indexAccounts)
+		t.Errorf("「全部执行」应在账号表之前（%d vs %d）", indexRunAll, indexAccounts)
+	}
+	// 定时设置排在手动执行之前：先看到「已经安排好什么」，再决定要不要现在跑。
+	if !(indexSchedule < indexAccounts) {
+		t.Errorf("自动执行应在账号表之前（%d vs %d）", indexSchedule, indexAccounts)
 	}
 }
 

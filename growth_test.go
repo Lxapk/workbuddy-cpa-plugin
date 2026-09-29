@@ -665,14 +665,14 @@ func TestTaskPageExposesGrowthControls(t *testing.T) {
 	for _, needle := range []string{
 		`id="btnRunGrowth"`,
 		`id="btnTravel"`,
-		`id="growthMsg"`,
-		`id="growthDetail"`,
+		`id="taskMsg"`,
+		`id="taskResult"`,
 	} {
 		if !strings.Contains(page, needle) {
 			t.Errorf("task page is missing %s", needle)
 		}
 	}
-	for _, handler := range []string{"runGrowthTasks", "runTravel", "loadGrowthTasks", "escapeHTML"} {
+	for _, handler := range []string{"runGrowthTasks", "runTravel", "expandTaskDetail", "runAccountTask", "escapeHTML"} {
 		if !strings.Contains(page, "window."+handler+" = function") && !strings.Contains(page, "function "+handler) {
 			t.Errorf("handler %s is referenced but never defined", handler)
 		}
@@ -682,11 +682,12 @@ func TestTaskPageExposesGrowthControls(t *testing.T) {
 func TestGrowthSectionExplainsLimits(t *testing.T) {
 	resetState()
 	page := renderMainPage()
+	// 说明移到「账号与任务」卡底部，与它解释的那张表在一起。
 	if !strings.Contains(page, "需要真实桌面操作的任务") {
 		t.Fatal("the task tab must explain that some tasks cannot be automated")
 	}
-	if !strings.Contains(page, "国际版账号不在成长任务中心范围内") {
-		t.Fatal("the task tab must explain the international exclusion")
+	if !strings.Contains(page, "是否加入批量执行") {
+		t.Fatal("the task tab must explain what the 参与 column controls")
 	}
 }
 

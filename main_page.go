@@ -169,7 +169,12 @@ func renderUsageView() string {
 	return b.String()
 }
 
-// renderTasksView is the tasks page: growth tasks, check-in and the travel routine.
+// renderTasksView is the tasks page.
+//
+// Two cards, in the order the questions are asked: what runs automatically, and what
+// each account has actually done. Everything about an account — whether it takes part,
+// whether a run is in flight, which tasks are finished — lives on the account's own row,
+// so there is one place to look rather than three.
 func renderTasksView() string {
 	accounts := listWorkBuddyAccounts()
 	running, queued := taskQueueDepth()
@@ -177,39 +182,53 @@ func renderTasksView() string {
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-tasks" hidden>`)
 
-	// Runs and the controls that start them share one card: they answer one question
-	// — what is scheduled, and how do I run it.
+	// Automatic runs first: it is the thing an operator sets up once and then forgets.
+	b.WriteString(renderScheduleBox())
+
+	// Manual runs. The account counts live here as a summary of what the table below
+	// holds, not as a separate strip that had to be read in isolation.
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>任务执行</h3><span class="grow"></span>`)
-	// Every action on this page reports through this element; without it the messages
-	// had nowhere to go and the buttons looked like they did nothing.
+	b.WriteString(`<header><h3>立即执行</h3><span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="taskMsg"></span>`)
 	b.WriteString(`<button type="button" class="xs primary" id="btnRunAllTasks" data-call="runAllTasks">全部执行</button>`)
 	b.WriteString(`<button type="button" class="xs" id="btnRunGrowth" data-call="runGrowthTasks">成长任务</button>`)
 	b.WriteString(`<button type="button" class="xs" id="btnTravel" data-call="runTravel">猫猫旅行</button>`)
 	b.WriteString(`</header>`)
-	b.WriteString(`<div class="stats" style="border:none;border-radius:0;box-shadow:none;margin:0">`)
-	statCard(&b, "", "账号数", len(accounts))
-	statCard(&b, "", "正在运行", running)
-	statCard(&b, "", "排队中", queued)
+	b.WriteString(`<div class="pad">`)
+	b.WriteString(`<div class="run-summary">`)
+	b.WriteString(runSummaryChip("账号", len(accounts), ""))
+	b.WriteString(runSummaryChip("执行中", running, runTone(running)))
+	b.WriteString(runSummaryChip("排队", queued, runTone(queued)))
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<span class="note">「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="pad"><div class="note">「全部执行」会依次完成成长任务、签到与猫猫旅行。` +
-		`需要真实桌面操作的任务（如资料库、发现应用）无法代做，会列出深链提示；` +
-		`国际版账号不在成长任务中心范围内，会自动跳过。</div></div>`)
-	b.WriteString(`<div id="taskResult" style="padding:0 16px 16px"><div id="growthDetail"></div></div>`)
-	b.WriteString(`<div class="pad" style="padding-top:0"><span class="note" id="growthMsg"></span></div>`)
+	b.WriteString(`<div class="empty" id="taskResult" hidden></div>`)
+	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 
-	// Growth tasks and check-in share one card: they are the same kind of thing —
-	// something that runs once a day at a chosen hour — so they share a save button
-	// rather than asking the operator to configure the same idea twice.
-	b.WriteString(renderScheduleBox())
-
-	// Per-account task state, with its own controls in its own header.
+	// Per-account state, with its tasks underneath each row.
 	b.WriteString(renderTaskAccountsBox(accounts))
 
 	b.WriteString(`</section>`)
 	return b.String()
+}
+
+// runTone picks the chip colour for a run counter: a non-zero value is worth noticing.
+func runTone(n int) string {
+	if n > 0 {
+		return "warn"
+	}
+	return ""
+}
+
+// runSummaryChip renders one figure with its label.
+func runSummaryChip(label string, value int, tone string) string {
+	cls := "run-chip"
+	if tone != "" {
+		cls += " " + tone
+	}
+	return `<span class="` + cls + `"><span class="v">` + fmt.Sprint(value) +
+		`</span><span class="k">` + label + `</span></span>`
 }
 
 // renderSettingsView holds the management key and the authorisation switches.

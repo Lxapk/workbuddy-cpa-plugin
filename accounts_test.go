@@ -300,7 +300,7 @@ func TestSinglePageContainsEverything(t *testing.T) {
 		"账号 <span", // the single account card
 		"账号总数",     // account summary
 		"每日签到",     // check-in card (on the tasks tab)
-		"参与账号",     // task participation table
+		"账号与任务",    // task participation table
 		"最近调用",     // usage
 		"Acct One", // the account is rendered server-side
 	} {
