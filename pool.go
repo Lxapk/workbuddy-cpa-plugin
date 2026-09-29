@@ -455,6 +455,31 @@ func (p *credentialPool) laneLocked(provider, uid string) *credentialLane {
 
 // setCreditsByAuthID records a reading when only the auth id is known.
 // It matches on uid first, then on the auth id itself.
+// authIndexFor returns the CPA auth identifier recorded for a credential.
+//
+// The pool keys lanes by credential uid (or by whatever identifier the host offered),
+// so this walks the lanes and reports the key: a call record written before the executor
+// stamped identifiers names the account by that key, and a tally that cannot recognise it
+// shows zero.
+func (p *credentialPool) authIndexFor(uid string) string {
+	uid = strings.TrimSpace(uid)
+	if uid == "" {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, key := range p.order {
+		lane := p.lanes[key]
+		if lane == nil {
+			continue
+		}
+		if lane.UID == uid || key == uid || strings.HasSuffix(key, "/"+uid) {
+			return key
+		}
+	}
+	return ""
+}
+
 // creditsTotalFor returns the cycle capacity the pool recorded for a credential.
 //
 // The pool learns it whenever a refresh runs — including the background one — while the

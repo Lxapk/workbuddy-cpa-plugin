@@ -1206,3 +1206,68 @@ func TestTableNotesUseTheirOwnBlock(t *testing.T) {
 
 // cssForTest exposes the stylesheet to assertions.
 func cssForTest() string { return uiCSS }
+
+// 成功 / 失败要按账号真实统计。
+//
+// 同一个账号在不同时期的记录里有两个标识：早期写的是 CPA 的运行时 auth id，之后才
+// 改成凭据自身的 uid。直接比较字符串时，旧记录对新账号不可见，整列恒为 0 / 0——看着
+// 像「没有数据」，实际是没匹配上。
+func TestCallTallyRecognisesBothIdentifiers(t *testing.T) {
+	log := newCallLog(50)
+	log.add(callRecord{ProviderID: "p", UID: "uid-real", Model: "m", StatusCode: 200, StartedAt: timeNowForTest()})
+	log.add(callRecord{ProviderID: "p", UID: "auth-index", Model: "m", StatusCode: 200, StartedAt: timeNowForTest()})
+	log.add(callRecord{ProviderID: "p", UID: "uid-real", Model: "m", StatusCode: 500, Error: "boom", StartedAt: timeNowForTest()})
+	// 一条诊断不应计入。
+	log.addNotice(callRecord{ProviderID: "p", Model: "growth", Error: "定时任务完成"})
+
+	// 直接查其中一个标识都要能看见全部属于该账号的记录。
+	wanted := map[string]bool{"uid-real": true}
+	hits := 0
+	for _, rec := range log.recent(10) {
+		if recordMatchesAccount(rec, wanted) {
+			hits++
+		}
+	}
+	if hits != 2 {
+		t.Errorf("按 uid 应匹配到 2 条，实际 %d", hits)
+	}
+
+	// Notice 记录不算调用。
+	success, failed := 0, 0
+	for _, rec := range log.recent(10) {
+		if rec.Notice || !recordMatchesAccount(rec, wanted) {
+			continue
+		}
+		if rec.Error != "" || rec.StatusCode >= 400 {
+			failed++
+		} else {
+			success++
+		}
+	}
+	if success != 1 || failed != 1 {
+		t.Errorf("统计错误：成功 %d 失败 %d，want 1/1", success, failed)
+	}
+}
+
+// 账号表的列宽与行高是声明的，不是推断的。
+//
+// auto 布局按内容定尺寸：账号格有名字与 uid 两行，比邻居高，于是每行下方的横线落在
+// 不同高度，整张表看着错位。
+func TestAccountTableDeclaresItsGeometry(t *testing.T) {
+	css := cssForTest()
+	for _, want := range []string{
+		"table.accounts { min-width: 760px; table-layout: fixed; }",
+		"table.accounts td { height: 56px;",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("账号表缺少几何约束 %s", want)
+		}
+	}
+	// 六列各有权重，否则固定布局会平均分。
+	for i := 1; i <= 6; i++ {
+		needle := "table.accounts th:nth-child(" + string(rune('0'+i)) + ")"
+		if !strings.Contains(css, needle) {
+			t.Errorf("第 %d 列没有声明宽度", i)
+		}
+	}
+}

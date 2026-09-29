@@ -49,23 +49,54 @@ func renderAccountFilterBar() string {
 // accountCallStats returns how many calls an account has served and how many failed.
 //
 // Counted from the call history rather than tracked separately: the history already
-// records every request with its account and outcome, and a second counter would have
-// to be kept in step with it. The window is the same as the usage page shows.
+// records every request with its account and outcome, and a second counter would have to
+// be kept in step with it. The window is the same as the usage page shows.
+//
+// Records carry whichever identifier was available when they were written — the
+// credential's uid once the executor started stamping responses, CPA's auth index before
+// that — so both sides are normalised before comparing. Without it, a call served
+// yesterday is invisible to the account it belongs to and the tally reads 0/0.
 func accountCallStats(uid string) (success, failed int) {
 	if uid == "" {
 		return 0, 0
 	}
+	// The account's own identifiers, plus its canonical form: a record may name it by
+	// the uid, by the auth index on the credential, or by CPA's runtime auth id.
+	wanted := map[string]bool{uid: true}
+	if canon := canonicalUID(uid); canon != "" {
+		wanted[canon] = true
+	}
+	if key := state.pool.authIndexFor(uid); key != "" {
+		wanted[key] = true
+	}
+
 	for _, rec := range state.log.recent(500) {
-		if rec.UID != uid && rec.Label != uid {
+		if !recordMatchesAccount(rec, wanted) {
 			continue
 		}
-		if rec.StatusCode >= 400 || rec.Error != "" {
+		if rec.Notice {
+			// Not a call.
+			continue
+		}
+		if rec.Error != "" || rec.StatusCode >= 400 {
 			failed++
 		} else {
 			success++
 		}
 	}
 	return success, failed
+}
+
+// recordMatchesAccount reports whether a record belongs to any of the given identifiers.
+func recordMatchesAccount(rec callRecord, wanted map[string]bool) bool {
+	for _, candidate := range []string{rec.UID, canonicalUID(rec.UID)} {
+		if candidate != "" && wanted[candidate] {
+			return true
+		}
+	}
+	// The label is a fallback for records written before the executor stamped
+	// identifiers: it holds the display name, which is what the account row shows.
+	return rec.Label != "" && wanted[rec.Label]
 }
 
 // renderAccountTable draws the pool.

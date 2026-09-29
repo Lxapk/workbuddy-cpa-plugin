@@ -361,10 +361,30 @@ td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: b
    the generic table: the credit bar and the usage chips need sizes tuned to what they
    contain, and the row would be unreadable if everything were left to auto layout.
 
-   min-width keeps the columns from being squeezed into unreadable slivers; the
-   wrapper scrolls when the viewport is narrower. */
-table.accounts { min-width: 620px; }
+   Column widths are declared rather than inferred. With auto layout the browser sizes
+   each column to its content, and because the account cell holds a name and a uid it
+   came out taller than its neighbours — so the horizontal rules separating rows landed
+   at different heights and the row looked out of true. Declaring the widths also keeps
+   the action column from growing every time a label changes. */
+table.accounts { min-width: 760px; table-layout: fixed; }
 table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
+/* Account   Realm  State   Credits    Tally       Actions */
+table.accounts th:nth-child(1), table.accounts td:nth-child(1) { width: 30%; }
+table.accounts th:nth-child(2), table.accounts td:nth-child(2) { width: 8%; }
+table.accounts th:nth-child(3), table.accounts td:nth-child(3) { width: 10%; }
+table.accounts th:nth-child(4), table.accounts td:nth-child(4) { width: 18%; }
+table.accounts th:nth-child(5), table.accounts td:nth-child(5) { width: 12%; }
+table.accounts th:nth-child(6), table.accounts td:nth-child(6) { width: 22%; }
+/* Every cell in a row is the same height, so the border under the row is one straight
+   line rather than a step where a two-line cell meets a one-line neighbour. */
+table.accounts td { height: 56px; box-sizing: border-box; }
+/* The uid under the name is secondary; it must not push the cell taller than the
+   declared row height. */
+table.accounts td .uid { line-height: 1.4; }
+/* Realm, state and tally are single short values: one line, centred. */
+table.accounts td[data-label="区域"],
+table.accounts td[data-label="状态"],
+table.accounts td[data-label="成功 / 失败"] { white-space: nowrap; }
 /* The account cell is two lines (name, realm) while its neighbours are one line tall.
    Middle alignment centres them relative to the row, which reads as correct — but the
    controlling cells themselves need to centre their content, or a button sits at the

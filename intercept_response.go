@@ -91,7 +91,7 @@ func interceptResponse(request []byte) ([]byte, error) {
 		state.log.add(callRecord{
 			ProviderID:     ctx.Provider,
 			Variant:        ctx.Variant,
-			UID:            ctx.UID,
+			UID:            canonicalUID(ctx.UID),
 			Label:          ctx.Label,
 			Model:          ctx.Model,
 			RequestedModel: ctx.RequestedModel,
@@ -105,13 +105,18 @@ func interceptResponse(request []byte) ([]byte, error) {
 	}
 
 	// --- success accounting (V1/o.r) -----------------------------------
+	// Normalise once, and use the result everywhere the account is named: the log, the
+	// pool and the panel then agree on one identifier per account. Records written
+	// before this ran name the credential by CPA's runtime auth id, which is a different
+	// string for the same account.
+	accountKey := canonicalUID(ctx.UID)
 	if ctx.Provider != "" {
-		state.pool.success(ctx.Provider, ctx.UID)
+		state.pool.success(ctx.Provider, accountKey)
 	}
 	rec := callRecord{
 		ProviderID:     ctx.Provider,
 		Variant:        ctx.Variant,
-		UID:            ctx.UID,
+		UID:            accountKey,
 		Label:          ctx.Label,
 		Model:          ctx.Model,
 		RequestedModel: ctx.RequestedModel,
