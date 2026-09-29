@@ -127,7 +127,7 @@ func foldBucket(series []usageBucket, key string, keep int, rec callRecord) []us
 	bucket.Calls++
 	// A notice is informational; it must not move the counters. add() already refuses
 	// to count one, so this only matters if a caller writes a bucket directly.
-	if !rec.Notice && (rec.Error != "" || rec.StatusCode >= 400) {
+	if recordFailed(rec) {
 		bucket.Failed++
 	}
 	bucket.Prompt += rec.PromptTokens
@@ -195,7 +195,7 @@ func (l *callLog) add(rec callRecord) {
 	l.totalCalls++
 	l.totalPrompt += rec.PromptTokens
 	l.totalCompl += rec.CompletionTokens
-	if rec.Error != "" || rec.StatusCode >= 400 {
+	if recordFailed(rec) {
 		l.totalFailed++
 	}
 
@@ -323,6 +323,25 @@ func (l *callLog) modelCallsOnly(limit int) []callRecord {
 		}
 	}
 	return out
+}
+
+// recordFailed reports whether a record represents a failure worth counting.
+//
+// One definition for the three places that tally calls — the totals, the daily buckets
+// and the per-account column — so they cannot disagree.
+//
+// A caller hanging up is excluded. It is a real bad outcome for the person who pressed
+// stop, but it is not evidence about the credential: the account was answering, the same
+// one serves the next request, and a tally that counts it shows failures the account
+// never had.
+func recordFailed(rec callRecord) bool {
+	if rec.Notice {
+		return false
+	}
+	if isClientAbortFailure(rec.StatusCode, rec.Error) {
+		return false
+	}
+	return rec.Error != "" || rec.StatusCode >= 400
 }
 
 // isModelCall reports whether a record came from serving a model request.

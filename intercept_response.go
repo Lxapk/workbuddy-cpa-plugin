@@ -49,6 +49,17 @@ func interceptResponse(request []byte) ([]byte, error) {
 		statusCode = http.StatusOK
 	}
 
+	// A caller hanging up is dropped here, before anything is written.
+	//
+	// It says nothing about the credential — the same account serves the next request —
+	// and it says nothing about the service either, since the person on the other end is
+	// the one who stopped it. Keeping it in the log only added rows the operator has to
+	// read past and decide to ignore; not recording it at all is the honest treatment.
+	// Nothing below this line runs, so the pool's cooldown logic never sees it either.
+	if isClientAbortFailure(statusCode, string(req.Body)) {
+		return okEnvelope(pluginapi.ResponseInterceptResponse{})
+	}
+
 	// --- failure classification (V1/o.k step 9) ------------------------
 	if statusCode >= 400 {
 		upErr := classifyUpstream(statusCode, req.Body)

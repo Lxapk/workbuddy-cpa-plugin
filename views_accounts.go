@@ -78,11 +78,17 @@ func accountCallStats(uid string) (success, failed int) {
 			// Not a call.
 			continue
 		}
-		if rec.Error != "" || rec.StatusCode >= 400 {
+		// recordFailed excludes a caller hanging up, which is not the account's fault.
+		if recordFailed(rec) {
 			failed++
-		} else {
-			success++
+			continue
 		}
+		if rec.StatusCode >= 400 || rec.Error != "" {
+			// A failure that recordFailed does not count — a client abort. It is not a
+			// success either, so it stays out of both columns.
+			continue
+		}
+		success++
 	}
 	return success, failed
 }

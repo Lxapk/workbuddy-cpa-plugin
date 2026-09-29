@@ -177,6 +177,34 @@ func isRequestContentFailure(message string) bool {
 	return containsAnyFold(message, requestContentPhrases)
 }
 
+// isClientAbortFailure reports whether a failure is the caller hanging up.
+//
+// A cancelled request says nothing about the credential: the same account serves the next
+// request perfectly well. Counting it as a failure misleads the operator — the account
+// shows failures it never had — and feeds the pool's cooldown logic, so a user who
+// cancels a slow reply can bench the account that was answering them.
+//
+// Two shapes arrive here: CPA's 499 (the convention for "client closed request") and an
+// upstream error whose body carries context.Canceled, which is how an abort surfaces when
+// the cancelled context was the one making the upstream call.
+func isClientAbortFailure(statusCode int, message string) bool {
+	if statusCode == 499 {
+		return true
+	}
+	return containsAnyFold(message, clientAbortPhrases)
+}
+
+// clientAbortPhrases are the wordings a cancellation surfaces with, matched
+// case-insensitively.
+var clientAbortPhrases = []string{
+	"context canceled",
+	"context cancelled",
+	"client closed request",
+	"client disconnected",
+	"client gone away",
+	"broken pipe",
+}
+
 // summarizeConversationShape renders the structure of a rejected request body.
 //
 // Only the shape is recorded — roles, tool_call ids and their pairing — never the
@@ -277,6 +305,16 @@ func summarizeRoleSequence(body []byte) string {
 // and is empty on paths that have no single bound credential.
 func reportExecutorFailure(creds *workBuddyCredentials, authIndex, model string, statusCode int, body []byte) {
 	if creds == nil {
+		return
+	}
+	// A caller hanging up never reaches the log or the pool.
+	//
+	// This is the path a cancelled stream actually takes: the executor's context is
+	// cancelled, the read loop returns "context canceled", and that is reported here as a
+	// 502. The response interceptor never sees the request — CPA does not run it for a
+	// call the client abandoned — so checking there was not enough, and the panel kept a
+	// row the operator had to read past.
+	if isClientAbortFailure(statusCode, string(body)) {
 		return
 	}
 	uid := strings.TrimSpace(creds.UID)

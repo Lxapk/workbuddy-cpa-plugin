@@ -1515,3 +1515,127 @@ func TestHourLabelDoesNotDoublePad(t *testing.T) {
 		t.Error("仍在用字符串与数字比较来判断补零")
 	}
 }
+
+// 客户端断开不算账号失败。
+//
+// 用户取消一个慢回复时，CPA 传进来的状态码是 499（「客户端关闭请求」的约定码），错误
+// 文本是 context canceled。判定条件是 `Error != "" || StatusCode >= 400`，两条都成立，
+// 于是账号显示了一个它从未有过的失败——更糟的是这个失败会喂给池的冷却逻辑，取消一次慢
+// 回复就可能把正在应答的那个账号停掉。
+func TestClientAbortIsNotAnAccountFailure(t *testing.T) {
+	// 识别
+	for _, tc := range []struct {
+		status int
+		msg    string
+	}{
+		{499, "context canceled"},
+		{499, ""},
+		{500, "context canceled"},
+		{502, "Client disconnected"},
+		{500, "write: broken pipe"},
+	} {
+		if !isClientAbortFailure(tc.status, tc.msg) {
+			t.Errorf("应识别为客户端断开：status=%d msg=%q", tc.status, tc.msg)
+		}
+	}
+	// 真正的上游故障不该被误判
+	for _, tc := range []struct {
+		status int
+		msg    string
+	}{
+		{429, "rate limit exceeded"},
+		{401, "invalid token"},
+		{500, "internal server error"},
+		{200, ""},
+	} {
+		if isClientAbortFailure(tc.status, tc.msg) {
+			t.Errorf("误判为客户端断开：status=%d msg=%q", tc.status, tc.msg)
+		}
+	}
+
+	// 统计层：不计入失败
+	abort := callRecord{ProviderID: "p", Model: "m", StatusCode: 499, Error: "context canceled"}
+	if recordFailed(abort) {
+		t.Error("499 context canceled 被计为失败")
+	}
+	// 真失败仍然计入
+	real := callRecord{ProviderID: "p", Model: "m", StatusCode: 429, Error: "rate limited"}
+	if !recordFailed(real) {
+		t.Error("429 未被计为失败")
+	}
+	// 成功不计入
+	ok := callRecord{ProviderID: "p", Model: "m", StatusCode: 200}
+	if recordFailed(ok) {
+		t.Error("200 被计为失败")
+	}
+
+	// 两个列表页都排除它
+	log := newCallLog(20)
+	log.add(callRecord{ProviderID: "p", Model: "m", StatusCode: 200, StartedAt: timeNowForTest()})
+	log.add(callRecord{ProviderID: "p", Model: "m", StatusCode: 499, Error: "context canceled", StartedAt: timeNowForTest()})
+	totals := log.totals()
+	if totals.TotalFailed != 0 {
+		t.Errorf("中止被计为失败：total_failed=%d", totals.TotalFailed)
+	}
+	daily := log.dailyUsage()
+	if len(daily) != 1 || daily[0].Failed != 0 {
+		t.Errorf("日趋势把中止计为失败：%+v", daily)
+	}
+	// 但它仍然是一次已发生的调用，该被计入总调用数。
+	if totals.TotalCalls != 2 {
+		t.Errorf("中止应计入调用数：total_calls=%d, want 2", totals.TotalCalls)
+	}
+}
+
+// 客户端断开不产生任何记录。
+//
+// 用户取消一个慢回复时，CPA 传进来 499 与 context canceled。这条记录有三个可能写入
+// 点，逐个都要拦：正常响应的拦截器、执行器内部的上报、以及 CPA 的用量回调。最后一条
+// 是漏得最久的一个——被放弃的请求不会走响应拦截器，而用量回调每次都会触发。
+//
+// 它不写日志也不喂池：取消一次慢回复，不该把正在应答的账号停掉。
+func TestClientAbortLeavesNoRecord(t *testing.T) {
+	// 识别的边界
+	for _, tc := range []struct {
+		status int
+		msg    string
+		want   bool
+	}{
+		{499, "context canceled", true},
+		{499, "", true},
+		{502, "context canceled", true},
+		{500, "Client disconnected", true},
+		{500, "write tcp: broken pipe", true},
+		// 真正需要处理的上游故障
+		{429, "rate limit exceeded", false},
+		{401, "invalid token", false},
+		{500, "internal server error", false},
+		{200, "", false},
+	} {
+		if got := isClientAbortFailure(tc.status, tc.msg); got != tc.want {
+			t.Errorf("isClientAbortFailure(%d, %q) = %v, want %v", tc.status, tc.msg, got, tc.want)
+		}
+	}
+
+	// 统计层：不算失败，也不算成功
+	abort := callRecord{ProviderID: "p", Model: "m", StatusCode: 499, Error: "context canceled"}
+	if recordFailed(abort) {
+		t.Error("499 被计为失败")
+	}
+	// 真失败仍要计入
+	real := callRecord{ProviderID: "p", Model: "m", StatusCode: 429, Error: "rate limited"}
+	if !recordFailed(real) {
+		t.Error("429 未被计为失败")
+	}
+
+	// 三个写入点都必须带上这个判断
+	for file, needle := range map[string]string{
+		"usage_handler.go":      "if rec.Failed && isClientAbortFailure(",
+		"executor.go":           "if isClientAbortFailure(statusCode, string(body)) {",
+		"intercept_response.go": "if isClientAbortFailure(statusCode, string(req.Body)) {",
+	} {
+		if !strings.Contains(readSourceFile(t, file), needle) {
+			t.Errorf("%s 没有拦截客户端断开，记录会漏出来", file)
+		}
+	}
+}

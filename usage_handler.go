@@ -27,6 +27,18 @@ func handleUsage(request []byte) ([]byte, error) {
 		model = rec.Alias
 	}
 
+	// A caller hanging up is dropped before anything is written or counted.
+	//
+	// This is the hook that finally explained the 499 rows. CPA calls it after every
+	// request — including ones the client abandoned — and passes the failure detail
+	// through. The response interceptor never runs for an abandoned call and the
+	// executor's own report is guarded, so this was the remaining path: the record
+	// appeared in the panel and the failure was handed to the pool, which would bench an
+	// account that had been answering perfectly well until someone pressed stop.
+	if rec.Failed && isClientAbortFailure(rec.Failure.StatusCode, rec.Failure.Body) {
+		return okEnvelope(map[string]any{})
+	}
+
 	uid := strings.TrimSpace(rec.AuthID)
 	if uid == "" {
 		uid = strings.TrimSpace(rec.AuthIndex)
