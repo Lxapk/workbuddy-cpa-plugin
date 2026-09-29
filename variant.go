@@ -1,8 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 // This file is the single source of truth for WorkBuddy's two service variants
@@ -357,4 +363,120 @@ func redirectAllCnBases(url string) func() {
 		workBuddyCheckinMu.Unlock()
 		variantTestMu.Unlock()
 	}
+}
+
+// syncVariantScopeToHost disables, at the host, the credentials the supplier switch rules
+// out — and re-enables them when the switch goes back to 自动.
+//
+// Why this reaches for a persistent flag: the plugin's own pick honours the setting, but
+// the host keeps building its own candidate list from the same credentials and falls back
+// to it whenever the plugin does not name an account. A host-side retry after a failed pick
+// is the concrete case — with 仅国际 set, the first attempt correctly used the
+// international credential, it failed because that realm does not serve the model, and the
+// retry reached a domestic one. No response the plugin can return means "nothing is
+// acceptable", so the only lever over that path is the flag the host itself reads.
+//
+// The cost is that this is real state, not a hint, so it is applied only for an explicit
+// cn/ai choice. 自动 clears both sides, which is what makes the switch reversible: the
+// panel's 自动 option is the undo.
+func syncVariantScopeToHost(scope string) {
+	entries := listHostAuthEntries()
+	if len(entries) == 0 {
+		return
+	}
+	for _, entry := range entries {
+		if !isWorkBuddyAuthEntry(entry) {
+			continue
+		}
+		storage := entry.StorageJSON
+		if len(storage) == 0 && entry.AuthIndex != "" {
+			storage = fetchAuthStorage(entry.AuthIndex)
+		}
+		if len(storage) == 0 {
+			continue
+		}
+		var doc map[string]any
+		if errUnmarshal := json.Unmarshal(storage, &doc); errUnmarshal != nil {
+			continue
+		}
+		realm := variantOfDomain(stringFromDoc(doc, "domain"))
+		if realm == string(variantAi) && !domainSaysInternational(stringFromDoc(doc, "domain")) {
+			// Unknown realm: not evidence that this credential belongs to the side being
+			// excluded, so it is left alone.
+			realm = ""
+		}
+		want := false
+		if scope == "cn" || scope == "ai" {
+			want = realm != "" && realm != scope
+		}
+		if was, _ := doc["disabled"].(bool); was == want {
+			continue
+		}
+		doc["disabled"] = want
+		encoded, errMarshal := json.Marshal(doc)
+		if errMarshal != nil {
+			continue
+		}
+		name := entry.AuthIndex
+		if !strings.HasSuffix(strings.ToLower(name), ".json") {
+			name += ".json"
+		}
+		// The directory comes from the host, by asking it to save the file unchanged: the
+		// response reports the physical path it wrote, and its parent is the directory the
+		// host is watching. That call re-serialises the payload, so the credential fields
+		// survive while flags beside them do not — which is exactly why the flag cannot go
+		// through it, and why its answer is used only for the path.
+		dir, errDir := hostAuthDirFor(name, storage)
+		if errDir != nil {
+			logf("variant scope: cannot locate %s: %v", name, errDir)
+			continue
+		}
+		path := filepath.Join(dir, filepath.Base(name))
+		if errWrite := os.WriteFile(path, encoded, 0o600); errWrite != nil {
+			logf("variant scope: write %s failed: %v", path, errWrite)
+			continue
+		}
+		logf("variant scope: %s realm=%q scope=%q disabled=%v → %s", name, realm, scope, want, path)
+	}
+}
+
+// listHostAuthEntries reads the host's credential inventory.
+func listHostAuthEntries() []hostAuthEntry {
+	raw, errList := callHost("host.auth.list", map[string]any{})
+	if errList != nil {
+		return nil
+	}
+	return decodeAuthEntries(raw)
+}
+
+// stringFromDoc reads a string field out of a decoded JSON object.
+func stringFromDoc(doc map[string]any, key string) string {
+	s, _ := doc[key].(string)
+	return s
+}
+
+// hostAuthDirFor locates the directory the host keeps credentials in.
+//
+// There is no call that simply reports it. host.auth.save answers with the physical path it
+// wrote, so the plugin asks it to write the credential back unchanged and takes the parent
+// directory from the reply — the same directory the host's watcher is looking at.
+func hostAuthDirFor(name string, storage json.RawMessage) (string, error) {
+	if len(storage) == 0 {
+		return "", fmt.Errorf("no credential payload to locate %s", name)
+	}
+	raw, errCall := callHost("host.auth.save", map[string]any{
+		"name": name,
+		"json": json.RawMessage(storage),
+	})
+	if errCall != nil {
+		return "", errCall
+	}
+	var saved pluginapi.HostAuthSaveResponse
+	if errUnmarshal := json.Unmarshal(raw, &saved); errUnmarshal != nil {
+		return "", errUnmarshal
+	}
+	if strings.TrimSpace(saved.Path) == "" {
+		return "", fmt.Errorf("host reported no path for %s", name)
+	}
+	return filepath.Dir(saved.Path), nil
 }

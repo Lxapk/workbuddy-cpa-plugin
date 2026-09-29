@@ -318,6 +318,20 @@ func (s *settingsStore) setVariantOverride(v string) {
 	authSupplier := s.val.AuthSupplier
 	s.mu.Unlock()
 	s.savePanelChoicesLocked(v, authSupplier)
+	// Mirror the switch onto the host's own credential list.
+	//
+	// The plugin's pick already honours the setting, but that is not enough to keep a
+	// request off the other realm: CPA keeps its own candidate list, and when the plugin's
+	// pick fails or returns nothing the host selects from that list itself — a retry after
+	// a failure, for instance, which is exactly the path that made 仅国际 still reach a
+	// domestic account.
+	//
+	// Disabling the other realm's credentials in the host is the only lever this plugin
+	// has over that path, since the host's scheduler reads the same flag when building its
+	// candidates. It is a real state change rather than a per-request hint, so it is done
+	// only for an explicit cn/ai choice, and the credentials' previous flag is restored the
+	// moment the switch goes back to 自动.
+	syncVariantScopeToHost(v)
 }
 
 // setAuthSupplier persists which supplier authorisation should use.

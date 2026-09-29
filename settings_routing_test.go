@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -2070,5 +2071,91 @@ func TestDisabledAccountsAreNotSelectable(t *testing.T) {
 	state.pool.disableAccountKeyed("u-1", "", false)
 	if got := newSchedulerState().collectCandidates(req); len(got) != 1 || got[0].ID != "u-1" {
 		t.Fatalf("重新启用后 u-1 应可选，实际 %+v", got)
+	}
+}
+
+// 禁用账号要同步到宿主的凭据文件。
+//
+// 池里的标记只管得住插件自己的选择。CPA 另有一份凭据清单，候选从那里来——插件不指定账号
+// 时（选号失败、宿主重试）它就自己挑，于是禁用的账号照旧被使用。凭据文件顶层的 disabled
+// 是宿主在构建候选时读的同一个标志，写它是不改动宿主而能触达那条路径的唯一手段。
+//
+// 走文件而不是 host.auth.save：后者作用于凭据载荷，会把它收到的 JSON 按宿主的 schema 重新
+// 序列化，而 disabled 是与载荷并列的标志位，在往返中被丢掉——调用返回了路径、watcher 也
+// 触发了，磁盘上的文件却仍写着 disabled:false。目录则从该调用的返回值取，因为没有任何
+// 接口直接报告 auth 目录。
+func TestVariantScopeMirrorsDisabledToHostFiles(t *testing.T) {
+	resetState()
+	dir := t.TempDir()
+
+	writeAuth := func(name, domain string, disabled bool) string {
+		path := filepath.Join(dir, name)
+		blob, _ := json.Marshal(map[string]any{
+			"accessToken": "t", "refreshToken": "r", "uid": name,
+			"domain": domain, "disabled": disabled,
+		})
+		if err := os.WriteFile(path, blob, 0o600); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+		return path
+	}
+	cnPath := writeAuth("codebuddy-cn-1.json", "www.codebuddy.cn", false)
+	aiPath := writeAuth("codebuddy-ai-1.json", "www.workbuddy.ai", false)
+
+	// 宿主提供 host.auth.list（列出凭据）与 host.auth.save（用来定位目录，其返回值里的
+	// path 就是 auth 文件所在处）。
+	restore := stubHostCall(func(method string, _ any) (json.RawMessage, error) {
+		switch method {
+		case "host.auth.save":
+			return mustMarshal(t, map[string]any{
+				"name": "probe.json",
+				"path": filepath.Join(dir, "probe.json"),
+			}), nil
+		case "host.auth.list":
+			read := func(name string) json.RawMessage {
+				blob, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil {
+					t.Fatalf("read %s: %v", name, err)
+				}
+				return json.RawMessage(blob)
+			}
+			return mustMarshal(t, map[string]any{"files": []map[string]any{
+				{"auth_index": "codebuddy-cn-1.json", "provider": workBuddyProviderKey, "storage_json": read("codebuddy-cn-1.json")},
+				{"auth_index": "codebuddy-ai-1.json", "provider": workBuddyProviderKey, "storage_json": read("codebuddy-ai-1.json")},
+			}}), nil
+		}
+		return json.RawMessage(`{}`), nil
+	})
+	defer restore()
+
+	disabledIn := func(path string) bool {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		got, _ := doc["disabled"].(bool)
+		return got
+	}
+
+	// 仅国际：国内的凭据在宿主侧被停用，国际的不动。
+	syncVariantScopeToHost("ai")
+	if !disabledIn(cnPath) {
+		t.Error("仅国际时，国内凭据没有被同步禁用")
+	}
+	if disabledIn(aiPath) {
+		t.Error("仅国际时，国际凭据不该被禁用")
+	}
+
+	// 自动：两侧都恢复。
+	syncVariantScopeToHost("")
+	if disabledIn(cnPath) {
+		t.Error("切回自动时，国内凭据没有被恢复")
+	}
+	if disabledIn(aiPath) {
+		t.Error("切回自动时，国际凭据不该被改")
 	}
 }

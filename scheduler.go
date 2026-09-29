@@ -577,6 +577,20 @@ func schedulerPick(request []byte) ([]byte, error) {
 			StatusCode: http.StatusServiceUnavailable,
 			Error:      reason,
 		})
+		// Handled:false so the host falls back to its own scheduler rather than failing the
+		// request outright.
+		//
+		// This is a deliberate limit, and worth stating because it bounds what the supplier
+		// switch can guarantee: CPA treats an empty AuthID together with Handled:true as
+		// "the plugin did not decide" and runs its own selection, which does not know about
+		// the switch. There is no value of this response that means "no account is
+		// acceptable" — the only two outcomes the host understands are a named account and
+		// a delegate. So the switch governs the pick this plugin makes; a host-side retry
+		// after that pick fails may land elsewhere.
+		//
+		// The alternative — writing disabled onto the other realm's auth files — would
+		// reach the host but turn a per-request preference into a persistent state change,
+		// which is not what the setting means.
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
 

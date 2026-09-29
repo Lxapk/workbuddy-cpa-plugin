@@ -303,12 +303,17 @@ func runCheckin(trigger string) *checkinRun {
 	}
 	if len(accounts) == 0 {
 		run.FinishedAt = nowPanel()
-		// Say which of the two reasons applies. "没有可签到的账号" is true either way, but
-		// when international credentials exist and were excluded the operator would go
-		// looking for a missing login that is in fact present and simply not eligible.
-		run.Note = "没有可签到的账号：国际版账号不支持签到，此操作仅用于国内版"
-		if len(allAccounts) == 0 {
+		// Say which of the three reasons applies, rather than reporting a completed run
+		// with nothing in it. Selecting 国际 and pressing 签到 used to answer "签到完成"
+		// with zero accounts, which reads as success — the operator had no way to tell
+		// that the action does not exist on that side.
+		switch {
+		case len(allAccounts) == 0:
 			run.Note = "没有可签到的账号：尚未添加任何 WorkBuddy 凭证"
+		case allAccountsInternational(allAccounts):
+			run.Note = "国际版没有签到功能：当前只有国际版账号，此操作仅适用于国内版"
+		default:
+			run.Note = "没有可签到的账号：现有账号都不适用于签到"
 		}
 		run.Results = []checkinResult{{Error: run.Note}}
 		state.checkin.record(run)
@@ -619,4 +624,24 @@ func domainSaysInternational(domain string) bool {
 		return true
 	}
 	return false
+}
+
+// allAccountsInternational reports whether every credential belongs to the international
+// realm.
+//
+// Used to name the reason a check-in pass had nothing to do: a pool that is entirely
+// international is not missing anything, the operation simply does not exist there.
+func allAccountsInternational(accounts []checkinAccount) bool {
+	if len(accounts) == 0 {
+		return false
+	}
+	for _, account := range accounts {
+		if account.Creds == nil {
+			return false
+		}
+		if !domainSaysInternational(account.Creds.Domain) {
+			return false
+		}
+	}
+	return true
 }
