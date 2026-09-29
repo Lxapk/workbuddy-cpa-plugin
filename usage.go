@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,11 +59,15 @@ type callLog struct {
 	// worse", which is the question an operator actually has when a provider
 	// starts throttling. Only the last few days are kept: enough to draw a week
 	// of bars, bounded so the history cannot grow without limit.
-	daily []dailyUsage
+	daily []usageBucket
+	// hourly is the same accounting per hour, so the panel can show a rolling hour.
+	hourly []usageBucket
 }
 
-// dailyUsage is one day of accounting.
-type dailyUsage struct {
+// usageBucket is one period of accounting. The same shape serves the hourly and the
+// daily trend: the panel picks which series to show, and the arithmetic is identical.
+type usageBucket struct {
+	// Date is the bucket key: "2006-01-02" for days, "2006-01-02 15" for hours.
 	Date       string `json:"date"`
 	Calls      int64  `json:"calls"`
 	Failed     int64  `json:"failed"`
@@ -70,41 +75,61 @@ type dailyUsage struct {
 	Completion int64  `json:"completion_tokens"`
 }
 
-// dailyUsageKept is how many days the trend covers. A week fits the panel without
+// dailyUsageKept is how many days the daily trend covers. A week fits the panel without
 // horizontal scrolling on a phone.
 const dailyUsageKept = 7
+
+// hourlyUsageKept is how many hours the hourly trend covers — a full day, so the
+// "last hour" and "today" views can both be cut from it.
+const hourlyUsageKept = 24
 
 // rollDaily folds one call into the day bucket, creating it when the date changes.
 //
 // Called with the lock held. Days with no traffic are not synthesised: the panel
 // shows gaps as gaps, and inventing zeros would make a quiet weekend look like a
 // provider outage.
+// rollDaily folds one call into both trends.
+//
+// Two series are kept from the same record rather than one: the rolling hour needs
+// minute-level recency, the week needs a coarse summary, and deriving either from the
+// other would mean either losing detail or keeping far more than a week of it. Both are
+// cheap — a few dozen small structs.
+//
+// Called with the lock held. Periods with no traffic are not synthesised: the panel
+// fills the gaps so a bar chart can show an empty slot as empty rather than absent.
 func (l *callLog) rollDaily(rec callRecord) {
-	day := rec.StartedAt.Format("2006-01-02")
-	if day == "" || rec.StartedAt.IsZero() {
-		day = time.Now().Format("2006-01-02")
+	stamp := rec.StartedAt
+	if stamp.IsZero() {
+		stamp = time.Now()
 	}
 
-	last := -1
-	if len(l.daily) > 0 {
-		last = len(l.daily) - 1
-	}
-	if last < 0 || l.daily[last].Date != day {
-		l.daily = append(l.daily, dailyUsage{Date: day})
-		last = len(l.daily) - 1
-		if len(l.daily) > dailyUsageKept {
-			l.daily = l.daily[len(l.daily)-dailyUsageKept:]
-			last = len(l.daily) - 1
+	l.hourly = foldBucket(l.hourly, stamp.Format("2006-01-02 15"), hourlyUsageKept, rec)
+	l.daily = foldBucket(l.daily, stamp.Format("2006-01-02"), dailyUsageKept, rec)
+}
+
+// foldBucket adds one record to the bucket for key, appending a new bucket when the key
+// changes and trimming the series to keep.
+func foldBucket(series []usageBucket, key string, keep int, rec callRecord) []usageBucket {
+	last := len(series) - 1
+	if last < 0 || series[last].Date != key {
+		series = append(series, usageBucket{Date: key})
+		last = len(series) - 1
+		if len(series) > keep {
+			series = series[len(series)-keep:]
+			last = len(series) - 1
 		}
 	}
 
-	bucket := &l.daily[last]
+	bucket := &series[last]
 	bucket.Calls++
-	if rec.Error != "" || rec.StatusCode >= 400 {
+	// A notice is informational; it must not move the counters. add() already refuses
+	// to count one, so this only matters if a caller writes a bucket directly.
+	if !rec.Notice && (rec.Error != "" || rec.StatusCode >= 400) {
 		bucket.Failed++
 	}
 	bucket.Prompt += rec.PromptTokens
 	bucket.Completion += rec.CompletionTokens
+	return series
 }
 
 // addNotice stores an informational record without touching any counter.
@@ -120,11 +145,20 @@ func (l *callLog) addNotice(rec callRecord) {
 }
 
 // dailyUsage returns a copy of the per-day trend, oldest first.
-func (l *callLog) dailyUsage() []dailyUsage {
+func (l *callLog) dailyUsage() []usageBucket {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]dailyUsage, len(l.daily))
+	out := make([]usageBucket, len(l.daily))
 	copy(out, l.daily)
+	return out
+}
+
+// hourlyUsage returns a copy of the per-hour trend, oldest first.
+func (l *callLog) hourlyUsage() []usageBucket {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]usageBucket, len(l.hourly))
+	copy(out, l.hourly)
 	return out
 }
 
@@ -262,4 +296,39 @@ func shutdownPlugin() {
 	stopTaskScheduler()
 	stopCheckinScheduler()
 	stopQuotaScheduler()
+}
+
+// modelCallsOnly returns the most recent records that represent a model call.
+//
+// The log also carries records that are not calls: notices from the scheduler, the
+// summary a scheduled task pass writes. They are worth keeping for the panel to show,
+// but they have no model, no tokens and no upstream — listing them among the calls
+// invites reading them as traffic, which is how a note about credentials ended up
+// looking like a failed request. This filters them out.
+func (l *callLog) modelCallsOnly(limit int) []callRecord {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	out := make([]callRecord, 0, limit)
+	for _, rec := range l.recs {
+		if !isModelCall(rec) {
+			continue
+		}
+		out = append(out, rec)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// isModelCall reports whether a record came from serving a model request.
+//
+// A call names a model. Notices name a task or nothing at all, and the scheduler's
+// notes are marked as notices outright.
+func isModelCall(rec callRecord) bool {
+	if rec.Notice {
+		return false
+	}
+	return strings.TrimSpace(rec.Model) != ""
 }

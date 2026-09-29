@@ -663,8 +663,8 @@ func TestTaskPageExposesGrowthControls(t *testing.T) {
 	resetState()
 	page := renderMainPage()
 	for _, needle := range []string{
-		`id="btnRunGrowth"`,
-		`id="btnTravel"`,
+		`data-call="runGrowthTasks"`,
+		`data-call="runTravel"`,
 		`id="taskMsg"`,
 		`id="taskResult"`,
 	} {

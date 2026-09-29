@@ -22,7 +22,11 @@ import (
 //
 // Each keeps its own switch and its own time: the two jobs hit different endpoints and
 // there is no reason to tie one to the other's schedule.
-func renderScheduleBox() string {
+// renderScheduleRows draws the two automatic jobs as rows.
+//
+// Returns only the rows, not a card: the tasks page puts them inside the same card as
+// the manual triggers, because the two are one question ("run this") answered two ways.
+func renderScheduleRows() string {
 	growth := growthScheduleSnapshot()
 	checkin := state.settings.get().Checkin
 
@@ -35,17 +39,6 @@ func renderScheduleBox() string {
 	growthSummary, _ := growth["last_summary"].(string)
 
 	var b strings.Builder
-	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>每日自动执行 <span class="hint">按本机时区，每天各跑一次</span></h3>`)
-	b.WriteString(`<span class="grow"></span>`)
-	if growthRunning {
-		b.WriteString(`<span class="pill warn">任务执行中</span>`)
-	}
-	b.WriteString(`<span class="note" id="scheduleMsg"></span>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存</button>`)
-	b.WriteString(`</header>`)
-
-	b.WriteString(`<div class="pad">`)
 
 	// ---- growth tasks ----
 	b.WriteString(`<div class="sched-row">`)
@@ -59,6 +52,9 @@ func renderScheduleBox() string {
 		fmt.Sprint(clampMinute(growthMinute)) + `"> 分</span>`)
 	if growthEnabled && growthRanToday && !growthRunning {
 		b.WriteString(`<span class="pill ok">今日已完成</span>`)
+	}
+	if growthRunning {
+		b.WriteString(`<span class="pill warn">执行中</span>`)
 	}
 	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<label class="field sched-start"><input type="checkbox" id="gsOnStart"`)
@@ -87,13 +83,26 @@ func renderScheduleBox() string {
 	b.WriteString(`</div>`)
 
 	if growthSummary != "" {
-		b.WriteString(`<div class="note" style="margin-top:9px">上次任务：` +
-			html.EscapeString(growthSummary) + `</div>`)
+		b.WriteString(`<div class="note">上次任务：` + html.EscapeString(growthSummary) + `</div>`)
 	}
-	b.WriteString(`<div class="note" style="margin-top:9px">两项都按本机时区判断日期，同一天只跑一次。` +
-		`「启动时补跑」指插件加载时，若当天尚未执行则补上一次。</div>`)
-	b.WriteString(`</div>`)
+	return b.String()
+}
 
+// renderScheduleBox draws the automatic jobs as a standalone card.
+//
+// Kept for callers that only want the schedule; the tasks page composes
+// renderScheduleRows into a larger card instead.
+func renderScheduleBox() string {
+	var b strings.Builder
+	b.WriteString(`<div class="box">`)
+	b.WriteString(`<header><h3>每日自动执行 <span class="hint">按本机时区，每天各跑一次</span></h3>`)
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<span class="note" id="scheduleMsg"></span>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存</button>`)
+	b.WriteString(`</header>`)
+	b.WriteString(`<div class="pad">`)
+	b.WriteString(renderScheduleRows())
+	b.WriteString(`</div>`)
 	b.WriteString(`<div class="foot">`)
 	b.WriteString(`<span class="note" id="runMsg"></span>`)
 	b.WriteString(`<span class="grow"></span>`)

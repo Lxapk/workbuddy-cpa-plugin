@@ -160,9 +160,9 @@ func renderTaskAccountRow(row taskRow) string {
 
 	// Account.
 	b.WriteString(`<td class="` + rowClass + `" data-label="账号"><strong>` + html.EscapeString(row.Label) + `</strong>`)
-	if row.Variant != "" {
-		b.WriteString(` <span class="uid">` + html.EscapeString(row.Variant) + `</span>`)
-	}
+	// Same badge as the accounts page, so a name reads the same wherever it appears.
+	// It used to print the raw value here and nothing at all there.
+	b.WriteString(` ` + variantBadge(row.Variant))
 	b.WriteString(`</td>`)
 
 	// Participation toggle: an explicit state word, not a pill whose colour is the only

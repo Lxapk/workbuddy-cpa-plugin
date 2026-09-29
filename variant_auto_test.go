@@ -405,7 +405,7 @@ func TestMainPageDeclaresPollingContract(t *testing.T) {
 		`id="accountsSignature"`,
 		`id="accountMsg"`,
 		`id="taskMsg"`,
-		`id="btnRunAllTasks"`,
+		`data-call="runAllTasks"`,
 		`id="taskResult"`,
 		// 供应商切换用段控（data-call="setVariant"），值通过 data-arg0 传递，
 		// 不再是 radio 的 data-variant 属性。

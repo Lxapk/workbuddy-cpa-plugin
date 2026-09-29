@@ -149,6 +149,10 @@ func renderAccountRow(a workBuddyAccount) string {
 
 	// Name with the uid abbreviated underneath.
 	b.WriteString(`<td class="bar ` + bar + `" data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong>`)
+	// The realm decides what an account can do — growth tasks and check-in exist only
+	// for domestic accounts — so it belongs next to the name, on every list that names
+	// one.
+	b.WriteString(` ` + variantBadge(a.Variant))
 	if ident != "" && ident != a.Label {
 		b.WriteString(`<div class="uid mono" title="` + html.EscapeString(ident) + `">` +
 			html.EscapeString(shortenUID(ident)) + `</div>`)
@@ -185,6 +189,34 @@ func renderAccountRow(a workBuddyAccount) string {
 	b.WriteString(`</td>`)
 	b.WriteString(`</tr>`)
 	return b.String()
+}
+
+// variantBadge renders the realm an account belongs to.
+//
+// Shown next to the account name on every list that names an account, because the realm
+// decides what the account can do: growth tasks and check-in only exist for domestic
+// accounts. It used to appear only on the tasks page, and there it printed the raw
+// value ("cn" / "ai") rather than a word.
+func variantBadge(variant string) string {
+	label, cls := variantBadgeText(variant)
+	if label == "" {
+		return ""
+	}
+	return `<span class="tag ` + cls + `">` + label + `</span>`
+}
+
+// variantBadgeText maps a realm to its display label and tone.
+func variantBadgeText(variant string) (string, string) {
+	switch strings.TrimSpace(variant) {
+	case string(variantAi):
+		return "国际", "tag-ai"
+	case string(variantCn):
+		return "国内", "tag-cn"
+	default:
+		// An account whose realm has not been recorded yet. Saying so is better than
+		// guessing: the runner treats it as domestic, but that is a default, not a fact.
+		return "未标注", "tag-unknown"
+	}
 }
 
 // renderCreditsCell draws the balance as "remaining / total" over a progress bar.
@@ -243,7 +275,6 @@ func shortenUID(uid string) string {
 	return uid[:12] + "…" + uid[len(uid)-6:]
 }
 
-// renderVariantBox draws the provider selection.
 // renderVariantBox draws the two supplier settings.
 //
 // They are shown as two separate groups rather than two rows of identical segmented

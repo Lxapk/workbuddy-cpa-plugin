@@ -496,18 +496,24 @@ func enrichWithRuntime(accounts []workBuddyAccount) []workBuddyAccount {
 	for i := range accounts {
 		a := &accounts[i]
 
-		// Variant label for the UI.
+		// Variant for the UI: the machine key ("cn"/"ai") and its label.
 		//
-		// Variant stays the stable machine key ("cn"/"ai") that the script
-		// matches on, while VariantLabel carries the human text. The panel used
-		// to print the raw key next to buttons that already said 国内版/国际版,
-		// so the same account was described two different ways.
-		variant := variantForCredentials(a.credentials)
-		if a.credentials == nil {
-			variant = variantForDomain(a.Domain)
+		// Re-derived from the credential or its domain when either is present, because
+		// those are the authoritative sources. When neither is — an inventory entry
+		// whose storage could not be read — the value already on the record is kept:
+		// defaulting to 国内 there relabels an international account as domestic, which
+		// is not a cosmetic mistake. The badge decides whether the account is offered
+		// growth tasks, and those only exist for domestic accounts.
+		switch {
+		case a.credentials != nil:
+			a.Variant = string(variantForCredentials(a.credentials))
+		case strings.TrimSpace(a.Domain) != "":
+			a.Variant = string(variantForDomain(a.Domain))
+		case strings.TrimSpace(a.Variant) == "":
+			// Nothing to go on and nothing recorded: say so rather than guess.
+			a.Variant = ""
 		}
-		a.Variant = string(variant)
-		a.VariantLabel = variant.label()
+		a.VariantLabel = wbVariant(a.Variant).label()
 
 		// Quota: look the reading up by every identifier the credential has.
 		//

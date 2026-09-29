@@ -178,10 +178,17 @@ func isGlobalDomain(domain string) bool {
 
 // label renders the variant for the UI.
 func (v wbVariant) label() string {
-	if v == variantAi {
+	switch v {
+	case variantAi:
 		return "国际版"
+	case variantCn:
+		return "国内版"
+	default:
+		// An account whose realm is not recorded. Saying so beats labelling it 国内版,
+		// which is what the default branch used to do — and that label decides whether
+		// the account looks eligible for growth tasks.
+		return "未标注"
 	}
-	return "国内版"
 }
 
 // hasCheckin reports whether this variant exposes the daily check-in endpoint.

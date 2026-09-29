@@ -335,12 +335,16 @@ func statusSnapshot() map[string]any {
 			"schema_version":    6,
 			"port_owned_by_cpa": true,
 		},
-		"settings":     settings.marshalForLog(),
-		"providers":    providerList,
-		"accounts":     lanes,
-		"usage":        state.log.totals(),
-		"usage_daily":  state.log.dailyUsage(),
-		"recent_calls": state.log.recent(10),
+		"settings":    settings.marshalForLog(),
+		"providers":   providerList,
+		"accounts":    lanes,
+		"usage":       state.log.totals(),
+		"usage_daily": state.log.dailyUsage(),
+		// The per-hour series backs the 1-hour and 1-day views. Sent alongside the daily
+		// one so the range buttons only have to choose between two arrays already in the
+		// browser, instead of re-fetching on every press.
+		"usage_hourly": state.log.hourlyUsage(),
+		"recent_calls": state.log.modelCallsOnly(60),
 		"server_time":  now.Format(time.RFC3339),
 	}
 }

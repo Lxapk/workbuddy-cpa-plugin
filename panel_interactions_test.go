@@ -87,13 +87,13 @@ func TestTaskTabOrder(t *testing.T) {
 	//
 	// The bare words 任务 / 每日签到 also appear in headings and the page subtitle, so
 	// the anchors include the tag that only the block header carries.
-	indexSchedule := strings.Index(tasks, "每日自动执行")
-	indexList := strings.Index(tasks, "立即执行")
+	indexSchedule := strings.Index(tasks, "每天自动执行")
+	indexList := strings.Index(tasks, ">立即执行<")
 	indexRunAll := strings.Index(tasks, "全部执行")
 	indexAccounts := strings.Index(tasks, "账号与任务")
 
 	for name, index := range map[string]int{
-		"每日自动执行卡片": indexSchedule, "立即执行卡片": indexList,
+		"每天自动执行": indexSchedule, "立即执行": indexList,
 		"全部执行": indexRunAll, "账号与任务": indexAccounts,
 	} {
 		if index < 0 {

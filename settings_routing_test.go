@@ -753,7 +753,7 @@ func TestTaskPageKeepsAccountAndTasksTogether(t *testing.T) {
 	}
 
 	// 三个区块，按「设一次 → 现在跑 → 每个账号」排列。
-	for _, want := range []string{"每日自动执行", "<h3>立即执行</h3>", "<h3>账号与任务</h3>"} {
+	for _, want := range []string{"每天自动执行", ">立即执行<", "<h3>账号与任务</h3>"} {
 		if !strings.Contains(tasks, want) {
 			t.Errorf("任务页缺少区块 %s", want)
 		}
@@ -865,5 +865,122 @@ func TestTaskDetailSeparatesSkippedFromPending(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("明细渲染缺少 %q", want)
 		}
+	}
+}
+
+// 账号名旁边要标出国内/国际，两个列表用同一种写法。
+//
+// 这个归属决定账号能做什么——成长任务与签到只对国内账号存在——所以它应该出现在每一
+// 处提到账号名的地方。此前只有任务页显示，而且印的是原始值（cn / ai）；账号页完全不
+// 显示。
+func TestRealmBadgeAppearsOnBothLists(t *testing.T) {
+	resetState()
+	// seedPanelAccounts 提供一个国内与一个国际账号，正是这个断言需要的两种归属。
+	seedPanelAccounts(t)
+
+	// 三个标签各自的中文说法。
+	if label, _ := variantBadgeText("cn"); label != "国内" {
+		t.Errorf("cn 应显示「国内」，得到 %q", label)
+	}
+	if label, _ := variantBadgeText("ai"); label != "国际" {
+		t.Errorf("ai 应显示「国际」，得到 %q", label)
+	}
+	if label, _ := variantBadgeText(""); label != "未标注" {
+		t.Errorf("未知归属应显示「未标注」，得到 %q", label)
+	}
+	// 空归属也要有一个标签，不能静默省略——那会让人以为这个账号没有归属。
+	if variantBadge("") == "" {
+		t.Error("未知归属也应渲染标签")
+	}
+
+	page := renderMainPage()
+	accounts := sectionOf(page, "view-accounts")
+	tasks := sectionOf(page, "view-tasks")
+	for name, body := range map[string]string{"账号页": accounts, "任务页": tasks} {
+		if body == "" {
+			t.Fatalf("%s 未渲染", name)
+		}
+		if !strings.Contains(body, "tag-cn") || !strings.Contains(body, "tag-ai") {
+			t.Errorf("%s 缺少国内或国际标记", name)
+		}
+		// 原始值不该出现：它是存储格式，不是给读者看的。
+		if strings.Contains(body, ">cn<") || strings.Contains(body, ">ai<") {
+			t.Errorf("%s 仍在显示原始 variant 值", name)
+		}
+	}
+}
+
+// 最近调用只列出模型调用。
+//
+// 日志里还有调度器的提示与任务摘要——它们有保留的价值，但没有模型、没有 token、
+// 没有上游，混在调用列表里会被当流量读。
+func TestRecentCallsExcludeNonModelRecords(t *testing.T) {
+	log := newCallLog(50)
+	log.add(callRecord{ProviderID: "p", Model: "glm-5.3", StatusCode: 200, StartedAt: timeNowForTest()})
+	log.addNotice(callRecord{ProviderID: "p", Model: "growth", Error: "定时任务完成"})
+	log.add(callRecord{ProviderID: "p", StatusCode: 200, StartedAt: timeNowForTest()}) // 无模型名
+
+	only := log.modelCallsOnly(10)
+	if len(only) != 1 {
+		t.Fatalf("应只保留 1 条模型调用，得到 %d", len(only))
+	}
+	if only[0].Model != "glm-5.3" {
+		t.Errorf("保留的不是模型调用：%q", only[0].Model)
+	}
+	// 全部记录仍在，供其他视图使用。
+	if len(log.recent(10)) != 3 {
+		t.Errorf("原始记录不应被删除，得到 %d 条", len(log.recent(10)))
+	}
+}
+
+// 用量趋势要能选三个时间范围。
+func TestTrendOffersThreeRanges(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	usage := sectionOf(page, "view-usage")
+
+	for _, want := range []string{
+		`data-trend-range="hour"`,
+		`data-trend-range="day"`,
+		`data-trend-range="week"`,
+	} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("趋势卡缺少范围 %s", want)
+		}
+	}
+	// 服务端要同时给出两套序列，否则切换范围得重新请求。
+	src := readSourceFile(t, "management.go")
+	for _, key := range []string{`"usage_hourly"`, `"usage_daily"`} {
+		if !strings.Contains(src, key) {
+			t.Errorf("status 未返回 %s", key)
+		}
+	}
+}
+
+// 任务页把定时设置与手动触发放进同一张卡。
+//
+// 原先两张卡共六个按钮，按之前得先弄清哪个按钮属于哪张卡。
+func TestTaskPageMergesScheduleAndManualRuns(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	tasks := sectionOf(page, "view-tasks")
+
+	// 两个区块：任务卡与账号表。
+	if got := strings.Count(tasks, `class="box"`); got != 2 {
+		t.Errorf("任务页应有 2 张卡，实际 %d", got)
+	}
+	// 定时与手动都在同一张卡里，且一个保存按钮管两处设置。
+	for _, want := range []string{
+		"每天自动执行", ">立即执行<",
+		`id="gsEnabled"`, `id="ckEnabled"`,
+		`data-call="saveSchedule"`,
+		`data-call="runAllTasks"`, `data-call="runCheckin"`,
+	} {
+		if !strings.Contains(tasks, want) {
+			t.Errorf("合并后的任务卡缺少 %s", want)
+		}
+	}
+	if got := strings.Count(tasks, `data-call="saveSchedule"`); got != 1 {
+		t.Errorf("保存按钮应有 1 个，实际 %d", got)
 	}
 }

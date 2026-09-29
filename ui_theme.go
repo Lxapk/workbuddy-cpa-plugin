@@ -496,6 +496,35 @@ label.field input[type=number] { width: 74px; }
   .seg { width: 100%; max-width: 300px; }
 }
 
+/* ---------- realm tag ---------- */
+/* Sits after an account name. Two realms that behave differently should be
+   distinguishable at a glance, without reading a word of the description. */
+.tag {
+  display: inline-block; vertical-align: 1px;
+  padding: 1px 6px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 500; line-height: 1.6;
+  background: var(--bg-tertiary); color: var(--text-secondary);
+}
+.tag-cn { background: color-mix(in srgb, var(--success-color) 14%, transparent); color: var(--success-color); }
+.tag-ai { background: color-mix(in srgb, var(--primary-color) 20%, transparent); color: var(--text-primary); }
+.tag-unknown { background: var(--bg-tertiary); color: var(--text-tertiary); }
+
+/* A compact variant for use inside a card header: the default 260px would crowd the
+   title and the refresh button on one line. */
+.seg-sm { width: auto; }
+.seg-sm button { padding: 4px 9px; font-size: 12px; }
+
+/* A wider control column for the tasks card, whose controls are rows of settings rather
+   than a short segmented picker. */
+.setting-control-wide { flex: 1 1 420px; align-items: stretch; }
+.setting-control-wide .sched-row { padding: 6px 0; border-bottom: none; }
+.setting-control-wide .seg { width: auto; }
+
+/* A row of immediate actions, with the breathing room the schedule rows have. */
+.action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.action-row button { margin-left: 0; }
+.action-row .primary { padding: 6px 14px; font-size: 13px; }
+
 /* ---------- settings groups ---------- */
 /* A heading between groups of cards. Cards alone do not say which settings belong
    together; a heading does, and it lets the page be read at a glance. */
@@ -521,15 +550,25 @@ label.field input[type=number] { width: 74px; }
   display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
   margin-top: 4px;
 }
-/* A fixed control column, so both groups align regardless of label length. */
+/* A fixed control column, so both groups align regardless of label length. The column
+   is pushed to the right edge: the controls are what the operator came to change, and
+   putting them on a consistent right-hand rail makes the two groups read as one
+   column of settings rather than two floating blocks. */
 .setting-control {
   flex: 0 0 260px; display: flex; flex-direction: column;
-  align-items: flex-start; gap: 7px;
+  align-items: stretch; gap: 7px;
+  margin-left: auto;
 }
 .setting-control .seg { width: 100%; }
 /* The consequence of the current choice, in one line. A segmented control shows what
    is selected but not what it means. */
 .setting-effect { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
+/* Below the wrap point the control takes the full width, so "right aligned" has nothing
+   to mean. */
+@media (max-width: 620px) {
+  .setting-control { flex: 1 1 100%; margin-left: 0; }
+  .setting-control .seg { max-width: 320px; }
+}
 
 /* ---------- run summary ---------- */
 /* The counts sit inline with the note that explains them, so the figure and its

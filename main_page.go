@@ -133,7 +133,9 @@ func renderAccountsView() string {
 // renderUsageView is the traffic page.
 func renderUsageView() string {
 	totals := state.log.totals()
-	recent := state.log.recent(60)
+	// Only model calls: the log also holds scheduler notices, which have no model and no
+	// tokens, and listing them here invites reading them as traffic.
+	recent := state.log.modelCallsOnly(60)
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-usage" hidden>`)
@@ -147,12 +149,32 @@ func renderUsageView() string {
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>用量趋势 <span class="hint">最近 7 天</span></h3><span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="refreshUsage">刷新</button></header>`)
+	b.WriteString(`<header><h3>用量趋势</h3><span class="grow"></span>`)
+	// Range picks the window the bars cover. The data arrives as two series (per hour,
+	// per day) and the buttons choose which one to cut — no re-fetch, so switching is
+	// instant.
+	b.WriteString(`<div class="seg seg-sm" id="trendRange">`)
+	for i, opt := range []struct{ v, label, title string }{
+		{"hour", "1 小时", "按分钟聚合最近一小时"},
+		{"day", "1 天", "按小时聚合最近 24 小时"},
+		{"week", "1 周", "按天聚合最近 7 天"},
+	} {
+		cls := ""
+		if i == 0 {
+			cls = "on"
+		}
+		b.WriteString(`<button type="button" class="` + cls + `" data-trend-range="` + opt.v +
+			`" title="` + opt.title + `">` + opt.label + `</button>`)
+	}
+	b.WriteString(`</div>`)
+	b.WriteString(`<button type="button" class="xs" data-call="refreshUsage">刷新</button>`)
+	b.WriteString(`</header>`)
 	b.WriteString(`<div id="usageTrend" class="trend"><div class="empty">正在加载…</div></div>`)
 	b.WriteString(`<div class="trend-legend">`)
 	b.WriteString(`<span><i class="sw sw-ok"></i>成功</span>`)
 	b.WriteString(`<span><i class="sw sw-bad"></i>失败</span>`)
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<span class="note" id="trendCaption"></span>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 
@@ -171,10 +193,11 @@ func renderUsageView() string {
 
 // renderTasksView is the tasks page.
 //
-// Two cards, in the order the questions are asked: what runs automatically, and what
-// each account has actually done. Everything about an account — whether it takes part,
-// whether a run is in flight, which tasks are finished — lives on the account's own row,
-// so there is one place to look rather than three.
+// Two cards: what the plugin does on its own, and what each account has done. The
+// automatic schedule and the manual triggers used to be two cards with two rows of
+// buttons — six controls for one question ("run this"), so the operator had to work out
+// which button belonged to which card before pressing anything. They are now one card:
+// the schedule on top, the immediate actions beneath it.
 func renderTasksView() string {
 	accounts := listWorkBuddyAccounts()
 	running, queued := taskQueueDepth()
@@ -182,34 +205,54 @@ func renderTasksView() string {
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-tasks" hidden>`)
 
-	// Automatic runs first: it is the thing an operator sets up once and then forgets.
-	b.WriteString(renderScheduleBox())
-
-	// Manual runs. The account counts live here as a summary of what the table below
-	// holds, not as a separate strip that had to be read in isolation.
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>立即执行</h3><span class="grow"></span>`)
+	b.WriteString(`<header><h3>任务</h3><span class="grow"></span>`)
+	b.WriteString(renderRunSummaryChips(len(accounts), running, queued))
 	b.WriteString(`<span class="note" id="taskMsg"></span>`)
-	b.WriteString(`<button type="button" class="xs primary" id="btnRunAllTasks" data-call="runAllTasks">全部执行</button>`)
-	b.WriteString(`<button type="button" class="xs" id="btnRunGrowth" data-call="runGrowthTasks">成长任务</button>`)
-	b.WriteString(`<button type="button" class="xs" id="btnTravel" data-call="runTravel">猫猫旅行</button>`)
 	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-	b.WriteString(`<div class="run-summary">`)
-	b.WriteString(runSummaryChip("账号", len(accounts), ""))
-	b.WriteString(runSummaryChip("执行中", running, runTone(running)))
-	b.WriteString(runSummaryChip("排队", queued, runTone(queued)))
-	b.WriteString(`<span class="grow"></span>`)
-	b.WriteString(`<span class="note">「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
+
+	// ---- automatic ----
+	b.WriteString(`<div class="setting-group">`)
+	b.WriteString(`<div class="setting-label">`)
+	b.WriteString(`<span class="name">每天自动执行</span>`)
+	b.WriteString(`<span class="desc">按本机时区判断日期，同一天各跑一次。「启动时补跑」指插件加载时若当天尚未执行则补上一次。</span>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="setting-control setting-control-wide">`)
+	b.WriteString(renderScheduleRows())
+	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存时间</button>`)
+	b.WriteString(`</div></div>`)
+
+	// ---- manual ----
+	b.WriteString(`<div class="setting-group">`)
+	b.WriteString(`<div class="setting-label">`)
+	b.WriteString(`<span class="name">立即执行</span>`)
+	b.WriteString(`<span class="desc">不想等到设定时间时用这里的按钮。「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="setting-control setting-control-wide">`)
+	b.WriteString(`<div class="action-row">`)
+	b.WriteString(`<button type="button" class="primary" data-call="runAllTasks">全部执行</button>`)
+	b.WriteString(`<button type="button" class="xs" data-call="runGrowthTasks">成长任务</button>`)
+	b.WriteString(`<button type="button" class="xs" data-call="runTravel">猫猫旅行</button>`)
+	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="empty" id="taskResult" hidden></div>`)
-	b.WriteString(`</div>`)
+	b.WriteString(`</div></div>`)
+
 	b.WriteString(`</div>`)
 
 	// Per-account state, with its tasks underneath each row.
 	b.WriteString(renderTaskAccountsBox(accounts))
 
 	b.WriteString(`</section>`)
+	return b.String()
+}
+
+// renderRunSummaryChips renders the three counters as inline chips.
+func renderRunSummaryChips(accounts, running, queued int) string {
+	var b strings.Builder
+	b.WriteString(runSummaryChip("账号", accounts, ""))
+	b.WriteString(runSummaryChip("执行中", running, runTone(running)))
+	b.WriteString(runSummaryChip("排队", queued, runTone(queued)))
 	return b.String()
 }
 

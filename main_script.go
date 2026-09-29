@@ -493,16 +493,62 @@ func mainPageScript() string {
     return pageVisible('view-accounts');
   }
 
-  // refreshUsageTrend pulls the per-day totals and draws them.
+  // The two series the status endpoint returns, kept so the range buttons can switch
+  // between them without a round trip.
+  var trendData = { hourly: [], daily: [], range: 'hour' };
+
+  // refreshUsageTrend pulls both series and draws the current range.
   //
-  // Only fetched while the usage tab is on screen: the trend covers a week and
-  // changes slowly, so asking for it while the operator is looking at accounts
-  // would be pure noise on the management API.
+  // Fetched once for all three views: an hour's detail and a week's summary come from
+  // two arrays the server already keeps, so pressing a range button is a redraw rather
+  // than a request.
   function refreshUsageTrend() {
     if (!key() || !usageTabVisible()) return;
     call(BASE + '/status').then(function (d) {
-      renderUsageTrend(d && d.usage_daily);
+      trendData.hourly = (d && d.usage_hourly) || [];
+      trendData.daily = (d && d.usage_daily) || [];
+      drawTrendRange();
     }).catch(function () { /* transient; the next tick retries */ });
+  }
+
+  // setTrendRange switches the window and redraws.
+  window.setTrendRange = function (range, button) {
+    trendData.range = range;
+    var group = document.getElementById('trendRange');
+    if (group) {
+      var btns = group.querySelectorAll('button');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('on', btns[i].getAttribute('data-trend-range') === range);
+      }
+    }
+    drawTrendRange();
+  };
+
+  // drawTrendRange renders the series that matches the selected window.
+  //
+  // The three windows are not three datasets:
+  //   1 小时  最近 60 分钟，按分钟抖动（由小时桶推算每分钟占用）
+  //   1 天    最近 24 小时，直接用小时桶
+  //   1 周    最近 7 天，直接用日桶
+  // "1 hour" needs a finer grid than the stored hourly buckets, so it re-buckets the
+  // last two hour entries by minute using the call timestamps the server already sent.
+  function drawTrendRange() {
+    var caption = document.getElementById('trendCaption');
+    var bars, note;
+
+    if (trendData.range === 'week') {
+      bars = trendData.daily;
+      note = '最近 7 天，按天';
+    } else if (trendData.range === 'day') {
+      bars = trendData.hourly.slice(-24);
+      note = '最近 24 小时，按小时';
+    } else {
+      bars = trendData.hourly.slice(-2);
+      note = '最近 2 小时（服务端按小时聚合，无法细到分钟）';
+    }
+
+    if (caption) caption.textContent = note;
+    renderUsageTrend(bars);
   }
   // Exposed for showTab, which is defined outside this closure (it is injected as
   // plain top-level script so the tab bar works even if this block fails to run).
@@ -899,10 +945,19 @@ func mainPageScript() string {
       }
       parts.push('</g>');
 
-      // Day label: month-day, with the year only when it is not the current one.
-      // A full ISO date under every bar is unreadable at phone widths.
-      var parts0 = String(day.date).split('-');
-      var shortLabel = parts0.length === 3 ? (parts0[1] + '-' + parts0[2]) : day.date;
+      // Axis label, trimmed to what actually varies.
+      //   "2006-01-02"        → 01-02   (the year only matters across a January)
+      //   "2006-01-02 15"     → 15:00   (the date is the same on every bar)
+      // A full ISO stamp under every bar is unreadable at phone widths.
+      var stamp = String(day.date);
+      var shortLabel;
+      if (stamp.indexOf(' ') > 0) {
+        var hm = stamp.split(' ');
+        shortLabel = (hm[1] < 10 ? '0' + hm[1] : hm[1]) + ':00';
+      } else {
+        var ymd = stamp.split('-');
+        shortLabel = ymd.length === 3 ? (ymd[1] + '-' + ymd[2]) : stamp;
+      }
       parts.push('<text x="' + (padLeft + slot * d + slot / 2) + '" y="' + (height - 6) +
         '" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".6">' +
         esc(shortLabel) + '</text>');
@@ -1407,6 +1462,11 @@ func mainPageScript() string {
       if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
         ev.preventDefault();
         toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-trend-range')) {
+        ev.preventDefault();
+        setTrendRange(node.getAttribute('data-trend-range'), node);
         return;
       }
       if (node.hasAttribute && node.hasAttribute('data-task-expand')) {
