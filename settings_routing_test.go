@@ -348,7 +348,7 @@ func TestAccountTableScrollsOnPhone(t *testing.T) {
 	phone := css[strings.Index(css, "@media (max-width: 768px)"):]
 
 	for _, want := range []string{
-		"table.accounts { min-width: 700px; }",
+		"table.accounts { min-width: 1000px; }",
 		"table.accounts thead { display: table-header-group; }",
 		"table.accounts td { display: table-cell;",
 	} {
@@ -1256,7 +1256,7 @@ func TestCallTallyRecognisesBothIdentifiers(t *testing.T) {
 func TestAccountTableDeclaresItsGeometry(t *testing.T) {
 	css := cssForTest()
 	for _, want := range []string{
-		"table.accounts { min-width: 760px; table-layout: fixed; }",
+		"table.accounts { min-width: 1000px; table-layout: fixed; }",
 		"table.accounts td { height: 56px;",
 	} {
 		if !strings.Contains(css, want) {
@@ -1269,5 +1269,77 @@ func TestAccountTableDeclaresItsGeometry(t *testing.T) {
 		if !strings.Contains(css, needle) {
 			t.Errorf("第 %d 列没有声明宽度", i)
 		}
+	}
+}
+
+// 分段按钮的 data-value 必须与存储的取值一致。
+//
+// 「全部」在设置里存的是空串（VariantOverride 的文档就是这么写的），而按钮一度带着
+// "auto"。回读时两者不相等，重新渲染就没有任何选项被选中——表现成「选择不保持」。
+func TestVariantButtonsMatchStoredValues(t *testing.T) {
+	resetState()
+	for _, tc := range []struct{ stored, wantOn string }{
+		{"", ""},
+		{"cn", "cn"},
+		{"ai", "ai"},
+	} {
+		state.settings.setVariantOverride(tc.stored)
+		page := renderMainPage()
+
+		start := strings.Index(page, `id="variantSeg"`)
+		if start < 0 {
+			t.Fatal("未找到 variantSeg")
+		}
+		seg := page[start:]
+		seg = seg[:strings.Index(seg, "</div>")]
+
+		var onValues []string
+		for _, m := range regexp.MustCompile(`<button([^>]*)>([^<]+)</button>`).FindAllStringSubmatch(seg, -1) {
+			if !strings.Contains(m[1], `class="on"`) {
+				continue
+			}
+			v := regexp.MustCompile(`data-value="([^"]*)"`).FindStringSubmatch(m[1])
+			if v != nil {
+				onValues = append(onValues, v[1])
+			}
+		}
+		if len(onValues) != 1 || onValues[0] != tc.wantOn {
+			t.Errorf("存储 %q 时应选中的是 %q，实际 %v", tc.stored, tc.wantOn, onValues)
+		}
+	}
+}
+
+// 账号表的每一列都要放得下它的内容。
+//
+// 固定布局的代价是列宽不可伸缩：声明得过窄，内容不会挤压邻居，而是直接盖过去。
+// 操作列要放四个按钮（4×58px 加间距约 250px），先前只分到 167px，「成功 / 失败」那格
+// 因此被按钮压住。
+func TestAccountColumnsFitTheirContent(t *testing.T) {
+	css := cssForTest()
+
+	// 取表格的最小宽度与操作列占比，算出它实际拿到的像素。
+	m := regexp.MustCompile(`table\.accounts \{ min-width: (\d+)px`).FindStringSubmatch(css)
+	if m == nil {
+		t.Fatal("账号表没有声明最小宽度")
+	}
+	minWidth := 0
+	for _, ch := range m[1] {
+		minWidth = minWidth*10 + int(ch-'0')
+	}
+
+	m = regexp.MustCompile(`table\.accounts td:nth-child\(6\) \{ width: (\d+)%`).FindStringSubmatch(css)
+	if m == nil {
+		t.Fatal("操作列没有声明宽度")
+	}
+	share := 0
+	for _, ch := range m[1] {
+		share = share*10 + int(ch-'0')
+	}
+
+	actionsPx := minWidth * share / 100
+	// 四个按钮的最小宽度（62px，见 td.actions > button）加三个 6px 间隙，再留出内边距。
+	const needed = 4*62 + 3*6 + 24
+	if actionsPx < needed {
+		t.Errorf("操作列只分到 %dpx，需要约 %dpx，按钮会压到相邻列", actionsPx, needed)
 	}
 }

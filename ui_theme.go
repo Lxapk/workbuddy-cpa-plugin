@@ -366,15 +366,25 @@ td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: b
    came out taller than its neighbours — so the horizontal rules separating rows landed
    at different heights and the row looked out of true. Declaring the widths also keeps
    the action column from growing every time a label changes. */
-table.accounts { min-width: 760px; table-layout: fixed; }
+table.accounts { min-width: 1000px; table-layout: fixed; }
 table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
-/* Account   Realm  State   Credits    Tally       Actions */
-table.accounts th:nth-child(1), table.accounts td:nth-child(1) { width: 30%; }
+/* Column widths are declared rather than inferred.
+ *
+ * Auto layout sizes each column to its content, and because the account cell holds a
+ * name and a uid it came out taller than its neighbours — so the rows' horizontal rules
+ * landed at different heights. Fixed layout gives one straight line per row, but it also
+ * means a column that is too narrow cannot borrow from a neighbour: its content simply
+ * overflows across the border. The action column needs room for four buttons
+ * (4 × 58px + 3 × 6px gaps ≈ 250px) and the tally needs to hold "12 / 3" without
+ * wrapping, so both get their share up front.
+ *
+ * Account  Realm  State  Credits  Tally  Actions */
+table.accounts th:nth-child(1), table.accounts td:nth-child(1) { width: 25%; }
 table.accounts th:nth-child(2), table.accounts td:nth-child(2) { width: 8%; }
-table.accounts th:nth-child(3), table.accounts td:nth-child(3) { width: 10%; }
-table.accounts th:nth-child(4), table.accounts td:nth-child(4) { width: 18%; }
-table.accounts th:nth-child(5), table.accounts td:nth-child(5) { width: 12%; }
-table.accounts th:nth-child(6), table.accounts td:nth-child(6) { width: 22%; }
+table.accounts th:nth-child(3), table.accounts td:nth-child(3) { width: 9%; }
+table.accounts th:nth-child(4), table.accounts td:nth-child(4) { width: 17%; }
+table.accounts th:nth-child(5), table.accounts td:nth-child(5) { width: 11%; }
+table.accounts th:nth-child(6), table.accounts td:nth-child(6) { width: 30%; }
 /* Every cell in a row is the same height, so the border under the row is one straight
    line rather than a step where a two-line cell meets a one-line neighbour. */
 table.accounts td { height: 56px; box-sizing: border-box; }
@@ -385,6 +395,11 @@ table.accounts td .uid { line-height: 1.4; }
 table.accounts td[data-label="区域"],
 table.accounts td[data-label="状态"],
 table.accounts td[data-label="成功 / 失败"] { white-space: nowrap; }
+/* An overflow guard: with a fixed layout anything that does not fit is clipped rather
+   than written over the neighbouring column. The action cell is exempt — clipping a
+   button would hide a control entirely, and its width is declared to fit. */
+table.accounts td:not(.actions) { overflow: hidden; }
+table.accounts td.actions { overflow: visible; }
 /* The account cell is two lines (name, realm) while its neighbours are one line tall.
    Middle alignment centres them relative to the row, which reads as correct — but the
    controlling cells themselves need to centre their content, or a button sits at the
@@ -867,7 +882,7 @@ details > summary { cursor: pointer; }
   table.data.calls { min-width: 760px; }
   table.data.tasks { min-width: 560px; }
   table.data.detail { min-width: 560px; }
-  table.accounts { min-width: 700px; }
+  table.accounts { min-width: 1000px; }
   table.data thead, table.accounts thead { display: table-header-group; }
   table.data tr, table.accounts tr { display: table-row; }
   table.data td, table.accounts td { display: table-cell; white-space: nowrap; }

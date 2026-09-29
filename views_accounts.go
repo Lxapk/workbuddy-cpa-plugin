@@ -332,16 +332,20 @@ func renderVariantBox(settings gatewaySettings) string {
 	b.WriteString(`<span class="desc">决定一次模型调用会拿到哪一组凭据。已登录的账号不受影响——它们只是被排除在调用之外。</span>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="setting-control"><div class="seg" id="variantSeg">`)
-	for _, opt := range []struct{ v, label, title string }{
-		{"auto", "全部", "国内与国际账号都参与调用"},
-		{"cn", "仅国内", "只调用 codebuddy.cn 账号"},
-		{"ai", "仅国际", "只调用 workbuddy.ai 账号"},
+	for _, opt := range []struct{ v, value, label, title string }{
+		// The stored value for "all" is the empty string — that is what the settings
+		// field documents, and what the endpoint returns. The button carries the same
+		// value, so re-rendering finds a match; using "auto" here meant the round trip
+		// came back as "" and no option looked selected.
+		{"auto", "", "全部", "国内与国际账号都参与调用"},
+		{"cn", "cn", "仅国内", "只调用 codebuddy.cn 账号"},
+		{"ai", "ai", "仅国际", "只调用 workbuddy.ai 账号"},
 	} {
 		// data-value is what the highlight matches on; data-call only wires the click.
 		b.WriteString(`<button type="button" class="` +
-			map[bool]string{true: "on", false: ""}[opt.v == settings.VariantOverride] + `"` +
-			` data-value="` + opt.v + `"` +
-			` data-call="setVariant" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
+			map[bool]string{true: "on", false: ""}[opt.value == settings.VariantOverride] + `"` +
+			` data-value="` + opt.value + `"` +
+			` data-call="setVariant" data-arg0="` + opt.value + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
 	// The consequence of the current choice, rewritten in place when it changes.

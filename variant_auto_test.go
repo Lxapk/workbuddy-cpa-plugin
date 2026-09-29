@@ -410,7 +410,7 @@ func TestMainPageDeclaresPollingContract(t *testing.T) {
 		// 供应商切换用段控（data-call="setVariant"），值通过 data-arg0 传递，
 		// 不再是 radio 的 data-variant 属性。
 		`data-call="setVariant"`,
-		`data-arg0="auto"`,
+		`data-arg0=""`,
 		`data-arg0="cn"`,
 		`data-arg0="ai"`,
 	} {
