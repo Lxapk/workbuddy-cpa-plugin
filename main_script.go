@@ -270,50 +270,77 @@ func mainPageScript() string {
   //
   // Only the touched field is sent: the endpoint keeps the other one untouched,
   // so switching authorisation cannot silently reset the call scope.
-  function savePanelChoice(field, value, segId, dataAttr, msgId, onOk) {
-    var msg = document.getElementById(msgId);
-    if (msg) { msg.textContent = '保存中…'; msg.className = 'small muted'; }
-    var body = {};
-    body[field] = value;
-    return call(BASE + '/variant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function (payload) {
-      // Update the segmented control in place. Reloading immediately used to
-      // wipe the confirmation after 700ms, which is why a successful switch
-      // looked like nothing had happened.
-      var seg = document.getElementById(segId);
-      if (seg) {
-        var buttons = seg.getElementsByTagName('button');
-        for (var i = 0; i < buttons.length; i++) {
-          buttons[i].className = buttons[i].getAttribute(dataAttr) === value ? 'active' : '';
-        }
-      }
-      if (msg) { msg.textContent = onOk(payload); msg.className = 'small ok'; }
-      return payload;
-    });
+  // Supplier selection is applied by clicking the option, so the page has to reflect the
+// choice immediately.
+//
+// Three things were wrong at once and each alone was enough to make a switch look dead:
+// the buttons carried data-call but the highlight read a different attribute; the class
+// the script wrote ("active") is not the one the stylesheet uses ("on"); and the second
+// group's element ids had been dropped during a layout change, so its handler found
+// nothing and returned quietly without reporting anything.
+function savePanelChoice(field, value, segId, msgId, labels, onOk) {
+  var msg = document.getElementById(msgId);
+  if (msg) { msg.textContent = '保存中…'; msg.className = 'note'; }
+
+  // Move the highlight before the request: the click already expressed the intent, and
+  // waiting for a round trip makes the control feel unresponsive on a slow link.
+  markSegmented(segId, value);
+
+  var body = {};
+  body[field] = value;
+  return call(BASE + '/variant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function (payload) {
+    if (msg) { msg.textContent = onOk(payload); msg.className = 'note ok-text'; }
+    // The consequence line under each group quotes the current choice, so it has to be
+    // rewritten — the server computed it from the previous value.
+    updateEffectLine(segId, value);
+    return payload;
+  }).catch(function (e) {
+    // Put the highlight back where it was, so the control does not claim a state the
+    // server rejected.
+    markSegmented(segId, null);
+    if (msg) { msg.textContent = '设置失败：' + e.message; msg.className = 'note bad-text'; }
+    throw e;
+  });
+}
+
+// markSegmented highlights the button whose data-value matches.
+//
+// Passing null clears the highlight (used when a request fails and the previous state is
+// unknown); the caller re-reads it from the response on the next render.
+function markSegmented(segId, value) {
+  var seg = document.getElementById(segId);
+  if (!seg) return;
+  var buttons = seg.querySelectorAll('button');
+  for (var i = 0; i < buttons.length; i++) {
+    var on = value !== null && buttons[i].getAttribute('data-value') === value;
+    buttons[i].classList.toggle('on', on);
   }
+}
+
+// updateEffectLine rewrites the "current: …" sentence under a segmented control.
+function updateEffectLine(segId, value) {
+  var effect = document.getElementById(segId + 'Effect');
+  if (!effect) return;
+  var text = effect.getAttribute('data-' + value);
+  if (text) effect.textContent = text;
+}
 
   window.setVariant = function (v) {
-    savePanelChoice('variant', v, 'variantSeg', 'data-variant', 'variantMsg', function () {
-      return '调用范围已切换为 ' + (v === 'cn' ? '仅国内供应商' : v === 'ai' ? '仅国际供应商' : '全部供应商') +
-        '；账号归属不变，仅决定哪些账号参与调用';
-    }).catch(function (e) {
-      var msg = document.getElementById('variantMsg');
-      if (msg) { msg.textContent = '设置失败：' + e.message; msg.className = 'small bad'; }
+    savePanelChoice('variant', v, 'variantSeg', 'variantMsg', null, function () {
+      return '调用范围已切换为 ' + (v === 'cn' ? '仅国内' : v === 'ai' ? '仅国际' : '全部');
     });
   };
 
   // setAuthSupplier switches which supplier CPA's OAuth entry authorises.
   window.setAuthSupplier = function (v) {
-    savePanelChoice('auth_supplier', v, 'authSeg', 'data-auth', 'authMsg', function (payload) {
-      var label = v === 'cn' ? '国内授权' : v === 'ai' ? '国际授权' : '跟随调用设置';
+    savePanelChoice('auth_supplier', v, 'authSeg', 'authMsg', null, function (payload) {
+      var label = v === 'cn' ? '国内' : v === 'ai' ? '国际' : '跟随调用设置';
       var host = payload.auth_effective === 'ai' ? 'www.workbuddy.ai' : 'copilot.tencent.com';
-      return '授权渠道已设为 ' + label + '；下次在 CPA 的 OAuth 入口授权将使用 ' + host;
-    }).catch(function (e) {
-      var msg = document.getElementById('authMsg');
-      if (msg) { msg.textContent = '设置失败：' + e.message; msg.className = 'small bad'; }
+      return '新增授权将记为' + label + '账号（' + host + '）';
     });
   };
 
@@ -495,7 +522,7 @@ func mainPageScript() string {
 
   // The two series the status endpoint returns, kept so the range buttons can switch
   // between them without a round trip.
-  var trendData = { hourly: [], daily: [], range: 'hour' };
+  var trendData = { hourly: [], daily: [], range: 'day' };
 
   // refreshUsageTrend pulls both series and draws the current range.
   //
@@ -526,25 +553,25 @@ func mainPageScript() string {
 
   // drawTrendRange renders the series that matches the selected window.
   //
-  // The three windows are not three datasets:
-  //   1 小时  最近 60 分钟，按分钟抖动（由小时桶推算每分钟占用）
-  //   1 天    最近 24 小时，直接用小时桶
-  //   1 周    最近 7 天，直接用日桶
-  // "1 hour" needs a finer grid than the stored hourly buckets, so it re-buckets the
-  // last two hour entries by minute using the call timestamps the server already sent.
+  // The three windows are cuts of the same two series, not three datasets:
+  //   1 天   最近 24 小时，用小时桶
+  //   3 天   最近 3 天，用日桶
+  //   7 天   最近 7 天，用日桶
+  // Because both series arrive together, pressing a range is a redraw rather than a
+  // request.
   function drawTrendRange() {
     var caption = document.getElementById('trendCaption');
     var bars, note;
 
     if (trendData.range === 'week') {
-      bars = trendData.daily;
+      bars = trendData.daily.slice(-7);
       note = '最近 7 天，按天';
-    } else if (trendData.range === 'day') {
+    } else if (trendData.range === '3day') {
+      bars = trendData.daily.slice(-3);
+      note = '最近 3 天，按天';
+    } else {
       bars = trendData.hourly.slice(-24);
       note = '最近 24 小时，按小时';
-    } else {
-      bars = trendData.hourly.slice(-2);
-      note = '最近 2 小时（服务端按小时聚合，无法细到分钟）';
     }
 
     if (caption) caption.textContent = note;

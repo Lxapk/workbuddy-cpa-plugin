@@ -491,7 +491,7 @@ func TestMainPageSplitsCallScopeFromAuthorisation(t *testing.T) {
 	if !strings.Contains(page, "在 CPA 的 OAuth 登录页完成授权") {
 		t.Fatal("the panel does not point the operator at CPA's OAuth entry")
 	}
-	for _, needle := range []string{"国内授权", "国际授权", "跟随调用设置"} {
+	for _, needle := range []string{"跟随上面", "国内", "国际", "跟随调用设置"} {
 		if !strings.Contains(page, needle) {
 			t.Errorf("the authorisation switch is missing the %s option", needle)
 		}

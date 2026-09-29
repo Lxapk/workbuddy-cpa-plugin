@@ -289,6 +289,9 @@ func renderVariantBox(settings gatewaySettings) string {
 	b.WriteString(`<div class="box supplier-card">`)
 	b.WriteString(`<header><h3>供应商</h3><span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="variantMsg"></span>`)
+	// A second slot: each group reports its own outcome, so a message from one does not
+	// overwrite the other's.
+	b.WriteString(`<span class="note" id="authMsg"></span>`)
 	b.WriteString(`</header>`)
 
 	// ---- what calls use ----
@@ -303,14 +306,19 @@ func renderVariantBox(settings gatewaySettings) string {
 		{"cn", "仅国内", "只调用 codebuddy.cn 账号"},
 		{"ai", "仅国际", "只调用 workbuddy.ai 账号"},
 	} {
+		// data-value is what the highlight matches on; data-call only wires the click.
 		b.WriteString(`<button type="button" class="` +
 			map[bool]string{true: "on", false: ""}[opt.v == settings.VariantOverride] + `"` +
+			` data-value="` + opt.v + `"` +
 			` data-call="setVariant" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
-	// Spell out what the current choice means, so the pill row does not have to be
-	// decoded.
-	b.WriteString(`<div class="setting-effect">` + variantEffect(settings.VariantOverride) + `</div>`)
+	// The consequence of the current choice, rewritten in place when it changes.
+	b.WriteString(`<div class="setting-effect" id="variantSegEffect"` +
+		` data-auto="当前：两组账号一起参与调用，按路由策略挑选。"` +
+		` data-cn="当前：只有国内账号会收到调用；国际账号即使已登录也不参与。成长任务同样只支持国内账号。"` +
+		` data-ai="当前：只有国际账号会收到调用；国内账号即使已登录也不参与。成长任务与签到需要国内账号，当前不可用。">` +
+		variantEffect(settings.VariantOverride) + `</div>`)
 	b.WriteString(`</div></div>`)
 
 	// ---- where new authorisations go ----
@@ -319,7 +327,7 @@ func renderVariantBox(settings gatewaySettings) string {
 	b.WriteString(`<span class="name">新增授权的归属</span>`)
 	b.WriteString(`<span class="desc">在 CPA 的 OAuth 登录页完成授权时，这个账号算国内还是国际。只影响新授权，不改变已有账号。</span>`)
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="setting-control"><div class="seg">`)
+	b.WriteString(`<div class="setting-control"><div class="seg" id="authSeg">`)
 	for _, opt := range []struct{ v, label, title string }{
 		{"follow", "跟随上面", "与「调用时使用哪些账号」选同一侧"},
 		{"cn", "国内", "新授权记为 codebuddy.cn 账号"},
@@ -327,10 +335,15 @@ func renderVariantBox(settings gatewaySettings) string {
 	} {
 		b.WriteString(`<button type="button" class="` +
 			map[bool]string{true: "on", false: ""}[opt.v == settings.AuthSupplier] + `"` +
+			` data-value="` + opt.v + `"` +
 			` data-call="setAuthSupplier" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="setting-effect">` + authSupplierEffect(settings.AuthSupplier, settings.VariantOverride) + `</div>`)
+	b.WriteString(`<div class="setting-effect" id="authSegEffect"` +
+		` data-follow="当前：新授权跟随「调用时使用哪些账号」的选择。"` +
+		` data-cn="当前：新授权记为国内账号。"` +
+		` data-ai="当前：新授权记为国际账号。">` +
+		authSupplierEffect(settings.AuthSupplier, settings.VariantOverride) + `</div>`)
 	b.WriteString(`</div></div>`)
 
 	b.WriteString(`<div class="foot">`)

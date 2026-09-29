@@ -155,9 +155,9 @@ func renderUsageView() string {
 	// instant.
 	b.WriteString(`<div class="seg seg-sm" id="trendRange">`)
 	for i, opt := range []struct{ v, label, title string }{
-		{"hour", "1 小时", "按分钟聚合最近一小时"},
-		{"day", "1 天", "按小时聚合最近 24 小时"},
-		{"week", "1 周", "按天聚合最近 7 天"},
+		{"day", "1 天", "最近 24 小时，按小时"},
+		{"3day", "3 天", "最近 3 天，按天"},
+		{"week", "7 天", "最近 7 天，按天"},
 	} {
 		cls := ""
 		if i == 0 {

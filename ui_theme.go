@@ -433,6 +433,14 @@ table.accounts td.actions button { padding: 4px 9px; font-size: 12px; border-rad
 .action-row button { margin-left: 0; flex: 0 0 auto; }
 .action-row .primary { padding: 6px 14px; font-size: 13px; }
 
+/* Explanatory text below a table.
+ *
+ * A separate block with padding on every side, rather than a paragraph pinned to the
+ * last row: the text then sits with equal space above and below, instead of hugging the
+ * table while the card's remaining height collects beneath it. */
+.notes-block { padding-top: 14px; padding-bottom: 14px; }
+.notes-block .note { line-height: 1.7; }
+
 /* ======================= badges ======================= */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;

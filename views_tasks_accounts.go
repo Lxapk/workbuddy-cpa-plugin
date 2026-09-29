@@ -111,9 +111,15 @@ func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 // taskNotes explains the two columns whose meaning is not self-evident, and the tasks
 // that cannot be automated. It is emitted whether or not the list is empty, so the
 // explanation is present the moment the page is opened.
+// taskNotes explains the two columns whose meaning is not self-evident, and the tasks
+// that cannot be automated.
+//
+// It sits in its own block below the table rather than tight against it: with only a
+// top-aligned paragraph after the last row, the text hugged the table and left the
+// card's remaining height below it, which reads as the paragraph floating upwards.
 func taskNotes() string {
 	var b strings.Builder
-	b.WriteString(`<div class="pad" style="padding-top:0"><div class="note">`)
+	b.WriteString(`<div class="card-block notes-block"><div class="note">`)
 	b.WriteString(`「参与」控制该账号是否加入批量执行；展开任务可以看到每个成长任务的完成情况，`)
 	b.WriteString(`未完成的那几项会标出来。`)
 	b.WriteString(`需要真实桌面操作的任务（资料库、发现应用）无法代做，会给出深链。`)

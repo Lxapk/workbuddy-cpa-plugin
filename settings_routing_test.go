@@ -944,8 +944,8 @@ func TestTrendOffersThreeRanges(t *testing.T) {
 	usage := sectionOf(page, "view-usage")
 
 	for _, want := range []string{
-		`data-trend-range="hour"`,
 		`data-trend-range="day"`,
+		`data-trend-range="3day"`,
 		`data-trend-range="week"`,
 	} {
 		if !strings.Contains(usage, want) {
@@ -1104,3 +1104,105 @@ func TestScheduleJobsSitSideBySide(t *testing.T) {
 		t.Errorf("保存按钮应有 1 个，实际 %d", got)
 	}
 }
+
+// 供应商切换必须真的能点动。
+//
+// 三处契约同时存在才生效，任何一处断掉都会让按钮看起来没反应：
+//
+//	按钮带 data-value，脚本按它判断高亮哪一项
+//	脚本写的类名与样式表用的是同一个（on）
+//	两个分组各自的容器与消息位的 id 都在，脚本才找得到它们
+func TestSupplierSwitchesAreWired(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	settings := sectionOf(page, "view-settings")
+	if settings == "" {
+		t.Fatal("未找到设置页")
+	}
+
+	// 两个分段控件都有 id，且按钮带 data-value。
+	for _, segID := range []string{"variantSeg", "authSeg"} {
+		if !strings.Contains(settings, `id="`+segID+`"`) {
+			t.Errorf("缺少分段控件 %s", segID)
+		}
+		start := strings.Index(settings, `id="`+segID+`"`)
+		block := settings[start:]
+		block = block[:strings.Index(block, "</div>")]
+		if !strings.Contains(block, `data-value=`) {
+			t.Errorf("%s 的按钮没有 data-value，脚本无法判断该高亮哪个", segID)
+		}
+	}
+	if got := strings.Count(settings, `data-value=`); got < 6 {
+		t.Errorf("两组各有三项，data-value 应有 6 个，实际 %d", got)
+	}
+
+	// 两个分组各有自己的消息位与「当前…」行，脚本用 id + Effect 后缀找后者。
+	for _, id := range []string{"variantMsg", "authMsg", "variantSegEffect", "authSegEffect"} {
+		if !strings.Contains(settings, `id="`+id+`"`) {
+			t.Errorf("缺少 %s，切换后无处反馈", id)
+		}
+	}
+
+	script := mainPageScript()
+	// 高亮用 on 类——样式表里只有 .seg button.on。
+	if !strings.Contains(script, "classList.toggle('on'") {
+		t.Error("脚本没有用 on 类切换高亮")
+	}
+	if strings.Contains(cssForTest(), "button.active") {
+		t.Error("样式表里出现了 active 类，脚本写的却是 on")
+	}
+	// 读的是 data-value，不是别的属性名。
+	if !strings.Contains(script, "getAttribute('data-value')") {
+		t.Error("脚本没有按 data-value 判断选中项")
+	}
+}
+
+// 趋势提供 1 天 / 3 天 / 7 天三个范围。
+func TestTrendRangesAreDayBased(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	usage := sectionOf(page, "view-usage")
+
+	// 属性之间有 title，用正则按「范围 + 选项文字」配对，避免依赖属性顺序。
+	reRange := regexp.MustCompile(`data-trend-range="([a-z0-9]+)"[^>]*>([^<]+)<`)
+	found := map[string]string{}
+	for _, m := range reRange.FindAllStringSubmatch(usage, -1) {
+		found[m[1]] = strings.TrimSpace(m[2])
+	}
+	for rangeVal, label := range map[string]string{"day": "1 天", "3day": "3 天", "week": "7 天"} {
+		if found[rangeVal] != label {
+			t.Errorf("范围 %s 的选项文字应为 %q，实际 %q", rangeVal, label, found[rangeVal])
+		}
+	}
+	// 分钟级的「1 小时」已按需求去掉。
+	if strings.Contains(usage, `data-trend-range="hour"`) {
+		t.Error("趋势卡仍有「1 小时」选项")
+	}
+	// 三个范围都要有对应的切片逻辑。
+	script := mainPageScript()
+	for _, want := range []string{"trendData.daily.slice(-7)", "trendData.daily.slice(-3)", "trendData.hourly.slice(-24)"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("缺少切片逻辑 %s", want)
+		}
+	}
+}
+
+// 表格下方的说明自成一块，上下留白对称。
+//
+// 先前是一段紧贴表格的段落，只剩卡片底部的高度堆在它下面，读起来像文字浮在上方。
+func TestTableNotesUseTheirOwnBlock(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	tasks := sectionOf(page, "view-tasks")
+
+	if !strings.Contains(tasks, `class="card-block notes-block"`) {
+		t.Error("表格说明没有独立分区")
+	}
+	css := cssForTest()
+	if !strings.Contains(css, ".notes-block { padding-top: 14px; padding-bottom: 14px; }") {
+		t.Error("说明块上下留白不对称")
+	}
+}
+
+// cssForTest exposes the stylesheet to assertions.
+func cssForTest() string { return uiCSS }
