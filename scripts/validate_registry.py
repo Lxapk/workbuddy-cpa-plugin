@@ -22,6 +22,7 @@ Checks:
     mentions the declared version
 """
 import json
+import pathlib
 import re
 import sys
 
@@ -109,8 +110,49 @@ def main(path: str = "registry.json") -> int:
             print(f"  - {problem}", file=sys.stderr)
         return 1
 
+    problems.extend(check_source_version(plugins))
+
+    if problems:
+        print("release is not publishable:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+
     print("registry.json OK")
     return 0
+
+
+
+
+def check_source_version(plugins: list[dict]) -> list[str]:
+    """The version the plugin reports must match the one being published.
+
+    The panel shows what the plugin reports at runtime, while the installer works from
+    registry.json. When the two disagree the plugin is updated on disk but still announces
+    the old number, and CPA reports "file updated, local state not refreshed" — a message
+    that says nothing about the actual cause, which is a forgotten string edit.
+
+    This check exists because that happened: 0.13.86 was released with pluginVersion still
+    at 0.13.85, and nothing in the pipeline noticed.
+    """
+    src = pathlib.Path(__file__).resolve().parent.parent / "rpc.go"
+    if not src.exists():
+        return [f"cannot verify the reported version: {src} not found"]
+
+    match = re.search(r'pluginVersion\s*=\s*"([^"]+)"', src.read_text(encoding="utf-8"))
+    if not match:
+        return ["rpc.go declares no pluginVersion"]
+
+    reported = normalize_version(match.group(1))
+    problems: list[str] = []
+    for plugin in plugins:
+        version = normalize_version(str(plugin.get("version") or ""))
+        if reported != version:
+            problems.append(
+                f"rpc.go reports {reported} but registry.json publishes {version}; "
+                f"the plugin will announce the old version after installing"
+            )
+    return problems
 
 
 if __name__ == "__main__":
