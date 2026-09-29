@@ -235,11 +235,14 @@ func main() {
 	if statusDoc.Settings.Port != 9100 {
 		die("port from config_yaml not applied: got %d, want 9100", statusDoc.Settings.Port)
 	}
-	if statusDoc.Usage.TotalCalls != 2 {
-		die("usage total_calls = %d, want 2", statusDoc.Usage.TotalCalls)
+	// 只有 usage.handle 会写记录：响应拦截器与流式 chunk 都只做池的记账，不产生调用
+	// 记录——CPA 的响应拦截器只对非流式响应触发，它的 Stream 字段因此对到达那里的一切
+	// 都是 false，而流式请求根本不会到；用量钩子两种都会触发，记录归它写。
+	if statusDoc.Usage.TotalCalls != 1 {
+		die("usage total_calls = %d, want 1", statusDoc.Usage.TotalCalls)
 	}
-	if statusDoc.Usage.TotalPrompt != 24 || statusDoc.Usage.TotalCompletion != 14 {
-		die("usage tokens = %d/%d, want 24/14", statusDoc.Usage.TotalPrompt, statusDoc.Usage.TotalCompletion)
+	if statusDoc.Usage.TotalPrompt != 12 || statusDoc.Usage.TotalCompletion != 7 {
+		die("usage tokens = %d/%d, want 12/7", statusDoc.Usage.TotalPrompt, statusDoc.Usage.TotalCompletion)
 	}
 	ok("status: port=%d default_provider=%s api_key=%s calls=%d tokens=%d/%d accounts=%d",
 		statusDoc.Settings.Port, statusDoc.Settings.DefaultProvider, statusDoc.Settings.APIKey, statusDoc.Usage.TotalCalls,

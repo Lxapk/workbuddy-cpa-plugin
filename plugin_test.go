@@ -539,10 +539,18 @@ func TestPoolPermanentDisable(t *testing.T) {
 
 // ---- response / usage accounting ---------------------------------------
 
-func TestInterceptResponseRecordsSuccessAndUsage(t *testing.T) {
+// 响应拦截器只做池的记账，调用记录由用量钩子写。
+//
+// CPA 的这个拦截器只对非流式响应触发（请求类型的注释写着「describes a successful
+// non-streaming response」），它的 Stream 字段因此对到达这里的一切都是 false，而流式
+// 请求根本不会到。用量钩子两种都会触发，并带有权威的标志（UsageRecord.Stream）——记录
+// 归它写。两处都写的话，每个缓冲请求会产生两行，且都标成非流式，列表于是在读者眼里
+// 变成了「基本都是非流式」。
+func TestInterceptResponseDoesNotWriteCallRecords(t *testing.T) {
 	resetState()
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{})
 	state.log = newCallLog(10)
+	state.pool.observe(workBuddyProviderKey, "acc-1", "acct")
 
 	res := callOK(t, pluginabi.MethodResponseInterceptAfter, pluginapi.ResponseInterceptRequest{
 		RequestID:      "r1",
@@ -555,19 +563,20 @@ func TestInterceptResponseRecordsSuccessAndUsage(t *testing.T) {
 	if len(res) == 0 {
 		t.Fatal("empty response envelope")
 	}
-	totals := state.log.totals()
-	if totals.TotalCalls != 1 {
-		t.Fatalf("total calls = %d", totals.TotalCalls)
+	// 拦截器不该产生记录——那条由用量钩子来写。
+	if totals := state.log.totals(); totals.TotalCalls != 0 {
+		t.Fatalf("拦截器不应写记录，实际 total calls = %d", totals.TotalCalls)
 	}
-	if totals.TotalPrompt != 10 || totals.TotalCompletion != 5 {
-		t.Fatalf("token totals = %+v", totals)
-	}
-	rec := state.log.recent(1)[0]
-	if rec.ProviderID != workBuddyProviderKey || rec.UID != "acc-1" {
-		t.Fatalf("record = %+v", rec)
+	// 但它仍要记成功，池据此重置连败计数。
+	if lane := state.pool.pick(workBuddyProviderKey, nil, time.Now()); lane == nil {
+		t.Error("一次成功应答后凭据应仍可选用")
 	}
 }
 
+// 失败仍要落到池上：401 之后凭据必须冷却。
+//
+// 记录本身由用量钩子写（见上一个测试），但拦截器判定的失败要立刻影响选号——晚一步的
+// 话，同一个坏凭据会在下一次请求里再被选中一次。
 func TestInterceptResponseClassifiesFailure(t *testing.T) {
 	resetState()
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
@@ -583,10 +592,6 @@ func TestInterceptResponseClassifiesFailure(t *testing.T) {
 		Body:           []byte(`{"error":{"message":"invalid key","code":"invalid_api_key"}}`),
 	})
 
-	totals := state.log.totals()
-	if totals.TotalFailed != 1 {
-		t.Fatalf("failed = %d, want 1", totals.TotalFailed)
-	}
 	if lane := state.pool.pick(workBuddyProviderKey, nil, time.Now()); lane != nil {
 		t.Fatal("credential should be cooling down after 401")
 	}

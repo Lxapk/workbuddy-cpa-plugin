@@ -116,19 +116,15 @@ func interceptResponse(request []byte) ([]byte, error) {
 				errorText += detail
 			}
 		}
-		state.log.add(callRecord{
-			ProviderID:     ctx.Provider,
-			Variant:        ctx.Variant,
-			UID:            canonicalUID(ctx.UID),
-			Label:          ctx.Label,
-			Model:          ctx.Model,
-			RequestedModel: ctx.RequestedModel,
-			Stream:         ctx.Stream,
-			StatusCode:     statusCode,
-			LatencyMillis:  elapsed(ctx),
-			Error:          errorText,
-			StartedAt:      ctx.StartedAt,
-		})
+		// The record is written by the usage hook, not here.
+		//
+		// CPA calls this interceptor only for a non-streaming response — the request type
+		// is documented as "describes a successful non-streaming response" — so its
+		// Stream field is false for everything that reaches it, and a streamed call never
+		// arrives at all. The usage hook fires for both and carries the authoritative
+		// flag (UsageRecord.Stream), so it owns the record; writing one here as well
+		// produced two rows for every buffered call, both labelled 非流式, which is what
+		// made the list look like it was mostly non-streaming traffic.
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
 
@@ -141,23 +137,9 @@ func interceptResponse(request []byte) ([]byte, error) {
 	if ctx.Provider != "" {
 		state.pool.success(ctx.Provider, accountKey)
 	}
-	rec := callRecord{
-		ProviderID:     ctx.Provider,
-		Variant:        ctx.Variant,
-		UID:            accountKey,
-		Label:          ctx.Label,
-		Model:          ctx.Model,
-		RequestedModel: ctx.RequestedModel,
-		Stream:         ctx.Stream,
-		StatusCode:     statusCode,
-		LatencyMillis:  elapsed(ctx),
-		StartedAt:      ctx.StartedAt,
-	}
-	if usage, okUsage := extractUsage(req.Body); okUsage {
-		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens = usage.normalized()
-	}
-	state.log.add(rec)
-
+	// Only the pool success is recorded here. The call record comes from the usage hook,
+	// which sees streamed and buffered requests alike and knows which it was; see the note
+	// on the failure path above.
 	return okEnvelope(pluginapi.ResponseInterceptResponse{})
 }
 
