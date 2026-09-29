@@ -131,9 +131,14 @@ func newSchedulerState() *schedulerState {
 
 // schedulerCandidate is one selectable auth, already filtered and decorated.
 type schedulerCandidate struct {
-	ID       string
-	Credits  int64
-	Known    bool
+	ID      string
+	Credits int64
+	// Known reports whether the pool has a credit reading for this candidate.
+	Known bool
+	// Matched reports whether the pool recognised this credential at all. Distinct from
+	// Known: an account the pool holds but has never queried has no credit figure yet,
+	// and conflating the two made a usable account read as "not recognised".
+	Matched  bool
 	Cooldown time.Time
 	HasCool  bool
 	// ModelCooled marks a candidate that is parked for the requested model only.
@@ -145,14 +150,33 @@ type schedulerCandidate struct {
 	ModelCoolModel string
 }
 
+// candidateStats describes what happened to the host's offer.
+//
+// Returned alongside the candidates so the diagnostic can say which of the three reasons
+// applied — never seen, cooling down, or marked unusable — instead of reporting the
+// filtered list's length as "recognised".
+type candidateStats struct {
+	Offered  int
+	Matched  int
+	Cooling  int
+	Rejected int
+}
+
 // collectCandidates ports A0/s.java:596's availability guard and folds in the
 // quota reading so strategies can rank by it.
 //
 // A candidate is dropped when the host says it is unusable, when the pool has
 // it in a cooldown window, or when it has already been tried for this request.
 func (s *schedulerState) collectCandidates(req pluginapi.SchedulerPickRequest) []schedulerCandidate {
+	out, _ := s.collectCandidatesWithStats(req)
+	return out
+}
+
+// collectCandidatesWithStats is collectCandidates plus the counters the diagnostic needs.
+func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickRequest) ([]schedulerCandidate, candidateStats) {
 	tried := triedAuthSet(req.Options.Metadata)
 	now := time.Now()
+	stats := candidateStats{Offered: len(req.Candidates)}
 
 	open := make([]pluginapi.SchedulerAuthCandidate, 0, len(req.Candidates))
 	for _, c := range req.Candidates {
@@ -160,20 +184,23 @@ func (s *schedulerState) collectCandidates(req pluginapi.SchedulerPickRequest) [
 			continue
 		}
 		if _, seen := tried[c.ID]; seen {
+			stats.Rejected++
 			continue
 		}
 		// Host-reported status: skip anything explicitly failed or disabled.
 		if isUnusableSchedulerStatus(c.Status) {
+			stats.Rejected++
 			continue
 		}
 		// Host may also surface the disabled flag in metadata.
 		if boolFromAny(c.Metadata["disabled"]) {
+			stats.Rejected++
 			continue
 		}
 		open = append(open, c)
 	}
 	if len(open) == 0 {
-		return nil
+		return nil, stats
 	}
 
 	out := make([]schedulerCandidate, 0, len(open))
@@ -189,8 +216,14 @@ func (s *schedulerState) collectCandidates(req pluginapi.SchedulerPickRequest) [
 		state.quota.mu.Unlock()
 
 		if !cand.Known {
+			// The host identifies a candidate by whatever id its own inventory uses —
+			// the runtime auth index for a credential it loaded from disk, the uid for
+			// one it learned from the wire. The pool keys by the credential's uid, so a
+			// direct comparison misses one of the two and the account looks unknown.
+			// Normalising both sides is what makes the two agree.
+			wanted := candidateIdentifiers(c)
 			for _, lane := range state.pool.snapshot() {
-				if lane.UID != c.ID && laneKey(lane.Provider, lane.UID) != c.ID {
+				if !wanted[lane.UID] && !wanted[laneKey(lane.Provider, lane.UID)] {
 					continue
 				}
 				// A model-scoped throttle parks only that model: the account is
@@ -208,6 +241,10 @@ func (s *schedulerState) collectCandidates(req pluginapi.SchedulerPickRequest) [
 					cand.Cooldown = lane.CooldownUntil
 					cand.HasCool = true
 				}
+				// Matched: the pool knows this credential. Credits are recorded
+				// separately because not every account has been queried yet.
+				cand.Matched = true
+				stats.Matched++
 				if lane.CreditsKnown {
 					cand.Credits = lane.Credits
 					cand.Known = true
@@ -230,13 +267,14 @@ func (s *schedulerState) collectCandidates(req pluginapi.SchedulerPickRequest) [
 		servable := out[:0]
 		for _, cand := range out {
 			if cand.ModelCooled {
+				stats.Cooling++
 				continue
 			}
 			servable = append(servable, cand)
 		}
 		out = servable
 	}
-	return out
+	return out, stats
 }
 
 // modelCooledForRequest reports, for a request whose candidates all came back
@@ -324,14 +362,28 @@ func triedAuthSet(meta map[string]any) map[string]struct{} {
 }
 
 // isUnusableSchedulerStatus drops candidates the host already considers bad.
+// isUnusableSchedulerStatus reports whether the host has marked a credential as
+// unusable for reasons the plugin should respect.
+//
+// "error" is deliberately absent. CPA sets it together with auth.Unavailable for a
+// temporary failure — the status constant is documented as "temporarily unavailable due
+// to errors" — and clears it on the next successful refresh. Treating it as a permanent
+// verdict made the scheduler refuse every account the host offered: a request for a model
+// with four healthy credentials returned "选号无候选：宿主提供 4 个账号，本地只认出 0 个"
+// and 503, while the accounts page showed all four as usable.
+//
+// The candidates reaching this function have already been through CPA's own availability
+// screen, so an entry here is one the host considers a candidate. The statuses kept below
+// are the ones that mean "do not use this": the host will not serve it until something
+// changes outside this request.
 func isUnusableSchedulerStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "", "active", "ready", "ok", "healthy", "available", "valid":
-		return false
-	case "disabled", "unavailable", "failed", "invalid", "error", "expired":
+	case "disabled", "unavailable", "failed", "invalid", "blocked", "revoked":
 		return true
 	}
-	// Unknown statuses are kept; the executor will surface any real failure.
+	// Everything else — including "error" and any status this plugin does not know — is
+	// left to the host and the executor: if the credential really cannot serve, the
+	// attempt fails and the pool parks it with a reason that names the cause.
 	return false
 }
 
@@ -410,7 +462,7 @@ func schedulerPick(request []byte) ([]byte, error) {
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
 
-	candidates := state.scheduler.collectCandidates(req)
+	candidates, stats := state.scheduler.collectCandidatesWithStats(req)
 	// Record the host's offer when it changes.
 	//
 	// Whether a request can survive one throttled credential depends on how many
@@ -456,7 +508,7 @@ func schedulerPick(request []byte) ([]byte, error) {
 		// went unserved and, when it did, why: every account is parked for this model, or
 		// the pool has nothing this request could use. The detail is available from the
 		// accounts page; it does not belong in a table cell.
-		reason := describeNoCandidateReason(len(req.Candidates), len(candidates), len(usableCandidates(candidates)))
+		reason := describeNoCandidateReason(stats.Offered, stats.Matched, stats.Cooling, stats.Rejected)
 		state.log.add(callRecord{
 			ProviderID: req.Provider,
 			Model:      req.Model,
@@ -699,34 +751,61 @@ func usableCandidates(candidates []schedulerCandidate) []schedulerCandidate {
 
 // describeNoCandidateReason explains why a request could not be served, in one sentence.
 //
-// Three cases, and they call for different actions:
+// The figures come from the pool's own view, not from the length of the filtered list: a
+// candidate can be absent because the pool never saw it, because it is cooling down, or
+// because the host marked it unusable, and "本地只认出 0 个" was printed for all three.
+// Reporting the wrong cause sends the reader looking in the wrong place.
 //
-//	the host offered nothing — the request was for a model this provider does not serve,
-//	  or the client asked for something the plugin never registered;
-//	the host offered accounts and they are all parked for this model — the ordinary
-//	  throttle case, which clears itself;
-//	the host offered accounts and the pool matched none of them — the two disagree about
-//	  which credentials exist, which is worth looking into.
-//
-// The account inventories are deliberately omitted. The previous message listed every
-// candidate and every credential CPA holds — hundreds of entries — which filled the cell,
-// read like a crash, and buried the one line that matters.
-func describeNoCandidateReason(offered int, collected, usable int) string {
+// The account inventories are deliberately omitted. Listing every candidate and every
+// credential CPA holds filled the cell, read like a crash, and buried the one line that
+// matters.
+func describeNoCandidateReason(offered, matched, cooling, rejected int) string {
 	switch {
 	case offered == 0:
 		return "选号无候选：宿主没有为该模型提供任何账号（这个模型可能不由本插件服务）"
-	case collected < offered:
-		// The two sides disagree about which credentials exist, so the cooldown state is
-		// not the story — the pool simply did not recognise what it was offered. Checked
-		// before the cooldown case, which would otherwise claim them all for being parked
-		// when most of them were never seen at all.
-		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地只认出 %d 个（凭据可能尚未载入）",
-			offered, collected)
-	case usable == 0:
-		return fmt.Sprintf("选号无候选：宿主提供了 %d 个账号，全部正在为该模型冷却中；稍后会自动恢复",
-			offered)
+	case matched == 0:
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地一个也没认出（凭据可能尚未载入）", offered)
+	case matched < offered:
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地认出 %d 个，其中 %d 个正在冷却、%d 个被宿主标记为不可用",
+			offered, matched, cooling, rejected)
+	case cooling == matched:
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，全部正在为该模型冷却中；稍后会自动恢复", offered)
 	default:
-		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地可用 %d 个，但不满足本次请求的要求",
-			offered, usable)
+		return fmt.Sprintf("选号无候选：宿主提供的 %d 个账号中，%d 个正在冷却、%d 个被宿主标记为不可用",
+			offered, cooling, rejected)
 	}
+}
+
+// candidateIdentifiers returns every identifier a host candidate might be known by.
+//
+// CPA names a credential by its runtime auth index when it loaded it from disk, and by
+// the credential's own uid when it learned it from the wire — the same account, two
+// strings. The pool keys by uid, so both spellings are accepted, along with the
+// normalised form of each.
+func candidateIdentifiers(c pluginapi.SchedulerAuthCandidate) map[string]bool {
+	out := map[string]bool{}
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		out[v] = true
+		add2 := canonicalUID(v)
+		if add2 != "" {
+			out[add2] = true
+		}
+	}
+	add(c.ID)
+	if c.Metadata != nil {
+		add(stringFromAny(c.Metadata["uid"]))
+		add(stringFromAny(c.Metadata["auth_id"]))
+		add(stringFromAny(c.Metadata["auth_index"]))
+	}
+	return out
+}
+
+// stringFromAny reads a string out of an untyped metadata value.
+func stringFromAny(v any) string {
+	s, _ := v.(string)
+	return s
 }

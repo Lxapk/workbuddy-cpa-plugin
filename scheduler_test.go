@@ -106,13 +106,33 @@ func TestCollectCandidatesFiltersUnusable(t *testing.T) {
 			{ID: "disabled", Provider: workBuddyProviderKey, Status: "disabled"},
 			{ID: "failed", Provider: workBuddyProviderKey, Status: "error"},
 			{ID: "expired", Provider: workBuddyProviderKey, Status: "expired"},
+			{ID: "blocked", Provider: workBuddyProviderKey, Status: "blocked"},
 			{ID: "meta-disabled", Provider: workBuddyProviderKey, Metadata: map[string]any{"disabled": true}},
 			{ID: "", Provider: workBuddyProviderKey},
 		},
 	}
 	got := s.collectCandidates(req)
-	if len(got) != 1 || got[0].ID != "ok" {
-		t.Fatalf("candidates = %+v, want only ok", got)
+
+	// 「error」与「expired」保留：CPA 用前者表示临时故障并会在下次刷新时清除，后者是
+	// 凭证过期——这两种都该由宿主与执行器判定，插件自行拒绝会让一个模型有四个健康凭据
+	// 时也返回 503。
+	keep := map[string]bool{"ok": true, "failed": true, "expired": true}
+	if len(got) != len(keep) {
+		t.Fatalf("应保留 %d 个候选，实际 %d 个：%+v", len(keep), len(got), got)
+	}
+	for _, c := range got {
+		if !keep[c.ID] {
+			t.Errorf("不该保留 %q", c.ID)
+		}
+	}
+
+	// 明确不可用的三种仍然被丢弃。
+	for _, dropped := range []string{"disabled", "blocked", "meta-disabled", ""} {
+		for _, c := range got {
+			if c.ID == dropped {
+				t.Errorf("%q 应被丢弃", dropped)
+			}
+		}
 	}
 }
 
@@ -155,14 +175,49 @@ func TestCollectCandidatesHonoursPoolCooldown(t *testing.T) {
 	}
 }
 
+// 「error」状态不该被跳过。
+//
+// 这条路径的翻车方式很隐蔽：宿主提供四个账号、全部标着 error（临时故障），插件把它们
+// 全部丢弃，请求以 503 结束，而面板上四个账号都显示可用——两处对同一批凭据给出相反的
+// 结论。CPA 已经做过一轮可用性筛选，能到达插件的候选就是它认为可以用的。
+func TestCollectCandidatesKeepsHostOfferedAccounts(t *testing.T) {
+	resetState()
+	s := newSchedulerState()
+	req := pluginapi.SchedulerPickRequest{
+		Candidates: []pluginapi.SchedulerAuthCandidate{
+			{ID: "a", Status: "error"},
+			{ID: "b", Status: "error"},
+			{ID: "c", Status: "active"},
+		},
+	}
+	got := s.collectCandidates(req)
+	if len(got) != 3 {
+		t.Fatalf("宿主提供的三个都该保留，实际 %d 个：%+v", len(got), got)
+	}
+	// 明确不可用的仍然跳过。
+	req.Candidates = append(req.Candidates, pluginapi.SchedulerAuthCandidate{ID: "d", Status: "disabled"})
+	if got := s.collectCandidates(req); len(got) != 3 {
+		t.Errorf("明确禁用的应跳过，实际保留 %d 个", len(got))
+	}
+}
+
 func TestIsUnusableSchedulerStatus(t *testing.T) {
-	usable := []string{"", "active", "ready", "ok", "healthy", "available", "valid", "weird"}
+	// 「error」不在其中。CPA 把它与 auth.Unavailable 一起设置以表示【临时】故障——状态
+	// 常量的注释就写着「temporarily unavailable due to errors」——并在下一次刷新成功时
+	// 清除。把它当成永久判定，会让调度器拒绝宿主提供的每一个账号：一个模型有四个健康
+	// 凭据时得到「选号无候选：宿主提供 4 个账号，本地只认出 0 个」并返回 503，而账号页
+	// 四个都显示可用。
+	usable := []string{
+		"", "active", "ready", "ok", "healthy", "available", "valid",
+		"error", "expired", "weird",
+	}
 	for _, s := range usable {
 		if isUnusableSchedulerStatus(s) {
-			t.Errorf("%q should be usable", s)
+			t.Errorf("%q 应由宿主与执行器判定，插件不该自行拒绝", s)
 		}
 	}
-	unusable := []string{"disabled", "unavailable", "failed", "invalid", "error", "expired"}
+	// 这些是明确的「别用」：在本次请求之外有东西变了才行。
+	unusable := []string{"disabled", "unavailable", "failed", "invalid", "blocked", "revoked"}
 	for _, s := range unusable {
 		if !isUnusableSchedulerStatus(s) {
 			t.Errorf("%q should be unusable", s)

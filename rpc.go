@@ -25,7 +25,7 @@ const (
 	// lower-case because it has to be; this is the name that appears in prose, so it
 	// carries the product's capitalisation.
 	pluginDisplayName = "WorkBuddy"
-	pluginVersion     = "0.13.88"
+	pluginVersion     = "0.13.89"
 	pluginAuthor      = "BlackHawk"
 	pluginRepo        = "https://github.com/router-for-me/CLIProxyAPI"
 )
