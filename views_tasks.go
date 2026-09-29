@@ -22,11 +22,11 @@ import (
 //
 // Each keeps its own switch and its own time: the two jobs hit different endpoints and
 // there is no reason to tie one to the other's schedule.
-// renderScheduleRows draws the two automatic jobs as rows.
+// renderScheduleColumns draws the two automatic jobs as side-by-side columns.
 //
-// Returns only the rows, not a card: the tasks page puts them inside the same card as
+// Returns only the columns, not a card: the tasks page puts them inside the same card as
 // the manual triggers, because the two are one question ("run this") answered two ways.
-func renderScheduleRows() string {
+func renderScheduleColumns() string {
 	growth := growthScheduleSnapshot()
 	checkin := state.settings.get().Checkin
 
@@ -39,9 +39,10 @@ func renderScheduleRows() string {
 	growthSummary, _ := growth["last_summary"].(string)
 
 	var b strings.Builder
+	b.WriteString(`<div class="sched-pair">`)
 
 	// ---- growth tasks ----
-	b.WriteString(`<div class="sched-row">`)
+	b.WriteString(`<div class="sched-col">`)
 	b.WriteString(`<label class="field sched-switch"><input type="checkbox" id="gsEnabled"`)
 	if growthEnabled {
 		b.WriteString(` checked`)
@@ -50,22 +51,23 @@ func renderScheduleRows() string {
 	b.WriteString(`<span class="sched-time">每天 <input type="number" id="gsHour" min="0" max="23" value="` +
 		fmt.Sprint(clampHour(growthHour)) + `"> 时 <input type="number" id="gsMinute" min="0" max="59" value="` +
 		fmt.Sprint(clampMinute(growthMinute)) + `"> 分</span>`)
-	if growthEnabled && growthRanToday && !growthRunning {
-		b.WriteString(`<span class="pill ok">今日已完成</span>`)
-	}
-	if growthRunning {
-		b.WriteString(`<span class="pill warn">执行中</span>`)
-	}
-	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<label class="field sched-start"><input type="checkbox" id="gsOnStart"`)
 	if growthOnStart {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时补跑</label>`)
+	if growthRunning {
+		b.WriteString(`<span class="pill warn">执行中</span>`)
+	} else if growthEnabled && growthRanToday {
+		b.WriteString(`<span class="pill ok">今日已完成</span>`)
+	}
+	if growthSummary != "" {
+		b.WriteString(`<span class="uid">` + html.EscapeString(growthSummary) + `</span>`)
+	}
 	b.WriteString(`</div>`)
 
 	// ---- check-in ----
-	b.WriteString(`<div class="sched-row">`)
+	b.WriteString(`<div class="sched-col">`)
 	b.WriteString(`<label class="field sched-switch"><input type="checkbox" id="ckEnabled"`)
 	if checkin.Enabled {
 		b.WriteString(` checked`)
@@ -74,24 +76,22 @@ func renderScheduleRows() string {
 	b.WriteString(`<span class="sched-time">每天 <input type="number" id="ckHour" min="0" max="23" value="` +
 		fmt.Sprint(clampHour(checkin.Hour)) + `"> 时 <input type="number" id="ckMinute" min="0" max="59" value="` +
 		fmt.Sprint(clampMinute(checkin.Minute)) + `"> 分</span>`)
-	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<label class="field sched-start"><input type="checkbox" id="ckOnStart"`)
 	if checkin.OnStart {
 		b.WriteString(` checked`)
 	}
 	b.WriteString(`> 启动时补跑</label>`)
+	b.WriteString(`<span class="uid">国际版账号不参与签到，会被自动跳过。</span>`)
 	b.WriteString(`</div>`)
 
-	if growthSummary != "" {
-		b.WriteString(`<div class="note">上次任务：` + html.EscapeString(growthSummary) + `</div>`)
-	}
+	b.WriteString(`</div>`)
 	return b.String()
 }
 
 // renderScheduleBox draws the automatic jobs as a standalone card.
 //
 // Kept for callers that only want the schedule; the tasks page composes
-// renderScheduleRows into a larger card instead.
+// renderScheduleColumns into a larger card instead.
 func renderScheduleBox() string {
 	var b strings.Builder
 	b.WriteString(`<div class="box">`)
@@ -101,7 +101,7 @@ func renderScheduleBox() string {
 	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存</button>`)
 	b.WriteString(`</header>`)
 	b.WriteString(`<div class="pad">`)
-	b.WriteString(renderScheduleRows())
+	b.WriteString(renderScheduleColumns())
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="foot">`)
 	b.WriteString(`<span class="note" id="runMsg"></span>`)

@@ -148,11 +148,12 @@ func renderAccountRow(a workBuddyAccount) string {
 	b.WriteString(`<tr data-status="` + filterStatus + `" data-search="` + html.EscapeString(searchText) + `">`)
 
 	// Name with the uid abbreviated underneath.
-	b.WriteString(`<td class="bar ` + bar + `" data-label="账号"><strong>` + html.EscapeString(a.Label) + `</strong>`)
-	// The realm decides what an account can do — growth tasks and check-in exist only
-	// for domestic accounts — so it belongs next to the name, on every list that names
-	// one.
-	b.WriteString(` ` + variantBadge(a.Variant))
+	b.WriteString(`<td class="bar ` + bar + `" data-label="账号">`)
+	// Name on the first line, realm beneath it. Side by side they competed for the same
+	// width and wrapped unpredictably once the name was long — which is how the badge
+	// ended up on its own line for one account and inline for the next.
+	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(a.Label) + `</strong>`)
+	b.WriteString(`<div class="acct-tags">` + variantBadge(a.Variant) + `</div></div>`)
 	if ident != "" && ident != a.Label {
 		b.WriteString(`<div class="uid mono" title="` + html.EscapeString(ident) + `">` +
 			html.EscapeString(shortenUID(ident)) + `</div>`)

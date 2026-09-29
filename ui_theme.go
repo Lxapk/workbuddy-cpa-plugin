@@ -294,6 +294,16 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .stat.warn .v { color: var(--quota-medium-color); }
 .stat.bad .v { color: var(--error-color); }
 
+/* ---------- account cell ---------- */
+/* Name first, realm beneath.
+ *
+ * Beside the name they competed for the same width: a long label wrapped and pushed the
+ * badge to the next line while the next row kept it inline, so a column of accounts
+ * looked ragged. A fixed two-line arrangement is the same for every row. */
+.acct-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.acct-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+
 /* ======================= table ======================= */
 /* Every data table gets the same treatment: natural column widths, a minimum that
    keeps cells from being squeezed into slivers, and horizontal scrolling inside the
@@ -334,6 +344,14 @@ td.actions {
   gap: 6px; flex-wrap: nowrap;
 }
 td.actions > button { margin-left: 0; }
+/* Actions in a table share a width.
+ *
+ * Sizing each button to its own label left the group's left edge ragged from row to row —
+ * "签到 / 余额 / 任务 / 禁用" are two characters each but "展开任务" is four, so the
+ * cluster started at a different x on every line. A minimum width makes the column of
+ * controls line up. */
+td.actions > button { min-width: 62px; text-align: center; }
+table.accounts td.actions > button { min-width: 58px; }
 /* The error text is the only long cell in the call log; cap it so it wraps instead of
    pushing the table wider than the card. */
 td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: break-word; }
@@ -347,15 +365,29 @@ td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: b
    wrapper scrolls when the viewport is narrower. */
 table.accounts { min-width: 620px; }
 table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
+/* The account cell is two lines (name, realm) while its neighbours are one line tall.
+   Middle alignment centres them relative to the row, which reads as correct — but the
+   controlling cells themselves need to centre their content, or a button sits at the
+   top of a cell whose box is now two lines tall. */
+table.accounts td[data-label="参与"],
+table.accounts td[data-label="状态"],
+table.accounts td[data-label="操作"] { vertical-align: middle; }
+table.accounts td[data-label="参与"] > button,
+table.accounts td[data-label="状态"] > .pill { display: inline-flex; align-items: center; }
+/* The task table's first cell is two lines like the accounts page, so its control cells
+   need the same centring. */
+table.data.tasks td { vertical-align: middle; }
+table.data.tasks td[data-label="账号"] { min-width: 150px; }
+table.data.tasks td[data-label="参与"] > button,
+table.data.tasks td[data-label="状态"] > .pill { display: inline-flex; align-items: center; }
+
 /* The account cell is a heading for the row, so it gets a little more room. */
 table.accounts td:first-child { min-width: 150px; }
 /* Row controls are compact: four of them per row, and at full size they would dominate
    the table. Padding is trimmed and the label kept short ("禁用" not "停用该账号"). */
-table.accounts td.actions { white-space: nowrap; }
-table.accounts td.actions button {
-  padding: 4px 9px; font-size: 12px; border-radius: 6px; margin-left: 4px;
-}
-table.accounts td.actions button:first-child { margin-left: 0; }
+/* The cell's gap does the spacing; per-button margins would double it up and make the
+   first button sit closer than the rest. */
+table.accounts td.actions button { padding: 4px 9px; font-size: 12px; border-radius: 6px; }
 /* The secondary line under a label: the uid, a cooldown detail, an expiry note. */
 .uid { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; }
 .bad-text { color: var(--error-color); }
@@ -539,37 +571,66 @@ label.field input[type=number] { width: 74px; }
  * card put their controls at the same x — with flex the longer description pushed one
  * control further right and the pair looked misaligned. */
 .setting-group {
-  display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap;
   padding: 16px var(--space-lg);
   border-bottom: 1px solid var(--border-color);
+  justify-content: space-between;
 }
 .setting-group:last-of-type { border-bottom: none; }
-.setting-label { flex: 1 1 240px; min-width: 0; max-width: 560px; }
+/* Both columns are content-sized rather than proportionally sized. Giving them flex-grow
+   made each claim half the row and then leave its slack wherever the text ran out —
+   which put a wide empty band in the middle of the tasks card. A label that takes what
+   it needs beside a control that takes what it needs leaves no gap to explain. */
+.setting-label { flex: 0 1 auto; min-width: 0; max-width: 46ch; }
 .setting-label .name { display: block; font-weight: 600; font-size: 13.5px; }
 .setting-label .desc {
   display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
   margin-top: 4px;
 }
-/* A fixed control column, so both groups align regardless of label length. */
+/* The control is its natural width and sits at the row's end. */
 .setting-control {
-  flex: 0 0 260px; display: flex; flex-direction: column;
-  align-items: stretch; gap: 7px;
+  flex: 0 1 auto; display: flex; flex-direction: column;
+  align-items: flex-end; gap: 8px;
 }
-/* The supplier card's controls sit on a right-hand rail: they are the thing the operator
-   came to change, and a consistent right edge makes the two groups read as one column of
-   settings. Scoped to that card — the tasks card uses the same wrapper for rows of
-   settings, and pushing those right made the schedule look detached from its labels. */
-.supplier-card .setting-control { margin-left: auto; }
-.setting-control .seg { width: 100%; }
+.setting-control .seg { width: 260px; }
+/* A control column holding rows of settings rather than a short picker: this one wants
+   the room, so it grows while the label keeps to its side. */
+.setting-control-wide { flex: 1 1 380px; align-items: stretch; min-width: 0; }
+.setting-control-wide .seg { width: auto; }
 /* The consequence of the current choice, in one line. A segmented control shows what
    is selected but not what it means. */
 .setting-effect { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
-/* Below the wrap point the control takes the full width, so "right aligned" has nothing
-   to mean. */
+/* Below the wrap point everything stacks: "right aligned" has nothing to mean once the
+   control is on its own line. */
 @media (max-width: 620px) {
-  .setting-control { flex: 1 1 100%; margin-left: 0; }
-  .setting-control .seg { max-width: 320px; }
+  .setting-group { gap: 12px; }
+  .setting-label { flex: 1 1 100%; max-width: none; }
+  .setting-control { flex: 1 1 100%; align-items: stretch; }
+  .setting-control .seg { width: 100%; max-width: 300px; }
 }
+
+/* ---------- schedule pair ---------- */
+/* The two automatic jobs sit side by side, each in its own column. Stacked rows pushed
+   the pair to one side and left the other half of the card empty. */
+.sched-pair {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px; width: 100%;
+}
+.sched-col {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 14px; border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); background: var(--bg-secondary);
+}
+/* The switch is the column's heading, so it is the first line and reads as one. */
+.sched-col .sched-switch { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sched-col .sched-switch .sched-name { font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
+.sched-col .sched-time { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 13px; }
+.sched-col .sched-time input[type=number] { width: 62px; }
+.sched-col .sched-start { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12.5px; }
+.sched-col .pill { align-self: flex-start; }
+/* The save action sits at the card's bottom right. */
+.sched-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.sched-foot .note { margin-right: auto; }
 
 /* ---------- run summary ---------- */
 /* The counts sit inline with the note that explains them, so the figure and its
@@ -768,8 +829,6 @@ details > summary { cursor: pointer; }
      stacked vertically, which is what made the table "too tall" on a phone. The
      column is allowed to be wide instead; the table scrolls. */
   table.accounts td.actions { white-space: nowrap; }
-  table.accounts td.actions button { margin-left: 4px; }
-  table.accounts td.actions button:first-child { margin-left: 0; }
   /* The one cell that is allowed to wrap: error text. A nowrap error would make the
      call log arbitrarily wide. */
   table.data td.wrap { white-space: normal; }

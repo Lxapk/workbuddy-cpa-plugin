@@ -158,11 +158,11 @@ func renderTaskAccountRow(row taskRow) string {
 	b.WriteString(`<tr data-task-row="1" data-uid="` + html.EscapeString(row.UID) + `" data-enabled="` +
 		map[bool]string{true: "1", false: "0"}[row.Enabled] + `">`)
 
-	// Account.
-	b.WriteString(`<td class="` + rowClass + `" data-label="账号"><strong>` + html.EscapeString(row.Label) + `</strong>`)
-	// Same badge as the accounts page, so a name reads the same wherever it appears.
-	// It used to print the raw value here and nothing at all there.
-	b.WriteString(` ` + variantBadge(row.Variant))
+	// Account: name on the first line, realm beneath. Same arrangement as the accounts
+	// page, so a name reads the same wherever it appears.
+	b.WriteString(`<td class="` + rowClass + `" data-label="账号">`)
+	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(row.Label) + `</strong>`)
+	b.WriteString(`<div class="acct-tags">` + variantBadge(row.Variant) + `</div></div>`)
 	b.WriteString(`</td>`)
 
 	// Participation toggle: an explicit state word, not a pill whose colour is the only

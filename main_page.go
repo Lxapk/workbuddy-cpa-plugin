@@ -215,11 +215,16 @@ func renderTasksView() string {
 	b.WriteString(`<div class="setting-group">`)
 	b.WriteString(`<div class="setting-label">`)
 	b.WriteString(`<span class="name">每天自动执行</span>`)
-	b.WriteString(`<span class="desc">按本机时区判断日期，同一天各跑一次。「启动时补跑」指插件加载时若当天尚未执行则补上一次。</span>`)
+	b.WriteString(`<span class="desc">按本机时区判断日期，同一天各跑一次。</span>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="setting-control setting-control-wide">`)
-	b.WriteString(renderScheduleRows())
+	// The two jobs side by side. Stacked, they occupied one half of the card and left the
+	// other half empty.
+	b.WriteString(renderScheduleColumns())
+	b.WriteString(`<div class="sched-foot">`)
+	b.WriteString(`<span class="note">「启动时补跑」指插件加载时若当天尚未执行则补上一次。</span>`)
 	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存时间</button>`)
+	b.WriteString(`</div>`)
 	b.WriteString(`</div></div>`)
 
 	// ---- manual ----

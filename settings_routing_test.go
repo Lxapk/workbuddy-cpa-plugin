@@ -990,36 +990,113 @@ func TestTaskPageMergesScheduleAndManualRuns(t *testing.T) {
 // .setting-control 是定宽列，被两处共用：供应商卡的两组分段按钮，以及任务卡的定时行。
 // 给基础类加 margin-left:auto 会把任务卡的定时行也推到右边，与它的标签脱开——看着像
 // 布局坏了。右对齐是供应商卡自己的事，用类限定住。
-func TestOnlySupplierCardPushesControlsRight(t *testing.T) {
+func TestSettingColumnsDoNotGrowIntoTheGap(t *testing.T) {
+	// 排版问题的根源是两列都按比例伸缩：各自认领一半行宽，然后把剩余空间留成空档，
+	// 卡片中间于是出现一条宽阔的空白带。现在两列都按内容取宽，行内用
+	// space-between 把控件推到行尾。
 	css := uiCSS
 
-	// 基础类不得带右推。
-	start := strings.Index(css, ".setting-control {")
+	start := strings.Index(css, ".setting-label {")
+	if start < 0 {
+		t.Fatal("未找到 .setting-label")
+	}
+	label := css[start:]
+	label = label[:strings.Index(label, "}")]
+	if strings.Contains(label, "flex: 1 1") {
+		t.Error("标签列仍在按比例伸缩，会留出空档")
+	}
+
+	start = strings.Index(css, ".setting-control {")
 	if start < 0 {
 		t.Fatal("未找到 .setting-control")
 	}
+	ctrl := css[start:]
+	ctrl = ctrl[:strings.Index(ctrl, "}")]
+	if strings.Contains(ctrl, "flex: 1 1") || strings.Contains(ctrl, "flex-grow") {
+		t.Error("控件列仍在按比例伸缩，会留出空档")
+	}
+
+	// 行本身要把两端分开，控件才落在行尾。
+	if !strings.Contains(css, "justify-content: space-between;") {
+		t.Error("设置行没有把控件推到行尾")
+	}
+
+	// 窄屏时两列都占满宽度，"行尾对齐" 无从谈起。
+	if !strings.Contains(css, ".setting-control { flex: 1 1 100%; align-items: stretch; }") {
+		t.Error("窄屏下控件列应占满宽度")
+	}
+}
+
+// CSS 常量里不能出现反引号。
+//
+// uiCSS 是 Go 的原始字符串字面量，一个反引号就会把它提前闭合：后面的样式变成 Go 代码，
+// 报出一串与 CSS 无关的语法错误。在注释里写 `vertical-align: middle` 时最容易踩到。
+func TestStylesheetHasNoBackticks(t *testing.T) {
+	for name, body := range map[string]string{"uiCSS": uiCSS, "uiTabsScript": uiTabsScript} {
+		if i := strings.IndexByte(body, '`'); i >= 0 {
+			line := 1 + strings.Count(body[:i], "\n")
+			t.Errorf("%s 第 %d 行含反引号，会提前闭合字符串", name, line)
+		}
+	}
+}
+
+// 账号单元格是两行（名称、归属），其控件的单元格要各自垂直居中。
+//
+// 只给 tr 设 vertical-align: middle 不够：当某一行变高，按钮会浮在单元格顶部，看起来
+// 比邻居偏上。
+func TestAccountCellsCentreTheirControls(t *testing.T) {
+	css := uiCSS
+	for _, want := range []string{
+		`table.accounts td[data-label="参与"]`,
+		`table.data.tasks td[data-label="参与"]`,
+		`display: inline-flex; align-items: center;`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("缺少单元格居中规则 %s", want)
+		}
+	}
+}
+
+// 表格里的操作按钮等宽。
+//
+// 按各自标签定宽会让按钮组的左边缘逐行参差——「签到 / 余额 / 任务 / 禁用」都是两字，
+// 而「展开任务」是四字，每行的起点都不同。
+func TestTableActionButtonsShareAWidth(t *testing.T) {
+	css := uiCSS
+	if !strings.Contains(css, "td.actions > button { min-width: 62px; text-align: center; }") {
+		t.Error("操作按钮没有统一最小宽度")
+	}
+	// 间距只由 gap 提供，逐按钮的 margin 会让第一个按钮比其余的更近。
+	start := strings.Index(css, "td.actions {\n  display: flex")
+	if start < 0 {
+		t.Fatal("未找到 td.actions 的 flex 规则")
+	}
 	block := css[start:]
 	block = block[:strings.Index(block, "}")]
-	if strings.Contains(block, "margin-left: auto") {
-		t.Error(".setting-control 不应自带 margin-left:auto，会波及其他卡片")
+	if strings.Contains(block, "margin-left") {
+		t.Error("操作列同时用了 gap 与 margin-left，间距会不一致")
 	}
+}
 
-	// 右推只在供应商卡的限定下出现。
-	if !strings.Contains(css, ".supplier-card .setting-control { margin-left: auto; }") {
-		t.Error("供应商卡缺少右对齐规则")
-	}
-
-	// 页面结构上，只有供应商卡带 supplier-card；任务卡用的是宽控件列。
+// 两个定时任务并排显示，各占一栏。
+//
+// 串行堆叠时它们只占卡片的一半，另一半空着。
+func TestScheduleJobsSitSideBySide(t *testing.T) {
+	resetState()
 	page := renderMainPage()
-	if !strings.Contains(page, `class="box supplier-card"`) {
-		t.Error("供应商卡没有 supplier-card 类，右对齐规则落不到它上面")
-	}
 	tasks := sectionOf(page, "view-tasks")
-	if strings.Contains(tasks, "supplier-card") {
-		t.Error("任务卡不应带 supplier-card")
+
+	if !strings.Contains(tasks, `class="sched-pair"`) {
+		t.Error("缺少并排容器")
 	}
-	// 任务卡的定时行与它的标签在同一组里，且控件列是宽列。
-	if !strings.Contains(tasks, "setting-control setting-control-wide") {
-		t.Error("任务卡的控件列不是宽列")
+	if got := strings.Count(tasks, `class="sched-col"`); got != 2 {
+		t.Errorf("应有 2 栏，实际 %d", got)
+	}
+	// 保存按钮在卡片底部。
+	if !strings.Contains(tasks, `class="sched-foot"`) {
+		t.Error("缺少底部保存区")
+	}
+	if got := strings.Count(tasks, `data-call="saveSchedule"`); got != 1 {
+		t.Errorf("保存按钮应有 1 个，实际 %d", got)
 	}
 }
