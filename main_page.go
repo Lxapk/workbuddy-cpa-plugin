@@ -180,7 +180,7 @@ func renderUsageView() string {
 	// them made each harder to read, so they get a tab each. Calls come first because
 	// that is what the page is usually opened for.
 	calls := state.log.modelCallsOnly(logListLimit)
-	notes := state.log.noticeLog(logListLimit)
+	notes := collectRequestLog(logListLimit)
 
 	b.WriteString(`<div class="box">`)
 	b.WriteString(`<header><h3>记录</h3>`)

@@ -1739,3 +1739,80 @@ func TestRecordsWithoutModelAreNotCalls(t *testing.T) {
 		t.Error("没有模型名的记录被计入总数")
 	}
 }
+
+// 请求日志不能是空的。
+//
+// 这一页签最初没有数据源：签到、任务、限流与禁用的记录各自留在产生它们的子系统里，从
+// 来没有汇总到面板读的地方，于是那一页永远显示「暂无」。这条断言把四个来源都绑住，
+// 少一个就少一类事件。
+func TestRequestLogGathersEverySource(t *testing.T) {
+	resetState()
+
+	// 四个来源各造一条。
+	state.log.addNotice(callRecord{ProviderID: workBuddyProviderKey, Error: "定时任务完成"})
+
+	// 走真实的失败路径：永久禁用会写入池的退役审计。
+	state.pool.observe(workBuddyProviderKey, "u-1", "一号")
+	state.pool.failureForModel(workBuddyProviderKey, "u-1", "", failureAuth, "凭据失效", state.settings.get(), true)
+	state.checkin.record(&checkinRun{StartedAt: timeNowForTest(), Trigger: "manual", Total: 2, Succeeded: 1, Failed: 1})
+	state.growth.record("u-2", growthRunResult{
+		Label: "二号", OK: true, Claimed: 3, Failed: 1,
+		FinishedAt: timeNowForTest(),
+	})
+
+	entries := collectRequestLog(50)
+	if len(entries) < 4 {
+		t.Fatalf("四个来源都应出现，实际 %d 条：%+v", len(entries), entries)
+	}
+
+	joined := ""
+	for _, e := range entries {
+		joined += e.Error + "\n"
+	}
+	for _, want := range []string{"账号已自动禁用", "签到：", "任务：", "定时任务完成"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("请求日志缺少 %q 的内容", want)
+		}
+	}
+
+	// 时间倒序。
+	for i := 1; i < len(entries); i++ {
+		if entries[i].StartedAt.After(entries[i-1].StartedAt) {
+			t.Errorf("第 %d 条比前一条更新，排序不对", i)
+		}
+	}
+	// 上限生效。
+	if got := len(collectRequestLog(2)); got != 2 {
+		t.Errorf("上限应为 2，实际 %d", got)
+	}
+}
+
+// 清空日志要覆盖全部来源。
+//
+// 日志是四处合并出来的，只清其中一处会让按钮看起来没反应——操作者看的那几条来自另一个
+// 存储。同时不能碰到状态：清空列表不该重新启用账号，也不该让调度器以为今天没跑过。
+func TestClearingTheLogCoversEverySource(t *testing.T) {
+	resetState()
+	state.log.addNotice(callRecord{ProviderID: workBuddyProviderKey, Error: "一条提示"})
+	// 走真实的失败路径：永久禁用会写入池的退役审计。
+	state.pool.observe(workBuddyProviderKey, "u-1", "一号")
+	state.pool.failureForModel(workBuddyProviderKey, "u-1", "", failureAuth, "凭据失效", state.settings.get(), true)
+	state.checkin.record(&checkinRun{StartedAt: timeNowForTest(), Trigger: "manual", Total: 1, Succeeded: 1})
+	state.growth.record("u-2", growthRunResult{
+		Label: "二号", OK: true, Claimed: 1,
+		FinishedAt: timeNowForTest(),
+	})
+
+	if got := len(collectRequestLog(50)); got < 4 {
+		t.Fatalf("清空前应有至少 4 条，实际 %d", got)
+	}
+
+	state.log.clearNotices()
+	state.pool.clearAutoDisableHistory()
+	state.checkin.clearHistory()
+	state.growth.clearHistory()
+
+	if got := len(collectRequestLog(50)); got != 0 {
+		t.Errorf("清空后应无条目，实际 %d：%+v", got, collectRequestLog(50))
+	}
+}

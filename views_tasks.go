@@ -10,6 +10,7 @@ package main
 import (
 	"fmt"
 	"html"
+	"sort"
 	"strings"
 )
 
@@ -263,4 +264,98 @@ func renderNoteTable(notes []callRecord) string {
 
 	b.WriteString(`</tbody></table></div>`)
 	return b.String()
+}
+
+// collectRequestLog gathers the operational events the panel has to show, newest first.
+//
+// They come from three places, each kept by the subsystem that produces it rather than
+// funnelled through one log at the moment they happen: the pool's retirement audit, the
+// check-in runs, and the growth-task passes. Merging them at read time keeps each
+// subsystem's own history authoritative — and keeps their locks out of each other's way,
+// which writing to a shared log from inside the pool's mutex would not have done.
+//
+// Notices recorded directly (a scheduled pass finishing, a credential disagreement) are
+// included as well, since those have no other home.
+func collectRequestLog(limit int) []callRecord {
+	if limit < 1 {
+		limit = 1
+	}
+
+	out := make([]callRecord, 0, limit)
+
+	// The pool's retirement audit: an account parked or disabled for good. Manual
+	// actions share the queue but read differently — "已自动禁用" for something the
+	// operator did by hand sends them looking for a fault that is not there.
+	for _, ev := range state.pool.autoDisableHistory() {
+		reason := firstNonEmpty(ev.Reason, "原因未记录")
+		var text string
+		switch {
+		case ev.Manual && ev.Recovered:
+			text = "已启用：" + reason
+		case ev.Manual:
+			text = "已禁用：" + reason
+		case ev.Recovered:
+			text = "账号已恢复：" + reason
+		default:
+			text = "账号已自动禁用：" + reason
+		}
+		out = append(out, callRecord{
+			ProviderID: workBuddyProviderKey,
+			UID:        ev.UID,
+			Label:      ev.Label,
+			Error:      text,
+			StartedAt:  ev.At,
+			Notice:     true,
+		})
+	}
+
+	// Check-in runs. The state keeps them newest-first already.
+	for _, run := range state.checkin.snapshot(20) {
+		text := fmt.Sprintf("签到：成功 %d，失败 %d，跳过 %d（%s）",
+			run.Succeeded, run.Failed, run.Skipped, run.Trigger)
+		if run.Total == 0 {
+			text = "签到：没有可签到的账号"
+		}
+		out = append(out, callRecord{
+			ProviderID: workBuddyProviderKey,
+			Error:      text,
+			StartedAt:  run.StartedAt,
+			Notice:     true,
+		})
+	}
+
+	// Growth-task passes.
+	for _, entry := range state.growth.recentHistory() {
+		text := fmt.Sprintf("任务：%s，完成 %d，失败 %d，获得 %d 积分",
+			accountLabelOrUID(entry.Label, entry.UID), entry.Claimed, entry.Failed, entry.Earned)
+		out = append(out, callRecord{
+			ProviderID: workBuddyProviderKey,
+			UID:        entry.UID,
+			Label:      entry.Label,
+			Error:      text,
+			StartedAt:  entry.FinishedAt,
+			Notice:     true,
+		})
+	}
+
+	// Notices recorded directly.
+	out = append(out, state.log.noticeLog(limit)...)
+
+	// Newest first, then trimmed. Each source is already ordered, so a sort is what
+	// interleaves them correctly.
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// accountLabelOrUID prefers the display name and falls back to the identifier.
+func accountLabelOrUID(label, uid string) string {
+	if s := firstNonEmpty(label, uid); s != "" {
+		return s
+	}
+	return "未知账号"
 }

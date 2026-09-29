@@ -56,7 +56,14 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 		// Only the request log. The call list is the accounting behind the totals and the
 		// trend, so clearing it would leave those figures describing records that no
 		// longer exist.
+		//
+		// The log is assembled from four sources, so all four are cleared — otherwise
+		// pressing the button left the page looking unchanged because the entries the
+		// operator was looking at came from a different store.
 		removed := state.log.clearNotices()
+		removed += state.pool.clearAutoDisableHistory()
+		removed += state.checkin.clearHistory()
+		removed += state.growth.clearHistory()
 		return managementResponse{
 			StatusCode: http.StatusOK,
 			Headers:    jsonResponseHeaders(),

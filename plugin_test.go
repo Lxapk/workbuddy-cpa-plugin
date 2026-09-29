@@ -767,6 +767,10 @@ func resetState() {
 		accounts:   newAccountStore(),
 		scheduler:  newSchedulerState(),
 		taskEngine: newTaskEngine(),
+		// growth was missing here. Its methods guard against a nil receiver, so the
+		// omission did not panic — it silently produced no history, which is how the
+		// request log lost every task entry without anyone noticing.
+		growth: newGrowthStore(),
 	}
 	inflight = newInflightMap()
 	streamAccumulators.mu.Lock()

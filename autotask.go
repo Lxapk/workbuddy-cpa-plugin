@@ -289,7 +289,7 @@ func (e *taskEngine) record(uid string, kind taskKind, ok bool, msg string) {
 	at := e.ensureAccount(uid)
 	at.mu.Lock()
 	at.setRunState(kind, &taskRunState{
-		LastRun:    time.Now(),
+		LastRun:    nowPanel(),
 		LastResult: msg,
 		LastOK:     ok,
 	})

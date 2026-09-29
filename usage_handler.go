@@ -37,6 +37,12 @@ func handleUsage(request []byte) ([]byte, error) {
 	if !isWorkBuddyRecord(provider) {
 		return okEnvelope(map[string]any{})
 	}
+	// Provider is not decisive on its own: routing falls back to the default provider for
+	// a model with no "provider/" prefix, so another provider's call arrives labelled as
+	// this one's. The model id decides.
+	if catalogueLoaded() && !ownsModel(model) {
+		return okEnvelope(map[string]any{})
+	}
 
 	// A caller hanging up is dropped before anything is written or counted.
 	//

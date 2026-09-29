@@ -203,6 +203,21 @@ func (p *credentialPool) disableAccountKeyed(uid, authIndex string, disabled boo
 func (p *credentialPool) applyToggleLocked(lane *credentialLane, disabled bool) {
 	lane.DisabledByUser = disabled
 	if disabled {
+		// Record it the same way an automatic retirement is recorded: the operator's
+		// manual action belongs in the request log beside the plugin's own decisions,
+		// otherwise pressing 禁用 leaves no trace and the log looks like it missed the
+		// event.
+		p.autoDisables = append(p.autoDisables, autoDisableEvent{
+			UID:     lane.UID,
+			Label:   lane.Label,
+			Reason:  "操作者手动操作",
+			At:      nowPanel(),
+			Manual:  true,
+			Variant: lane.Variant,
+		})
+		if len(p.autoDisables) > autoDisableHistoryMax {
+			p.autoDisables = p.autoDisables[len(p.autoDisables)-autoDisableHistoryMax:]
+		}
 		return
 	}
 	// Re-enabling lifts every internal retirement this lane accumulated.
@@ -214,18 +229,39 @@ func (p *credentialPool) applyToggleLocked(lane *credentialLane, disabled bool) 
 	lane.CooldownUntil = time.Time{}
 	lane.CoolKind = coolKindNone
 	lane.StatusMessage = ""
+	p.autoDisables = append(p.autoDisables, autoDisableEvent{
+		UID:       lane.UID,
+		Label:     lane.Label,
+		Reason:    "操作者手动操作",
+		At:        nowPanel(),
+		Manual:    true,
+		Recovered: true,
+		Variant:   lane.Variant,
+	})
+	if len(p.autoDisables) > autoDisableHistoryMax {
+		p.autoDisables = p.autoDisables[len(p.autoDisables)-autoDisableHistoryMax:]
+	}
 	p.markRecoveredLocked(lane.UID)
 }
 
 // autoDisableEvent records one automatic retirement, for the panel's history.
 type autoDisableEvent struct {
-	UID       string    `json:"uid"`
-	Label     string    `json:"label"`
-	Reason    string    `json:"reason"`
-	Variant   string    `json:"variant,omitempty"`
-	At        time.Time `json:"at"`
-	Recovered bool      `json:"recovered"`
+	UID     string    `json:"uid"`
+	Label   string    `json:"label"`
+	Reason  string    `json:"reason"`
+	Variant string    `json:"variant,omitempty"`
+	At      time.Time `json:"at"`
+	// Recovered marks the entry that lifts a retirement.
+	Recovered bool `json:"recovered"`
+	// Manual marks an action the operator took, as opposed to one the pool decided on
+	// its own. Both belong in the request log, but the wording differs and so does what
+	// the reader should do about it.
+	Manual bool `json:"manual,omitempty"`
 }
+
+// autoDisableHistoryMax bounds the audit trail. It is a display list — enough to answer
+// "why did this account stop" without growing without limit.
+const autoDisableHistoryMax = 200
 
 // recordAutoDisableLocked appends an audit entry. Caller holds p.mu.
 //
@@ -237,10 +273,10 @@ func (p *credentialPool) recordAutoDisableLocked(lane *credentialLane, reason st
 		Label:   lane.Label,
 		Reason:  reason,
 		Variant: lane.Variant,
-		At:      time.Now(),
+		At:      nowPanel(),
 	})
-	if len(p.autoDisables) > 50 {
-		p.autoDisables = p.autoDisables[len(p.autoDisables)-50:]
+	if len(p.autoDisables) > autoDisableHistoryMax {
+		p.autoDisables = p.autoDisables[len(p.autoDisables)-autoDisableHistoryMax:]
 	}
 }
 
@@ -874,5 +910,19 @@ func (p *credentialPool) totalCount(provider string) int {
 			n++
 		}
 	}
+	return n
+}
+
+// clearAutoDisableHistory drops the retirement audit and reports how many went.
+//
+// Used by the records page's clear action, which is about the operator's view: an entry
+// they have read and acknowledged does not need to stay. It does not touch the lanes
+// themselves — those still carry the disabled flag and the reason, so clearing the log
+// never silently re-enables an account.
+func (p *credentialPool) clearAutoDisableHistory() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := len(p.autoDisables)
+	p.autoDisables = nil
 	return n
 }

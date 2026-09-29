@@ -379,3 +379,39 @@ func handleModelsRequest(req pluginapi.ManagementRequest) (managementResponse, b
 		}),
 	}, true
 }
+
+// ownsModel reports whether a model id belongs to this plugin.
+//
+// The catalogue is the list this plugin fetched from its own upstream and registered
+// with the host; anything outside it is another provider's model that merely happens to
+// pass through the same CPA process.
+//
+// This is the check that keeps other providers' traffic out of the call list. Routing
+// alone cannot do it: a request whose model carries no "provider/" prefix falls back to
+// the default provider, so a grok or gpt-oss call would be routed — and stamped — as if
+// it were this plugin's.
+func ownsModel(model string) bool {
+	id := strings.ToLower(strings.TrimSpace(model))
+	if id == "" {
+		return false
+	}
+	models := workBuddyModelCache.snapshot()
+	if len(models) == 0 {
+		// The catalogue has not been fetched yet. Refusing every request until it has
+		// would take the plugin offline at startup, so the answer is "unknown" and the
+		// caller decides — the request path treats it as owned, the recording path
+		// treats it as not.
+		return false
+	}
+	for _, m := range models {
+		if strings.EqualFold(strings.TrimSpace(m.ID), id) {
+			return true
+		}
+	}
+	return false
+}
+
+// catalogueLoaded reports whether the model catalogue has been fetched.
+func catalogueLoaded() bool {
+	return len(workBuddyModelCache.snapshot()) > 0
+}

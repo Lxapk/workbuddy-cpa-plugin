@@ -259,7 +259,7 @@ func runCheckin(trigger string) *checkinRun {
 		state.checkin.mu.Unlock()
 	}()
 
-	run := &checkinRun{StartedAt: time.Now(), Trigger: trigger}
+	run := &checkinRun{StartedAt: nowPanel(), Trigger: trigger}
 
 	// Check-in exists only for the domestic realm. Enumerate everything so
 	// international credentials can be reported as an explicit skip, but only
@@ -267,7 +267,7 @@ func runCheckin(trigger string) *checkinRun {
 	// would silently omit half a mixed pool.
 	allAccounts, errCollect := collectCheckinAccounts()
 	if errCollect != nil {
-		run.FinishedAt = time.Now()
+		run.FinishedAt = nowPanel()
 		run.Results = []checkinResult{{Error: "读取账号失败: " + errCollect.Error()}}
 		run.Total = 1
 		run.Failed = 1
@@ -276,13 +276,13 @@ func runCheckin(trigger string) *checkinRun {
 	}
 	accounts := selectActionableAccounts(allAccounts)
 	if errCollect != nil {
-		run.FinishedAt = time.Now()
+		run.FinishedAt = nowPanel()
 		run.Results = []checkinResult{{Error: "读取账号失败：" + errCollect.Error()}}
 		state.checkin.record(run)
 		return run
 	}
 	if len(accounts) == 0 {
-		run.FinishedAt = time.Now()
+		run.FinishedAt = nowPanel()
 		run.Results = []checkinResult{{Error: "没有可签到的 WorkBuddy 账号"}}
 		state.checkin.record(run)
 		return run
@@ -306,7 +306,7 @@ func runCheckin(trigger string) *checkinRun {
 		run.Results = append(run.Results, res)
 	}
 
-	run.FinishedAt = time.Now()
+	run.FinishedAt = nowPanel()
 	state.checkin.record(run)
 	return run
 }
@@ -558,4 +558,17 @@ func nextCheckinTime(cfg checkinSettings) string {
 		target = target.Add(24 * time.Hour)
 	}
 	return target.Format(time.RFC3339)
+}
+
+// clearHistory drops the recorded runs and reports how many went.
+//
+// The schedule's own bookkeeping — the date of the last automatic run — is left alone:
+// clearing a display list must not make the scheduler think today's run never happened
+// and fire it a second time.
+func (s *checkinState) clearHistory() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.history)
+	s.history = nil
+	return n
 }

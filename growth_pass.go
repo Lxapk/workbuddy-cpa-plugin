@@ -150,3 +150,15 @@ func recordGrowthResultWithTrigger(uid string, result growthRunResult, trigger s
 	result.Trigger = trigger
 	state.growth.record(uid, result)
 }
+
+// clearHistory drops the recorded task passes and reports how many went.
+//
+// The eligibility bookkeeping stays: which tasks an account has claimed is what keeps a
+// pass from re-claiming them, and that is not a display concern.
+func (s *growthStore) clearHistory() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.history)
+	s.history = nil
+	return n
+}

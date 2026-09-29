@@ -164,6 +164,14 @@ func handleGrowthRunRequest(req pluginapi.ManagementRequest) managementResponse 
 
 	targets, message := growthRunTargets(strings.TrimSpace(body.UID))
 	if message != "" {
+		// A refusal is still something the operator did, and the log is where they look
+		// to find out why the button appeared to do nothing. Recording it there beats
+		// leaving a toast that disappears with the next refresh.
+		state.log.addNotice(callRecord{
+			ProviderID: workBuddyProviderKey,
+			UID:        strings.TrimSpace(body.UID),
+			Error:      "任务未执行：" + message,
+		})
 		return managementResponse{
 			StatusCode: http.StatusOK,
 			Headers:    jsonResponseHeaders(),

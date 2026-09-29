@@ -62,11 +62,18 @@ func interceptResponse(request []byte) ([]byte, error) {
 
 	// Only this plugin's own traffic is recorded.
 	//
-	// The interceptor is registered for the whole host, so its callback fires for every
-	// request CPA serves. A record from another provider has no account here, no credit
-	// figure, and its failures are not evidence about these credentials — putting one in
-	// the call list makes the panel report another product's problems.
+	// Provider alone is not enough. A request whose model carries no "provider/" prefix
+	// falls back to the default provider during routing, so a grok or gpt-oss call is
+	// routed — and stamped — as if it were this plugin's; the header therefore says
+	// "codebuddy" for traffic that never touched these credentials. The model id is the
+	// one fact that cannot be faked that way: it either appears in the catalogue this
+	// plugin fetched from its own upstream, or it does not.
 	if !isWorkBuddyRecord(ctx.Provider) {
+		return okEnvelope(pluginapi.ResponseInterceptResponse{})
+	}
+	// A catalogue that has not loaded yet is not grounds for dropping data — the answer
+	// is unknown, not "no".
+	if catalogueLoaded() && !ownsModel(ctx.Model) && !ownsModel(ctx.RequestedModel) {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
 
