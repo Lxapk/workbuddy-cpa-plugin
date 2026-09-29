@@ -473,13 +473,28 @@ label.field input[type=number] { width: 74px; }
 .opt .desc.tradeoff { color: var(--text-tertiary); font-size: 12px; margin-top: 2px; }
 
 /* Segmented control. */
+/* A segmented control.
+ *
+ * The buttons are equal width and the group is a fixed-width grid, so two controls with
+ * different-length labels still line up with each other. Sized to the longest label in
+ * use ("跟随上面") so neither group has to grow. */
 .seg {
-  display: inline-flex; border: 1px solid var(--border-primary);
+  display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  width: 260px; border: 1px solid var(--border-primary);
   border-radius: var(--radius-md); overflow: hidden; background: var(--bg-secondary);
 }
-.seg button { border: none; border-radius: 0; background: transparent; }
+.seg button {
+  border: none; border-radius: 0; background: transparent;
+  padding: 6px 10px; font-size: 12.5px;
+  /* A label longer than its cell truncates rather than widening the group. */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .seg button.on { background: var(--primary-color); color: var(--primary-contrast); }
 .seg button + button { border-left: 1px solid var(--border-primary); }
+/* Narrow screens: the control takes the width it is given instead of forcing a scroll. */
+@media (max-width: 560px) {
+  .seg { width: 100%; max-width: 300px; }
+}
 
 /* ---------- settings groups ---------- */
 /* A heading between groups of cards. Cards alone do not say which settings belong
@@ -489,25 +504,32 @@ label.field input[type=number] { width: 74px; }
 .group-head h2 { font-size: 15px; font-weight: 680; letter-spacing: -.01em; }
 .group-head .desc { display: block; color: var(--text-secondary); font-size: 12.5px; margin-top: 3px; }
 
-/* One setting: a label block on the left, the control on the right. Sized so the
-   description has room to explain and the control keeps a fixed column, which is what
-   makes two similar-looking rows read as two different settings. */
+/* One setting: a label block on the left, the control on the right.
+ *
+ * The label column is a fixed width rather than flex, so the two groups in the supplier
+ * card put their controls at the same x — with flex the longer description pushed one
+ * control further right and the pair looked misaligned. */
 .setting-group {
   display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
   padding: 16px var(--space-lg);
   border-bottom: 1px solid var(--border-color);
 }
 .setting-group:last-of-type { border-bottom: none; }
-.setting-label { flex: 1 1 260px; min-width: 0; }
+.setting-label { flex: 1 1 240px; min-width: 0; max-width: 560px; }
 .setting-label .name { display: block; font-weight: 600; font-size: 13.5px; }
 .setting-label .desc {
   display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
   margin-top: 4px;
 }
-.setting-control { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+/* A fixed control column, so both groups align regardless of label length. */
+.setting-control {
+  flex: 0 0 260px; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 7px;
+}
+.setting-control .seg { width: 100%; }
 /* The consequence of the current choice, in one line. A segmented control shows what
    is selected but not what it means. */
-.setting-effect { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; max-width: 42ch; }
+.setting-effect { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
 
 /* ---------- run summary ---------- */
 /* The counts sit inline with the note that explains them, so the figure and its

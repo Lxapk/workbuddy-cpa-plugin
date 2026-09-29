@@ -10,7 +10,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"html"
 	"strings"
 )
@@ -196,124 +195,6 @@ func renderTaskAccountRow(row taskRow) string {
 		`<div class="task-detail" data-detail-for="` + html.EscapeString(row.UID) + `"></div></td></tr>`)
 
 	return b.String()
-}
-
-// renderTaskDetail draws one account's task list from a growth detail payload.
-//
-// The payload carries every task the account has, each with a counter and a target, so
-// the list shows both what was done and what was not. The previous page showed only the
-// most recent task's name, which is why "which tasks are still outstanding" had no
-// answer anywhere on the screen.
-func renderTaskDetail(detail map[string]any) string {
-	if detail == nil {
-		return `<div class="note">没有拿到任务数据。</div>`
-	}
-	// The upstream names this field "tasks" in one shape and "task_list" in another;
-	// accept either rather than showing an empty panel.
-	raw, ok := detail["tasks"]
-	if !ok {
-		raw = detail["task_list"]
-	}
-	tasks, okList := raw.([]any)
-	if !okList || len(tasks) == 0 {
-		return `<div class="note">这个账号还没有任务记录。点「执行」跑一次就会有了。</div>`
-	}
-
-	done, pending, skipped, reward := 0, 0, 0, 0
-	var rows strings.Builder
-	for _, rawTask := range tasks {
-		task, _ := rawTask.(map[string]any)
-		if task == nil {
-			continue
-		}
-		// The upstream sends a human name; the code is only a fallback. Showing the code
-		// when a name exists is why the list read as machine output.
-		name, _ := task["name"].(string)
-		if name == "" {
-			name, _ = task["task_code"].(string)
-		}
-		if name == "" {
-			name, _ = task["code"].(string)
-		}
-
-		current := numberFrom(task["current"])
-		target := numberFrom(task["target"])
-		status, _ := task["status"].(string)
-		skipReason := firstNonEmpty(stringAt(task, "skip_reason"), stringAt(task, "note"))
-		reward += numberFrom(task["reward_credit"])
-
-		// Three outcomes, not two. A task the upstream will not let us run (it needs a
-		// real desktop session) is neither "done" nor "still to do" — lumping it in with
-		// pending makes the remaining count wrong and hides why.
-		stateCls, stateText := "warn", "未完成"
-		switch {
-		case target > 0 && current >= target:
-			stateCls, stateText = "ok", "已完成"
-			done++
-		case skipReason != "" || status == "skipped":
-			stateCls, stateText = "idle", "无法代做"
-			skipped++
-		default:
-			pending++
-		}
-
-		rows.WriteString(`<tr>`)
-		rows.WriteString(`<td>` + html.EscapeString(name))
-		if desc := stringAt(task, "description"); desc != "" {
-			rows.WriteString(`<div class="uid wrap">` + html.EscapeString(desc) + `</div>`)
-		}
-		rows.WriteString(`</td>`)
-		rows.WriteString(`<td><span class="pill ` + stateCls + `">` + stateText + `</span></td>`)
-		rows.WriteString(`<td class="num mono">`)
-		if target > 0 {
-			rows.WriteString(fmt.Sprint(current) + ` <span class="sep">/</span> ` + fmt.Sprint(target))
-		} else if current > 0 {
-			rows.WriteString(fmt.Sprint(current))
-		} else {
-			rows.WriteString(`—`)
-		}
-		rows.WriteString(`</td>`)
-		if r := numberFrom(task["reward_credit"]); r > 0 {
-			rows.WriteString(`<td class="num mono">` + fmt.Sprint(r) + `</td>`)
-		} else {
-			rows.WriteString(`<td class="num uid">—</td>`)
-		}
-		if skipReason != "" {
-			rows.WriteString(`<td class="uid wrap">` + html.EscapeString(skipReason) + `</td>`)
-		} else {
-			rows.WriteString(`<td class="uid wrap">` + html.EscapeString(stringAt(task, "jump_url")) + `</td>`)
-		}
-		rows.WriteString(`</tr>`)
-	}
-
-	var b strings.Builder
-	b.WriteString(`<div class="task-detail-head">`)
-	b.WriteString(`<span class="note">共 ` + fmt.Sprint(len(tasks)) + ` 项 · 已完成 ` +
-		`<span class="ok-text">` + fmt.Sprint(done) + `</span>`)
-	if pending > 0 {
-		b.WriteString(` · 未完成 <span class="warn-text">` + fmt.Sprint(pending) + `</span>`)
-	}
-	if skipped > 0 {
-		b.WriteString(` · 无法代做 ` + fmt.Sprint(skipped))
-	}
-	if reward > 0 {
-		b.WriteString(` · 累计奖励 <span class="mono">` + fmt.Sprint(reward) + `</span> 积分`)
-	}
-	b.WriteString(`</span>`)
-	b.WriteString(`</div>`)
-	b.WriteString(`<div class="tbl-wrap"><table class="data detail"><thead><tr>`)
-	b.WriteString(`<th>任务</th><th>状态</th><th class="num">进度</th><th class="num">奖励</th><th>说明 / 入口</th>`)
-	b.WriteString(`</tr></thead><tbody>` + rows.String() + `</tbody></table></div>`)
-	return b.String()
-}
-
-// stringAt reads a string field that may be absent.
-func stringAt(m map[string]any, key string) string {
-	if m == nil {
-		return ""
-	}
-	s, _ := m[key].(string)
-	return s
 }
 
 // growthEligibleVariant reports whether a credential's realm is served by the growth

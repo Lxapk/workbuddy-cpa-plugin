@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -660,5 +661,41 @@ func TestPageUsesWorkBuddyNaming(t *testing.T) {
 	}
 	if !strings.Contains(page, "WorkBuddy") {
 		t.Error("page should present the WorkBuddy name")
+	}
+}
+
+// 页面脚本里调用的每个渲染函数都必须在同一份脚本里定义。
+//
+// 明细渲染曾经写成 Go 函数，而前端是异步取数据后调用的——浏览器里没有那个名字，
+// 展开任务只会得到 "renderTaskDetail is not defined"。已有的检查只看 data-call
+// 指向的处理器，脚本内部的直接调用不在它的覆盖范围内。
+func TestEveryRenderCallHasADefinition(t *testing.T) {
+	script := mainPageScript()
+
+	// Go 的 regexp 不支援 lookbehind，所以先剥掉定义行再找调用——否则定义本身
+	// 会被当成一次调用。
+	defRe := regexp.MustCompile(`function (render[A-Za-z0-9]+)\(`)
+	callRe := regexp.MustCompile(`\brender[A-Za-z0-9]+\(`)
+
+	defs := map[string]bool{}
+	for _, m := range defRe.FindAllStringSubmatch(script, -1) {
+		defs[m[1]] = true
+	}
+	stripped := defRe.ReplaceAllString(script, "FUNC(")
+	calls := callRe.FindAllString(stripped, -1)
+	if len(calls) == 0 {
+		t.Fatal("没有解析到任何渲染调用，检查可能失效了")
+	}
+
+	seen := map[string]bool{}
+	for _, raw := range calls {
+		name := strings.TrimSuffix(raw, "(")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !defs[name] {
+			t.Errorf("%s 被调用但未在脚本里定义", name)
+		}
 	}
 }

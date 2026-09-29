@@ -1045,14 +1045,9 @@ func mainPageScript() string {
         // 端点对「找不到账号」这类情况返回 HTTP 200 加 ok:false，所以不能只看状态码，
         // 否则错误对象会被当成明细渲染成一片空白——原先就是这样，界面上只有
         // 「查询失败」四个字，没有原因。
-        if (payload && payload.ok === false) {
-          slot.innerHTML = '';
-          var why = document.createElement('div');
-          why.className = 'note warn-text';
-          why.textContent = payload.error || '查询失败';
-          slot.appendChild(why);
-          return;
-        }
+        //
+        // 渲染必须用 JS 函数：数据是异步取回来的，服务端的 renderTaskDetail 在这个
+        // 页面的脚本里并不存在。
         slot.innerHTML = renderTaskDetail(payload);
       })
       .catch(function (e) {
@@ -1240,6 +1235,72 @@ func mainPageScript() string {
   };
 
   // renderGrowthDetail draws one account's per-task outcome as grouped rows.
+  // renderTaskDetail draws one account's task list from a growth/tasks payload.
+  //
+  // Mirrors the server-side shape: Chinese name, a three-way state (done / pending /
+  // cannot-be-automated), progress against the target, and the reward. A task the
+  // upstream marks with skip_reason is not "still to do" — lumping it in with pending
+  // makes the remaining count wrong and hides why it never runs.
+  function renderTaskDetail(payload) {
+    if (!payload) return '<div class="note">没有拿到任务数据。</div>';
+    if (payload.ok === false) {
+      return '<div class="note warn-text">' + esc(payload.error || '查询失败') +
+        (payload.detail ? ' — ' + esc(payload.detail) : '') + '</div>';
+    }
+
+    // 上游一处叫 tasks，另一处叫 task_list；两者都接受，免得面板空白。
+    var tasks = payload.tasks || payload.task_list || [];
+    if (!tasks.length) {
+      return '<div class="note">这个账号还没有任务记录。点「执行」跑一次就会有了。</div>';
+    }
+
+    var done = 0, pending = 0, skipped = 0, reward = 0;
+    var body = '';
+    for (var i = 0; i < tasks.length; i++) {
+      var t = tasks[i] || {};
+      var name = t.name || t.task_code || t.code || '—';
+      var current = Number(t.current) || 0;
+      var target = Number(t.target) || 0;
+      var skip = t.skip_reason || t.note || '';
+      var status = String(t.status || '');
+      reward += Number(t.reward_credit) || 0;
+
+      var cls, text;
+      if (target > 0 && current >= target) {
+        cls = 'ok'; text = '已完成'; done++;
+      } else if (skip || status === 'skipped') {
+        cls = 'idle'; text = '无法代做'; skipped++;
+      } else {
+        cls = 'warn'; text = '未完成'; pending++;
+      }
+
+      var progress = '—';
+      if (target > 0) {
+        progress = current + ' <span class="sep">/</span> ' + target;
+      } else if (current > 0) {
+        progress = String(current);
+      }
+
+      body += '<tr><td>' + esc(name) +
+        (t.description ? '<div class="uid wrap">' + esc(t.description) + '</div>' : '') +
+        '</td>' +
+        '<td><span class="pill ' + cls + '">' + text + '</span></td>' +
+        '<td class="num mono">' + progress + '</td>' +
+        '<td class="num mono">' + (Number(t.reward_credit) > 0 ? esc(t.reward_credit) : '<span class="uid">—</span>') + '</td>' +
+        '<td class="uid wrap">' + esc(skip || t.jump_url || '') + '</td></tr>';
+    }
+
+    var head = '共 ' + tasks.length + ' 项 · 已完成 <span class="ok-text">' + done + '</span>';
+    if (pending > 0) head += ' · 未完成 <span class="warn-text">' + pending + '</span>';
+    if (skipped > 0) head += ' · 无法代做 ' + skipped;
+    if (reward > 0) head += ' · 累计奖励 <span class="mono">' + reward + '</span> 积分';
+
+    return '<div class="task-detail-head"><span class="note">' + head + '</span></div>' +
+      '<div class="tbl-wrap"><table class="data detail"><thead><tr>' +
+      '<th>任务</th><th>状态</th><th class="num">进度</th><th class="num">奖励</th><th>说明 / 入口</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+
   function renderGrowthDetail(payload) {
     if (!payload) return '';
     if (payload.ok === false) {

@@ -784,36 +784,32 @@ func TestTaskPageKeepsAccountAndTasksTogether(t *testing.T) {
 // 原先每行只有「最近任务」一个名字，屏幕上没有任何地方回答「还差哪些」。详情里每项
 // 都带状态与进度，并在表头给出已完成/未完成的数量。
 func TestTaskDetailListsPendingItems(t *testing.T) {
-	detail := map[string]any{
-		"tasks": []any{
-			map[string]any{"name": "猫猫日常", "current": 1, "target": 1},
-			map[string]any{"name": "create_canvas", "current": 0, "target": 1},
-			map[string]any{"name": "playbook_prompt", "current": 0, "target": 1},
-		},
+	// 渲染在浏览器侧完成，断言落在脚本上：三态各自的字面量与计数都要出现。
+	script := mainPageScript()
+	for _, want := range []string{"已完成", "未完成", "无法代做", "'共 ' + tasks.length + ' 项"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("明细渲染缺少 %q", want)
+		}
 	}
-	out := renderTaskDetail(detail)
-
-	if !strings.Contains(out, "已完成") || !strings.Contains(out, "未完成") {
-		t.Error("明细没有区分完成与未完成")
+	// 中文任务名优先，机器码只作兜底。
+	if !strings.Contains(script, "t.name || t.task_code || t.code") {
+		t.Error("任务名没有优先取中文名")
 	}
-	if !strings.Contains(out, "猫猫日常") || !strings.Contains(out, "create_canvas") {
-		t.Error("明细没有列出全部任务名")
-	}
-	// 计数应写进表头，让人一眼看出还剩几项。
-	if !strings.Contains(out, "共 3 项") {
-		t.Error("明细缺少总数")
-	}
-	// 已达标的判为完成，未达标的判为未完成。
-	if strings.Count(out, ">未完成<") != 2 {
-		t.Errorf("未完成计数错误：%d 处，want 2", strings.Count(out, ">未完成<"))
+	// 累计奖励也要给出。
+	if !strings.Contains(script, "reward_credit") {
+		t.Error("明细没有显示奖励")
 	}
 }
 
 // 没有任务记录时给出可操作的提示，而不是空白。
 func TestTaskDetailHandlesEmptyRecord(t *testing.T) {
-	out := renderTaskDetail(map[string]any{})
-	if !strings.Contains(out, "还没有任务记录") {
+	script := mainPageScript()
+	if !strings.Contains(script, "还没有任务记录") {
 		t.Error("空记录时应提示先执行一次")
+	}
+	// 两种字段名都要接受，否则换一种形状就显示空白。
+	if !strings.Contains(script, "payload.tasks || payload.task_list") {
+		t.Error("明细没有兼容两种字段名")
 	}
 }
 
@@ -843,8 +839,12 @@ func TestInternationalAccountsHaveNoGrowthControls(t *testing.T) {
 
 // 端点返回 ok:false 时必须显示原因，不能渲染成空白。
 func TestTaskDetailSurfacesServerSideError(t *testing.T) {
-	// 前端要把 ok:false 当成一条消息，而不是当成明细数据。
+	// 明细是异步取回来的，渲染必须在浏览器里做：服务端的同名函数在页面脚本中不存在，
+	// 调用它只会得到 "renderTaskDetail is not defined"。
 	script := mainPageScript()
+	if !strings.Contains(script, "function renderTaskDetail(") {
+		t.Error("页面脚本里没有 renderTaskDetail，展开时会报未定义")
+	}
 	if !strings.Contains(script, "payload.ok === false") {
 		t.Error("前端没有检查 ok:false，服务端拒绝会被渲染成空白")
 	}
@@ -858,26 +858,12 @@ func TestTaskDetailSurfacesServerSideError(t *testing.T) {
 // 上游对需要真实桌面操作的任务给出 skip_reason。把它和未完成混在一起，剩余计数就是
 // 错的，也看不出为什么。
 func TestTaskDetailSeparatesSkippedFromPending(t *testing.T) {
-	detail := map[string]any{
-		"tasks": []any{
-			map[string]any{"name": "猫猫日常", "current": 1, "target": 1},
-			map[string]any{"name": "写文档", "current": 0, "target": 1},
-			map[string]any{"name": "资料库", "current": 0, "target": 1, "skip_reason": "需要真实桌面操作"},
-		},
-	}
-	out := renderTaskDetail(detail)
-
-	if !strings.Contains(out, "无法代做") {
-		t.Error("带 skip_reason 的任务应标为「无法代做」")
-	}
-	if !strings.Contains(out, "未完成") {
-		t.Error("应保留「未完成」这一态")
-	}
-	if !strings.Contains(out, "已完成") {
-		t.Error("应保留「已完成」这一态")
-	}
-	// 中文任务名优先于机器码。
-	if !strings.Contains(out, "猫猫日常") || !strings.Contains(out, "资料库") {
-		t.Error("明细应显示任务名")
+	// 带 skip_reason 的任务是「无法代做」，不是「未完成」：混在一起会让剩余计数偏高，
+	// 也看不出它为什么从来不动。三种状态都要在渲染脚本里出现。
+	script := mainPageScript()
+	for _, want := range []string{"已完成", "未完成", "无法代做", "skip_reason"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("明细渲染缺少 %q", want)
+		}
 	}
 }
