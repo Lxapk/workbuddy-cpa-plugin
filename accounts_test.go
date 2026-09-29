@@ -699,3 +699,44 @@ func TestEveryRenderCallHasADefinition(t *testing.T) {
 		}
 	}
 }
+
+// 裸文件名、provider 为空的条目靠存储内容识别。
+//
+// CPA 的一个 WorkBuddy 凭据在列表里只有 auth index 一个字段（7edb3b68871f4d16 这样的
+// 裸十六进制），provider 与类型都是空的。旧的过滤把它丢掉，于是账号页少一个账号，调用
+// 记录里那个运行时 id 没有谁能翻译成 uid。存储的 JSON 是权威证据：token 三件套是本插件
+// 与上游的约定，别的 provider 的授权文件不长这样。
+func TestBareAuthIndexEntriesAreRecognisedByStorage(t *testing.T) {
+	workbuddy := json.RawMessage(`{"accessToken":"a","refreshToken":"r","uid":"68594541-4c01-4330-b37b-fd58dc9c5d99","nickname":"一号"}`)
+	// 只有 domain 也能定：领域字段是本插件写的，别的 provider 不会带 codebuddy.cn / workbuddy.ai。
+	byDomain := json.RawMessage(`{"accessToken":"a","domain":"copilot.tencent.com"}`)
+
+	// 裸索引 + WorkBuddy 存储 → 收。
+	for name, blob := range map[string]json.RawMessage{"三件套": workbuddy, "领域字段": byDomain} {
+		if !isWorkBuddyAuthEntry(hostAuthEntry{AuthIndex: "7edb3b68871f4d16", StorageJSON: blob}) {
+			t.Errorf("裸索引的 WorkBuddy 凭据被丢弃（%s）", name)
+		}
+	}
+	// 裸索引 + 别家的存储 → 拒。accessToken+uid 的两件套不够——别的 provider 的文件里
+	// 也有同名字段，单凭它们会把别家的凭据收进来。
+	for name, blob := range map[string]json.RawMessage{
+		"api_key": json.RawMessage(`{"api_key":"sk-123"}`),
+		"两件套":     json.RawMessage(`{"accessToken":"x","uid":"u-2"}`),
+		"空":       nil,
+	} {
+		if isWorkBuddyAuthEntry(hostAuthEntry{AuthIndex: "7edb3b68871f4d16", StorageJSON: blob}) {
+			t.Errorf("别家的凭据被当成 WorkBuddy 收进来了（%s）", name)
+		}
+	}
+	// 裸索引 + 空 storage → 拒（无从判断）。
+	if isWorkBuddyAuthEntry(hostAuthEntry{AuthIndex: "7edb3b68871f4d16"}) {
+		t.Error("没有存储内容的条目不该凭空收下")
+	}
+	// 原有识别不受影响。
+	if !isWorkBuddyAuthEntry(hostAuthEntry{Provider: "codebuddy"}) {
+		t.Error("provider 标识的条目应直接收下")
+	}
+	if !isWorkBuddyAuthEntry(hostAuthEntry{AuthIndex: "workbuddy-abc"}) {
+		t.Error("前缀文件名的条目应直接收下")
+	}
+}

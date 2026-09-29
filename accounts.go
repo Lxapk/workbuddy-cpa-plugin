@@ -440,6 +440,45 @@ func isWorkBuddyAuthEntry(entry hostAuthEntry) bool {
 			return true
 		}
 	}
+	// A bare file name (the auth index itself, no prefix) and an empty provider
+	// field reach here. Dropping the entry blind was how a working account went
+	// missing: the call list kept showing its runtime auth id because the
+	// account table had no row to translate it with. The credential's storage
+	// JSON decides — a WorkBuddy token file is unlike anything the other
+	// providers store.
+	return looksLikeWorkBuddyStorage(entry.StorageJSON)
+}
+
+// looksLikeWorkBuddyStorage reports whether a stored credential carries the
+// WorkBuddy token shape.
+//
+// Two signals, because one is not enough: an access token alone appears in other
+// providers' files too. Either the full triple (access + refresh + uid) — the shape this
+// plugin writes — or the realm field naming one of the WorkBuddy domains is decisive.
+// Anything else is another provider's file and stays out of the account table.
+func looksLikeWorkBuddyStorage(storage json.RawMessage) bool {
+	if len(storage) == 0 {
+		return false
+	}
+	var probe struct {
+		AccessToken  *string `json:"accessToken"`
+		RefreshToken *string `json:"refreshToken"`
+		UID          *string `json:"uid"`
+		Domain       *string `json:"domain"`
+	}
+	if err := json.Unmarshal(storage, &probe); err != nil {
+		return false
+	}
+	if probe.AccessToken != nil && probe.RefreshToken != nil && probe.UID != nil {
+		return true
+	}
+	if probe.Domain == nil {
+		return false
+	}
+	switch variantOfDomain(*probe.Domain) {
+	case string(variantCn), string(variantAi):
+		return true
+	}
 	return false
 }
 
