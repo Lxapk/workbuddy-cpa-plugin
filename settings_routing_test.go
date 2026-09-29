@@ -1858,55 +1858,41 @@ func TestIdentifierAndDisplayNameStaySeparate(t *testing.T) {
 	}
 }
 
-// 调用记录里的账号要显示成账号页的写法。
+// 调用记录显示的是「怎么被服务」，不是「哪个账号」。
 //
-// 早期记录里存的是 CPA 的运行时 auth id（16 位十六进制，形如 be999637145008d0），与凭据
-// 自身的 uid 没有任何字符上的相似。账号页、池、账号表都认不出那个串，于是记录就把它原样
-// 印出来，读的人无法判断是哪個账号。
-func TestCallRecordsResolveToAccountNames(t *testing.T) {
+// 这一列原来写账号名，但做不到：CPA 对同一份凭据在一个地方用运行时 auth index（形如
+// 7edb3b68871f4d16），在另一个地方用它自己的 uid（形如 cb56d65f-9921-…），插件无法把
+// 两者对上——面板于是把同一个账号显示成两个名字，读者无从判断。记录确知的是这次请求
+// 以何种方式被服务，这一列现在报这个。
+func TestCallRecordsShowStreamKind(t *testing.T) {
 	resetState()
-	installAuthList(t, nil)
 
-	uid := "42213638-073a-434a-90b7-42eff8af6478"
-	authIndex := "be999637145008d0"
-	state.accounts.mu.Lock()
-	state.accounts.cached = []workBuddyAccount{
-		{Label: "WorkBuddy " + uid, UID: uid, AuthIndex: authIndex, Variant: "cn"},
-	}
-	state.accounts.fetchedAt = timeNowForTest()
-	state.accounts.mu.Unlock()
-	state.pool.observe(workBuddyProviderKey, uid, "WorkBuddy "+uid)
-
-	// ① 记录自带 label —— 直接用。
-	if got := recordAccountLabel(callRecord{Label: "一号", UID: uid}); got != "一号" {
-		t.Errorf("有 label 时应直接使用，得到 %q", got)
-	}
-	// ② 记录只有 uid —— 解析成账号名。
-	if got := recordAccountLabel(callRecord{UID: uid}); got != "WorkBuddy "+uid {
-		t.Errorf("按 uid 未解析出账号名，得到 %q", got)
-	}
-	// ③ 记录里是 CPA 的 auth id —— 这是原先认不出的那种。
-	if got := recordAccountLabel(callRecord{UID: authIndex}); got != "WorkBuddy "+uid {
-		t.Errorf("按 auth id 未解析出账号名，得到 %q", got)
-	}
-	// ④ 完全未知的串 —— 原样显示，不要留空。
-	if got := recordAccountLabel(callRecord{UID: "unknown-id"}); got != "unknown-id" {
-		t.Errorf("未知标识应原样显示，得到 %q", got)
-	}
-	// ⑤ 空记录 —— 显示占位符。
-	if got := recordAccountLabel(callRecord{}); got != "—" {
-		t.Errorf("空记录应显示占位符，得到 %q", got)
-	}
-
-	// 渲染出来的表里，两种记录显示的账号必须一致。
 	page := renderCallTable([]callRecord{
-		{UID: uid, Model: "m", StatusCode: 200},
-		{UID: authIndex, Model: "m", StatusCode: 200},
+		{Model: "glm-5.3-flash", StatusCode: 200, Stream: true},
+		{Model: "glm-5.3-flash", StatusCode: 200, Stream: false},
 	})
-	if strings.Contains(page, authIndex) {
-		t.Error("调用表里仍出现 CPA 的运行时 auth id")
+
+	if strings.Contains(page, ">账号<") {
+		t.Error("表头仍写着账号")
 	}
-	if got := strings.Count(page, "WorkBuddy "+uid); got != 2 {
-		t.Errorf("两条记录都应显示同一个账号名，实际出现 %d 次", got)
+	if !strings.Contains(page, ">类型<") {
+		t.Error("表头没有类型列")
+	}
+	if !strings.Contains(page, "流式") || !strings.Contains(page, "非流式") {
+		t.Error("两种类型都应能显示")
+	}
+	// 「非流式」含「流式」子串，所以按单元格数一次。
+	if got := strings.Count(page, `data-label="类型"`); got != 2 {
+		t.Errorf("每行都应有类型格，实际 %d 个", got)
+	}
+	// 不再出现账号相关的标识。
+	for _, gone := range []string{"data-label=\"账号\"", "WorkBuddy cb56d65f"} {
+		if strings.Contains(page, gone) {
+			t.Errorf("表中仍出现 %q", gone)
+		}
+	}
+
+	if streamLabel(true) != "流式" || streamLabel(false) != "非流式" {
+		t.Error("类型文案不对")
 	}
 }

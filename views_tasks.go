@@ -206,7 +206,13 @@ func taskLastLabel(uid string) string {
 func renderCallTable(recent []callRecord) string {
 	var b strings.Builder
 	b.WriteString(`<div class="tbl-wrap"><table class="data calls"><thead><tr>`)
-	b.WriteString(`<th>时间</th><th>账号</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th><th>结果</th>`)
+	// The column used to name the account. It could not: CPA identifies one credential by
+	// its runtime auth index and the same credential by its own uid elsewhere, and nothing
+	// in the plugin could reconcile the two — the panel showed "WorkBuddy 7edb3b68871f4d16"
+	// for an account the accounts page called cb56d65f-…, so the column told the reader
+	// nothing they could act on. What the record does know reliably is how the request was
+	// served, which the column now reports instead.
+	b.WriteString(`<th>类型</th><th>模型</th><th class="num">状态</th><th class="num">Tokens</th><th>结果</th>`)
 	b.WriteString(`</tr></thead><tbody>`)
 
 	for _, rec := range recent {
@@ -221,9 +227,8 @@ func renderCallTable(recent []callRecord) string {
 		tokens := fmt.Sprint(rec.PromptTokens) + " / " + fmt.Sprint(rec.CompletionTokens)
 
 		b.WriteString(`<tr><td class="note mono" data-label="时间">` + html.EscapeString(when) + `</td>`)
-		// Resolved rather than printed: a record written before identifiers were stamped
-		// carries CPA's runtime auth id, which matches nothing the accounts page shows.
-		b.WriteString(`<td data-label="账号">` + html.EscapeString(recordAccountLabel(rec)) + `</td>`)
+		b.WriteString(`<td data-label="类型"><span class="pill ` + streamPillClass(rec.Stream) + `">` +
+			html.EscapeString(streamLabel(rec.Stream)) + `</span></td>`)
 		b.WriteString(`<td class="mono" data-label="模型">` + html.EscapeString(rec.Model) + `</td>`)
 		b.WriteString(`<td class="num" data-label="状态"><span class="pill ` + cls + `">` +
 			fmt.Sprint(rec.StatusCode) + `</span></td>`)
@@ -233,6 +238,30 @@ func renderCallTable(recent []callRecord) string {
 
 	b.WriteString(`</tbody></table></div>`)
 	return b.String()
+}
+
+// streamLabel names how the request was served.
+//
+// A streaming answer is one the client reads incrementally; a buffered one arrives whole.
+// The distinction is visible in the timing and in how a failure manifests, and unlike the
+// account it is a fact the record holds for certain.
+func streamLabel(stream bool) string {
+	if stream {
+		return "流式"
+	}
+	return "非流式"
+}
+
+// streamPillClass picks the pill colour.
+//
+// Both styles already exist in the sheet: a streaming answer is the common case and uses
+// the neutral one, a buffered answer the subdued one. Inventing new classes here would
+// mean adding rules that duplicate what the theme already defines.
+func streamPillClass(stream bool) string {
+	if stream {
+		return "ok"
+	}
+	return "idle"
 }
 
 // renderNoteTable draws the operational events: sign-ins, task runs, throttling, an
