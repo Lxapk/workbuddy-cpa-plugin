@@ -338,21 +338,35 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
    single space — which in a Go string built across several lines is often no space at
    all. That is what made adjacent controls look fused. A flex gap fixes the spacing at
    every count instead of relying on each caller to remember. */
-td.actions {
-  display: flex; align-items: center; justify-content: flex-end;
-  gap: 6px; flex-wrap: nowrap;
-  white-space: nowrap;
-}
-/* Actions in a table share a width.
+/* ---------- action cells ---------- */
+/* A column of buttons, right-aligned, built from nothing but a table cell.
  *
- * Sizing each button to its own label left the group's left edge ragged from row to row —
- * "签到 / 余额 / 任务 / 禁用" are two characters each but "展开任务" is four, so the
- * cluster started at a different x on every line. A minimum width makes the column of
- * controls line up. */
-td.actions > button { margin-left: 0; min-width: 62px; text-align: center; }
-/* The account table's controls are a touch tighter: four of them per row alongside the
-   tally, and 62px each needs more width than the card has. */
-table.accounts td.actions > button { min-width: 58px; }
+ * The cell used display: flex to line its buttons up. That is what broke it: flex takes
+ * the <td> out of the table's column layout, so its width stops being computed alongside
+ * its neighbours, and its height stops being derived the way the other cells' is — the
+ * border under the row then meets a box of a different height, which is the step in the
+ * rule that was visible under 签到 / 余额 / 任务. The width: 1% that accompanied it made
+ * the box collapse to nothing so the buttons spilled onto the credit column.
+ *
+ * A plain table cell with right-aligned inline-block children has none of those
+ * problems, and it is how the task table has always been laid out. */
+td.actions {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+/* Buttons size to their own labels; the four labels here are all two characters, so the
+   group lines up without being forced to a common width. */
+td.actions button {
+  display: inline-block;
+  vertical-align: middle;
+  /* Spacing lives on the right of each button, so a wrapped row and a single row space
+     identically and no selector has to single out the first or last child. */
+  margin: 0 8px 0 0;
+}
+td.actions button:last-child { margin-right: 0; }
+/* The account table's controls are a touch tighter: four of them per row. */
+table.accounts td.actions button { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 /* The error text is the only long cell in the call log; cap it so it wraps instead of
    pushing the table wider than the card. */
 td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: break-word; }
@@ -383,17 +397,19 @@ table.accounts td[data-label="状态"],
 table.accounts td[data-label="成功 / 失败"] { white-space: nowrap; }
 /* The one long value — the credit ratio — needs room for "3735 / 4600" plus its bar. */
 table.accounts td[data-label="积分"] { min-width: 130px; }
-/* Actions keep their own width; the label column absorbs the slack instead. */
-table.accounts td.actions { width: 1%; }
-/* The account cell is two lines (name, realm) while its neighbours are one line tall.
-   Middle alignment centres them relative to the row, which reads as correct — but the
-   controlling cells themselves need to centre their content, or a button sits at the
-   top of a cell whose box is now two lines tall. */
-table.accounts td[data-label="参与"],
-table.accounts td[data-label="状态"],
-table.accounts td[data-label="操作"] { vertical-align: middle; }
-table.accounts td[data-label="参与"] > button,
-table.accounts td[data-label="状态"] > .pill { display: inline-flex; align-items: center; }
+/* No width on the action cell. Declaring one — even 1% — makes it fight the automatic
+   layout: the browser collapses the box and the buttons spill onto the column to the
+   left, which is the overlap that was visible next to the credit figure. Left undeclared,
+   the cell takes what its buttons need and the account column absorbs the difference. */
+/* The account cell holds a name and its identifier on two lines; the columns beside it
+   hold one short value each. Middle alignment keeps them all on the row's centre line —
+   without it a button sits at the top of a two-line row and the border under the row
+   appears to step. */
+table.accounts td { vertical-align: middle; }
+/* A pill and a button are inline-level boxes; centring them inside the cell keeps their
+   own baseline from nudging the row's height. */
+table.accounts td .pill,
+table.accounts td button { display: inline-flex; align-items: center; vertical-align: middle; }
 /* The task table's first cell is two lines like the accounts page, so its control cells
    need the same centring. */
 table.data.tasks td { vertical-align: middle; }
@@ -401,13 +417,8 @@ table.data.tasks td[data-label="账号"] { min-width: 150px; }
 table.data.tasks td[data-label="参与"] > button,
 table.data.tasks td[data-label="状态"] > .pill { display: inline-flex; align-items: center; }
 
-/* The account cell is a heading for the row, so it gets a little more room. */
-table.accounts td:first-child { min-width: 150px; }
 /* Row controls are compact: four of them per row, and at full size they would dominate
    the table. Padding is trimmed and the label kept short ("禁用" not "停用该账号"). */
-/* The cell's gap does the spacing; per-button margins would double it up and make the
-   first button sit closer than the rest. */
-table.accounts td.actions button { padding: 4px 9px; font-size: 12px; border-radius: 6px; }
 /* The secondary line under a label: the uid, a cooldown detail, an expiry note. */
 .uid { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; }
 .bad-text { color: var(--error-color); }
@@ -852,7 +863,6 @@ details > summary { cursor: pointer; }
   table.data.calls { min-width: 760px; }
   table.data.tasks { min-width: 560px; }
   table.data.detail { min-width: 560px; }
-  table.accounts { min-width: 1000px; }
   table.data thead, table.accounts thead { display: table-header-group; }
   table.data tr, table.accounts tr { display: table-row; }
   table.data td, table.accounts td { display: table-cell; white-space: nowrap; }

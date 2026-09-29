@@ -348,13 +348,20 @@ func TestAccountTableScrollsOnPhone(t *testing.T) {
 	phone := css[strings.Index(css, "@media (max-width: 768px)"):]
 
 	for _, want := range []string{
-		"table.accounts { min-width: 1000px; }",
 		"table.accounts thead { display: table-header-group; }",
 		"table.accounts td { display: table-cell;",
 	} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("手机端账号表缺少 %s", want)
 		}
+	}
+	// 最小宽度只在基础规则里声明一次即可——同一张表在窄屏下也用它。
+	// （先前媒体查询里又写了一遍，是重复。）
+	if !strings.Contains(css, "table.accounts { min-width: 900px; }") {
+		t.Error("账号表缺少最小宽度")
+	}
+	if got := strings.Count(css, "table.accounts { min-width"); got != 1 {
+		t.Errorf("账号表的最小宽度声明了 %d 次，应只声明一次", got)
 	}
 	// 通用堆叠规则不得作用到账号表上：它的 td 必须是表格单元。
 	if !strings.Contains(phone, "table.accounts td[data-label]::before { display: none; }") {
@@ -1049,15 +1056,21 @@ func TestStylesheetHasNoBackticks(t *testing.T) {
 // 只给 tr 设 vertical-align: middle 不够：当某一行变高，按钮会浮在单元格顶部，看起来
 // 比邻居偏上。
 func TestAccountCellsCentreTheirControls(t *testing.T) {
-	css := uiCSS
-	for _, want := range []string{
-		`table.accounts td[data-label="参与"]`,
-		`table.data.tasks td[data-label="参与"]`,
-		`display: inline-flex; align-items: center;`,
-	} {
-		if !strings.Contains(css, want) {
-			t.Errorf("缺少单元格居中规则 %s", want)
-		}
+	// 账号格有两行（名称与标识），旁边的格子只有一行。若不让单元格内的控件垂直居中，
+	// 按钮会贴在格的顶部，行下方的横线看上去就错了一级。
+	css := cssForTest()
+
+	if !strings.Contains(css, "table.accounts td { vertical-align: middle; }") {
+		t.Error("账号表没有统一垂直居中")
+	}
+	// 药丸与按钮都是行内级的盒子，居中它们自身才不会把行高撑歪。
+	if !strings.Contains(css, "table.accounts td .pill,") ||
+		!strings.Contains(css, "table.accounts td button { display: inline-flex; align-items: center; vertical-align: middle; }") {
+		t.Error("单元格内的药丸或按钮没有垂直居中")
+	}
+	// 账号表没有「参与」列，不该出现针对它的规则——那是任务表的。
+	if strings.Contains(css, `table.accounts td[data-label="参与"]`) {
+		t.Error("账号表出现针对「参与」列的规则，它并没有这一列")
 	}
 }
 
@@ -1065,23 +1078,34 @@ func TestAccountCellsCentreTheirControls(t *testing.T) {
 //
 // 按各自标签定宽会让按钮组的左边缘逐行参差——「签到 / 余额 / 任务 / 禁用」都是两字，
 // 而「展开任务」是四字，每行的起点都不同。
-func TestTableActionButtonsShareAWidth(t *testing.T) {
-	css := uiCSS
-	if !strings.Contains(css, "td.actions > button { margin-left: 0; min-width: 62px; text-align: center; }") {
-		t.Error("操作按钮没有统一最小宽度")
-	}
-	if !strings.Contains(css, "table.accounts td.actions > button { min-width: 58px; }") {
-		t.Error("账号表的按钮没有自己的宽度")
-	}
-	// 间距只由 gap 提供，逐按钮的 margin 会让第一个按钮比其余的更近。
-	start := strings.Index(css, "td.actions {\n  display: flex")
+func TestActionButtonsArePlainInlineBlocks(t *testing.T) {
+	// 操作列经历过三版实现，只有这一版稳定：普通表格单元格 + 右对齐 + 行内块按钮。
+	// 用 flex 会把 <td> 移出列布局；声明宽度（哪怕 1%）会让它塌陷、按钮溢到左边的格子。
+	css := cssForTest()
+
+	start := strings.Index(css, "td.actions {")
 	if start < 0 {
-		t.Fatal("未找到 td.actions 的 flex 规则")
+		t.Fatal("未找到 td.actions")
 	}
 	block := css[start:]
 	block = block[:strings.Index(block, "}")]
-	if strings.Contains(block, "margin-left") {
-		t.Error("操作列同时用了 gap 与 margin-left，间距会不一致")
+	if strings.Contains(block, "display: flex") {
+		t.Error("操作列仍在用 flex，会把单元格移出列布局")
+	}
+	if !strings.Contains(block, "text-align: right") {
+		t.Error("操作列没有用右对齐")
+	}
+	// 按钮之间靠右外边距留白：无论单行还是折行，间距一致，也不必特判首尾。
+	if !strings.Contains(css, "td.actions button {") ||
+		!strings.Contains(css, "margin: 0 8px 0 0") {
+		t.Error("操作列的按钮缺少间距")
+	}
+	if !strings.Contains(css, "td.actions button:last-child { margin-right: 0; }") {
+		t.Error("最后一个按钮没有去掉右边距，会与单元格边缘不齐")
+	}
+	// 不再强制统一宽度：四个标签都是两个字，自然就齐。
+	if strings.Contains(css, "td.actions > button { min-width") {
+		t.Error("操作按钮仍在被强制统一宽度")
 	}
 }
 
@@ -1278,22 +1302,23 @@ func TestAccountTableUsesAutomaticLayout(t *testing.T) {
 	if strings.Contains(base, "table-layout: fixed") {
 		t.Error("账号表用了固定布局，列宽不足时内容会被裁而不是让邻居收缩")
 	}
-
-	// 列宽不再硬编码；只给需要的内容一个下限。
+	// 列宽不硬编码，只给需要的内容一个下限。
 	if regexp.MustCompile(`table\.accounts td:nth-child\(\d\) \{ width:`).MatchString(css) {
 		t.Error("账号表仍在硬编码列宽")
 	}
 	for _, want := range []string{
 		`table.accounts td[data-label="账号"] { min-width: 190px; }`,
 		`table.accounts td[data-label="积分"] { min-width: 130px; }`,
-		`table.accounts td.actions { width: 1%; }`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("账号表缺少 %s", want)
 		}
 	}
-
-	// 两张表都不该用固定布局。
+	// 操作列不得声明宽度：哪怕 1% 也会与自动布局相争，把格子压塌。
+	if strings.Contains(css, "table.accounts td.actions { width:") {
+		t.Error("操作列声明了宽度，会与自动布局相争")
+	}
+	// 两张表都不用固定布局。
 	if strings.Contains(css, "table.data { table-layout: fixed") {
 		t.Error("任务表也被改成了固定布局")
 	}
@@ -1345,26 +1370,101 @@ func TestVariantButtonsMatchStoredValues(t *testing.T) {
 //
 // 这条曾经靠「表格最小宽度 × 操作列百分比」来算，前提是固定布局。改用自动布局后
 // 宽度由内容决定，能保证的只有按钮自身的最小宽度与表格的整体下限。
-func TestAccountActionColumnFitsItsButtons(t *testing.T) {
+func TestActionColumnIsNotConstrained(t *testing.T) {
+	// 这一列不声明宽度：交给自动布局按按钮自身的尺寸给足空间，账号列吸收余量。
+	// 先前试过 min-width 与 1% 两种约束，前者让行宽超出卡片，后者把格子压塌。
+	css := cssForTest()
+	if strings.Contains(css, "table.accounts td.actions { width:") {
+		t.Error("操作列仍被声明了宽度")
+	}
+	if strings.Contains(css, "table.accounts td.actions > button { min-width") {
+		t.Error("操作按钮仍被强制统一宽度")
+	}
+	// 表格自身有下限，窄屏时靠容器滚动。
+	if !strings.Contains(css, "table.accounts { min-width: 900px; }") {
+		t.Error("账号表缺少最小宽度，窄屏下会被压扁")
+	}
+}
+
+// 表格单元格一律不用 flex。
+//
+// 这是「签到压住积分」与「按钮下方横线错位」的共同原因：flex 会把 <td> 从表格的列布局
+// 里拿出来，宽度不再与邻居一起计算，高度也不再按同一个规则推导——行下方的横线因此遇到
+// 一个高度不同的盒子，看上去错了一级。手机端表格整体横向滚动，这个问题看不出来。
+//
+// 媒体查询里的 table.stack 是另一回事：那里整套是「折成卡片」的呈现，整张表已经不是表格。
+func TestTableCellsAreNeverFlex(t *testing.T) {
 	css := cssForTest()
 
-	m := regexp.MustCompile(`table\.accounts \{ min-width: (\d+)px`).FindStringSubmatch(css)
-	if m == nil {
-		t.Fatal("账号表没有声明最小宽度")
+	desktop := css
+	if i := strings.Index(css, "@media"); i >= 0 {
+		desktop = css[:i]
 	}
-	btn := regexp.MustCompile(`table\.accounts td\.actions > button \{ min-width: (\d+)px`).FindStringSubmatch(css)
-	if btn == nil {
-		t.Fatal("账号表的按钮没有声明最小宽度")
-	}
-	atoi := func(s string) int {
-		n := 0
-		for _, ch := range s {
-			n = n*10 + int(ch-'0')
+	reRule := regexp.MustCompile(`(?m)^([^@\n][^{]*?)\{([^}]*)\}`)
+	for _, m := range reRule.FindAllStringSubmatch(desktop, -1) {
+		selector, body := strings.TrimSpace(m[1]), m[2]
+		if !strings.Contains(selector, "td") {
+			continue
 		}
-		return n
+		if strings.Contains(body, "display: flex") || strings.Contains(body, "display:flex") {
+			t.Errorf("选择器 %q 对单元格用了 flex，会把它移出列布局", selector)
+		}
 	}
-	needed := 4*atoi(btn[1]) + 3*6 + 24
-	if atoi(m[1]) < needed {
-		t.Errorf("表格最小宽 %spx 放不下四个按钮（约需 %dpx）", m[1], needed)
+
+	// 两张仍在横向滚动的表，在窄屏下也不许用 flex。
+	if i := strings.Index(css, "@media (max-width: 768px)"); i >= 0 {
+		for _, m := range reRule.FindAllStringSubmatch(css[i:], -1) {
+			selector, body := strings.TrimSpace(m[1]), m[2]
+			if !strings.Contains(selector, "table.accounts") && !strings.Contains(selector, "table.data") {
+				continue
+			}
+			if strings.Contains(selector, "td") && strings.Contains(body, "display: flex") {
+				t.Errorf("窄屏下 %q 对单元格用了 flex", selector)
+			}
+		}
+	}
+}
+
+// 操作列的按钮靠右对齐，间距由按钮自身的右外边距提供。
+func TestActionButtonsSitOnARightAlignedRail(t *testing.T) {
+	css := cssForTest()
+
+	start := strings.Index(css, "td.actions {")
+	if start < 0 {
+		t.Fatal("未找到 td.actions")
+	}
+	block := css[start:]
+	block = block[:strings.Index(block, "}")]
+	for _, want := range []string{"text-align: right", "vertical-align: middle", "white-space: nowrap"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("操作列缺少 %s", want)
+		}
+	}
+	if !strings.Contains(css, "td.actions button {") ||
+		!strings.Contains(css, "margin: 0 8px 0 0") {
+		t.Error("操作列的按钮缺少 8px 间距")
+	}
+}
+
+// 样式表里同一选择器不得重复声明。
+//
+// 多轮修改留下了几份重复：table.accounts 的最小宽度写了两次（900 与 1000），按钮内边距
+// 两份（10px 与 9px），td:first-child 与 data-label="账号" 各写一次。后一份静默覆盖前
+// 一份，改了一处却看不到效果——正是排查这类错位最费时间的地方。
+func TestStylesheetHasNoDuplicateSelectors(t *testing.T) {
+	css := cssForTest()
+
+	counts := map[string]int{}
+	for _, m := range regexp.MustCompile(`(?m)^([.#a-zA-Z][^{@\n]*?)\s*\{`).FindAllStringSubmatch(css, -1) {
+		sel := strings.TrimSpace(m[1])
+		// 样式表里两处同名的规则是有意保留的例外，逐个说明：
+		//   .warn-text / .ok-text 通过 var() 取色，出现两次是有历史原因的同值声明——
+		//   这里不豁免，直接合并掉。
+		counts[sel]++
+	}
+	for sel, n := range counts {
+		if n > 1 {
+			t.Errorf("选择器 %q 声明了 %d 次，后者会静默覆盖前者", sel, n)
+		}
 	}
 }
