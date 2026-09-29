@@ -11,10 +11,23 @@ import (
 )
 
 const (
-	pluginName    = "workbuddy"
-	pluginVersion = "0.13.85"
-	pluginAuthor  = "BlackHawk"
-	pluginRepo    = "https://github.com/router-for-me/CLIProxyAPI"
+	// pluginName is the plugin's identifier, and it has to stay directory-safe.
+	//
+	// CPA derives the routes from it — /v0/management/<pluginName>,
+	// /v0/resource/plugins/<pluginName> — and the plugin resolves its data directory
+	// with it. Changing this would break every request the panel makes and orphan the
+	// stored configuration, so it is not a label.
+	pluginName = "workbuddy"
+	// pluginDisplayName is what a person reads.
+	//
+	// CPA shows Metadata.Name in the authorisation page, where it is interpolated into
+	// sentences like "通过插件提供的 OAuth 流程登录 {{name}}". The identifier above is
+	// lower-case because it has to be; this is the name that appears in prose, so it
+	// carries the product's capitalisation.
+	pluginDisplayName = "WorkBuddy"
+	pluginVersion     = "0.13.85"
+	pluginAuthor      = "BlackHawk"
+	pluginRepo        = "https://github.com/router-for-me/CLIProxyAPI"
 )
 
 // envelope is the CPA RPC envelope:
@@ -269,7 +282,7 @@ func buildRegistration() registration {
 	return registration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata: pluginapi.Metadata{
-			Name:             pluginName,
+			Name:             pluginDisplayName,
 			Version:          pluginVersion,
 			Author:           pluginAuthor,
 			GitHubRepository: pluginRepo,

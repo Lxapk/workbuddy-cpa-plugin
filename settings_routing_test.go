@@ -1816,3 +1816,44 @@ func TestClearingTheLogCoversEverySource(t *testing.T) {
 		t.Errorf("清空后应无条目，实际 %d：%+v", got, collectRequestLog(50))
 	}
 }
+
+// 插件的标识与显示名是两回事。
+//
+// CPA 用标识推导路由（/v0/management/<id>、/v0/resource/plugins/<id>），插件也用它定位
+// 数据目录；把标识改成大写会让面板发出的每个请求 404，并让已存的配置找不到。
+//
+// 而授权页面显示的是注册里的 Name，它会插进「通过插件提供的 OAuth 流程登录 {{name}}」
+// 这样的句子里——那里要的是产品的大小写，不是目录安全的标识。
+func TestIdentifierAndDisplayNameStaySeparate(t *testing.T) {
+	if pluginName != strings.ToLower(pluginName) {
+		t.Errorf("标识 %q 含大写，不再适合做路径段", pluginName)
+	}
+	if pluginDisplayName != "WorkBuddy" {
+		t.Errorf("显示名应为 WorkBuddy，实际 %q", pluginDisplayName)
+	}
+	if strings.ContainsAny(pluginName, "/ \t") {
+		t.Errorf("标识 %q 含路径分隔或空白", pluginName)
+	}
+
+	// 路由与数据目录必须仍用标识。
+	src := readSourceFile(t, "rpc.go")
+	if !strings.Contains(src, "Name:             pluginDisplayName,") {
+		t.Error("注册名没有使用显示名")
+	}
+	// 注册块之外不得出现显示名——它只用于展示。
+	for _, file := range []string{"checkin_page.go", "main_script.go", "quota_script.go", "yaml.go"} {
+		if strings.Contains(readSourceFile(t, file), "pluginDisplayName") {
+			t.Errorf("%s 用了显示名，路径类用途必须用标识", file)
+		}
+	}
+
+	// 路由仍在用标识。
+	for _, needle := range []string{
+		`"/v0/resource/plugins/" + pluginName`,
+		`"/v0/management/" + pluginName`,
+	} {
+		if !strings.Contains(readSourceFile(t, "checkin_page.go"), needle) {
+			t.Errorf("路由不再使用标识：%s", needle)
+		}
+	}
+}

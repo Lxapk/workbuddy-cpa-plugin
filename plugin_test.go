@@ -69,8 +69,10 @@ func TestRegistrationDeclaresPortedCapabilities(t *testing.T) {
 	if reg.SchemaVersion != pluginabi.SchemaVersion {
 		t.Fatalf("schema version = %d, want %d", reg.SchemaVersion, pluginabi.SchemaVersion)
 	}
-	if reg.Metadata.Name != pluginName {
-		t.Fatalf("name = %q, want %q", reg.Metadata.Name, pluginName)
+	// 注册名是展示用的：CPA 把它插进授权页面的句子里，所以带产品的大小写。
+	// 用于路由与数据目录的标识是另一个常量，见 TestIdentifierAndDisplayNameStaySeparate。
+	if reg.Metadata.Name != pluginDisplayName {
+		t.Fatalf("name = %q, want %q", reg.Metadata.Name, pluginDisplayName)
 	}
 	caps := reg.Capabilities
 	if !caps.FrontendAuthProvider || !caps.RequestInterceptor ||
