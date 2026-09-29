@@ -1067,8 +1067,11 @@ func TestAccountCellsCentreTheirControls(t *testing.T) {
 // 而「展开任务」是四字，每行的起点都不同。
 func TestTableActionButtonsShareAWidth(t *testing.T) {
 	css := uiCSS
-	if !strings.Contains(css, "td.actions > button { min-width: 62px; text-align: center; }") {
+	if !strings.Contains(css, "td.actions > button { margin-left: 0; min-width: 62px; text-align: center; }") {
 		t.Error("操作按钮没有统一最小宽度")
+	}
+	if !strings.Contains(css, "table.accounts td.actions > button { min-width: 58px; }") {
+		t.Error("账号表的按钮没有自己的宽度")
 	}
 	// 间距只由 gap 提供，逐按钮的 margin 会让第一个按钮比其余的更近。
 	start := strings.Index(css, "td.actions {\n  display: flex")
@@ -1132,8 +1135,12 @@ func TestSupplierSwitchesAreWired(t *testing.T) {
 			t.Errorf("%s 的按钮没有 data-value，脚本无法判断该高亮哪个", segID)
 		}
 	}
-	if got := strings.Count(settings, `data-value=`); got < 6 {
-		t.Errorf("两组各有三项，data-value 应有 6 个，实际 %d", got)
+	// 调用范围三项，授权归属两项（只要国内与国际，不再有「跟随」）。
+	if got := strings.Count(settings, `data-value=`); got != 5 {
+		t.Errorf("data-value 应有 5 个（3 + 2），实际 %d", got)
+	}
+	if strings.Contains(settings, `data-value="follow"`) {
+		t.Error("授权归属仍有「跟随」选项，应只保留国内与国际")
 	}
 
 	// 两个分组各有自己的消息位与「当前…」行，脚本用 id + Effect 后缀找后者。
@@ -1253,22 +1260,42 @@ func TestCallTallyRecognisesBothIdentifiers(t *testing.T) {
 //
 // auto 布局按内容定尺寸：账号格有名字与 uid 两行，比邻居高，于是每行下方的横线落在
 // 不同高度，整张表看着错位。
-func TestAccountTableDeclaresItsGeometry(t *testing.T) {
+// 账号表与任务表用同一套布局策略。
+//
+// 曾经给账号表强制 table-layout: fixed 并手算六列百分比。算术没错，渲染仍然错位：
+// 固定布局不能借用空间，账号列装的是 46 个字符的标签，声明的份额比它窄，于是标签被裁、
+// 旁边的格子跟着移位。任务表从来没这么做，也就从来没歪过。两张表现在都交给浏览器按
+// 内容分配宽度。
+func TestAccountTableUsesAutomaticLayout(t *testing.T) {
 	css := cssForTest()
+
+	start := strings.Index(css, "table.accounts {")
+	if start < 0 {
+		t.Fatal("未找到 table.accounts")
+	}
+	base := css[start:]
+	base = base[:strings.Index(base, "}")]
+	if strings.Contains(base, "table-layout: fixed") {
+		t.Error("账号表用了固定布局，列宽不足时内容会被裁而不是让邻居收缩")
+	}
+
+	// 列宽不再硬编码；只给需要的内容一个下限。
+	if regexp.MustCompile(`table\.accounts td:nth-child\(\d\) \{ width:`).MatchString(css) {
+		t.Error("账号表仍在硬编码列宽")
+	}
 	for _, want := range []string{
-		"table.accounts { min-width: 1000px; table-layout: fixed; }",
-		"table.accounts td { height: 56px;",
+		`table.accounts td[data-label="账号"] { min-width: 190px; }`,
+		`table.accounts td[data-label="积分"] { min-width: 130px; }`,
+		`table.accounts td.actions { width: 1%; }`,
 	} {
 		if !strings.Contains(css, want) {
-			t.Errorf("账号表缺少几何约束 %s", want)
+			t.Errorf("账号表缺少 %s", want)
 		}
 	}
-	// 六列各有权重，否则固定布局会平均分。
-	for i := 1; i <= 6; i++ {
-		needle := "table.accounts th:nth-child(" + string(rune('0'+i)) + ")"
-		if !strings.Contains(css, needle) {
-			t.Errorf("第 %d 列没有声明宽度", i)
-		}
+
+	// 两张表都不该用固定布局。
+	if strings.Contains(css, "table.data { table-layout: fixed") {
+		t.Error("任务表也被改成了固定布局")
 	}
 }
 
@@ -1314,32 +1341,30 @@ func TestVariantButtonsMatchStoredValues(t *testing.T) {
 // 固定布局的代价是列宽不可伸缩：声明得过窄，内容不会挤压邻居，而是直接盖过去。
 // 操作列要放四个按钮（4×58px 加间距约 250px），先前只分到 167px，「成功 / 失败」那格
 // 因此被按钮压住。
-func TestAccountColumnsFitTheirContent(t *testing.T) {
+// 操作列的内容要放得下，无论表格如何分配宽度。
+//
+// 这条曾经靠「表格最小宽度 × 操作列百分比」来算，前提是固定布局。改用自动布局后
+// 宽度由内容决定，能保证的只有按钮自身的最小宽度与表格的整体下限。
+func TestAccountActionColumnFitsItsButtons(t *testing.T) {
 	css := cssForTest()
 
-	// 取表格的最小宽度与操作列占比，算出它实际拿到的像素。
 	m := regexp.MustCompile(`table\.accounts \{ min-width: (\d+)px`).FindStringSubmatch(css)
 	if m == nil {
 		t.Fatal("账号表没有声明最小宽度")
 	}
-	minWidth := 0
-	for _, ch := range m[1] {
-		minWidth = minWidth*10 + int(ch-'0')
+	btn := regexp.MustCompile(`table\.accounts td\.actions > button \{ min-width: (\d+)px`).FindStringSubmatch(css)
+	if btn == nil {
+		t.Fatal("账号表的按钮没有声明最小宽度")
 	}
-
-	m = regexp.MustCompile(`table\.accounts td:nth-child\(6\) \{ width: (\d+)%`).FindStringSubmatch(css)
-	if m == nil {
-		t.Fatal("操作列没有声明宽度")
+	atoi := func(s string) int {
+		n := 0
+		for _, ch := range s {
+			n = n*10 + int(ch-'0')
+		}
+		return n
 	}
-	share := 0
-	for _, ch := range m[1] {
-		share = share*10 + int(ch-'0')
-	}
-
-	actionsPx := minWidth * share / 100
-	// 四个按钮的最小宽度（62px，见 td.actions > button）加三个 6px 间隙，再留出内边距。
-	const needed = 4*62 + 3*6 + 24
-	if actionsPx < needed {
-		t.Errorf("操作列只分到 %dpx，需要约 %dpx，按钮会压到相邻列", actionsPx, needed)
+	needed := 4*atoi(btn[1]) + 3*6 + 24
+	if atoi(m[1]) < needed {
+		t.Errorf("表格最小宽 %spx 放不下四个按钮（约需 %dpx）", m[1], needed)
 	}
 }

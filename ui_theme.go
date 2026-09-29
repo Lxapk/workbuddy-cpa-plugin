@@ -333,7 +333,6 @@ td { padding: 11px 14px; border-bottom: 1px solid var(--border-color); vertical-
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.actions { white-space: nowrap; text-align: right; }
 /* The action cell lays its buttons out as a row with a real gap.
    Buttons are inline-block, and HTML collapses the whitespace between two of them to a
    single space — which in a Go string built across several lines is often no space at
@@ -342,64 +341,50 @@ td.actions { white-space: nowrap; text-align: right; }
 td.actions {
   display: flex; align-items: center; justify-content: flex-end;
   gap: 6px; flex-wrap: nowrap;
+  white-space: nowrap;
 }
-td.actions > button { margin-left: 0; }
 /* Actions in a table share a width.
  *
  * Sizing each button to its own label left the group's left edge ragged from row to row —
  * "签到 / 余额 / 任务 / 禁用" are two characters each but "展开任务" is four, so the
  * cluster started at a different x on every line. A minimum width makes the column of
  * controls line up. */
-td.actions > button { min-width: 62px; text-align: center; }
+td.actions > button { margin-left: 0; min-width: 62px; text-align: center; }
+/* The account table's controls are a touch tighter: four of them per row alongside the
+   tally, and 62px each needs more width than the card has. */
 table.accounts td.actions > button { min-width: 58px; }
 /* The error text is the only long cell in the call log; cap it so it wraps instead of
    pushing the table wider than the card. */
 td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: break-word; }
 
 /* ---------- account rows ---------- */
-/* The account table has eight columns, so it gets its own rules rather than reusing
-   the generic table: the credit bar and the usage chips need sizes tuned to what they
-   contain, and the row would be unreadable if everything were left to auto layout.
-
-   Column widths are declared rather than inferred. With auto layout the browser sizes
-   each column to its content, and because the account cell holds a name and a uid it
-   came out taller than its neighbours — so the horizontal rules separating rows landed
-   at different heights and the row looked out of true. Declaring the widths also keeps
-   the action column from growing every time a label changes. */
-table.accounts { min-width: 1000px; table-layout: fixed; }
-table.accounts td, table.accounts th { vertical-align: middle; padding: 10px 12px; }
-/* Column widths are declared rather than inferred.
+/* The account table follows the same approach as the task table: automatic layout, with
+   the browser sizing columns to their content.
  *
- * Auto layout sizes each column to its content, and because the account cell holds a
- * name and a uid it came out taller than its neighbours — so the rows' horizontal rules
- * landed at different heights. Fixed layout gives one straight line per row, but it also
- * means a column that is too narrow cannot borrow from a neighbour: its content simply
- * overflows across the border. The action column needs room for four buttons
- * (4 × 58px + 3 × 6px gaps ≈ 250px) and the tally needs to hold "12 / 3" without
- * wrapping, so both get their share up front.
+ * An earlier attempt forced table-layout: fixed with hand-computed percentage widths.
+ * The arithmetic was right and the rendering was still wrong, because a fixed layout
+ * cannot borrow space: the account column holds a 46-character label, its declared share
+ * was narrower than that, and rather than the neighbour shrinking the label was clipped
+ * and the cells beside it shifted. The task table never had any of that and never
+ * misaligned. Leaving the widths to the browser and giving the one long cell a floor
+ * keeps both tables behaving the same way.
  *
  * Account  Realm  State  Credits  Tally  Actions */
-table.accounts th:nth-child(1), table.accounts td:nth-child(1) { width: 25%; }
-table.accounts th:nth-child(2), table.accounts td:nth-child(2) { width: 8%; }
-table.accounts th:nth-child(3), table.accounts td:nth-child(3) { width: 9%; }
-table.accounts th:nth-child(4), table.accounts td:nth-child(4) { width: 17%; }
-table.accounts th:nth-child(5), table.accounts td:nth-child(5) { width: 11%; }
-table.accounts th:nth-child(6), table.accounts td:nth-child(6) { width: 30%; }
-/* Every cell in a row is the same height, so the border under the row is one straight
-   line rather than a step where a two-line cell meets a one-line neighbour. */
-table.accounts td { height: 56px; box-sizing: border-box; }
-/* The uid under the name is secondary; it must not push the cell taller than the
-   declared row height. */
-table.accounts td .uid { line-height: 1.4; }
-/* Realm, state and tally are single short values: one line, centred. */
+table.accounts { min-width: 900px; }
+table.accounts td, table.accounts th {
+  width: auto; vertical-align: middle; padding: 10px 12px;
+}
+/* The account cell holds a label and its identifier, so it gets the room it needs and the
+   table is allowed to scroll inside its wrapper if that exceeds the viewport. */
+table.accounts td[data-label="账号"] { min-width: 190px; }
+/* Short values stay on one line. */
 table.accounts td[data-label="区域"],
 table.accounts td[data-label="状态"],
 table.accounts td[data-label="成功 / 失败"] { white-space: nowrap; }
-/* An overflow guard: with a fixed layout anything that does not fit is clipped rather
-   than written over the neighbouring column. The action cell is exempt — clipping a
-   button would hide a control entirely, and its width is declared to fit. */
-table.accounts td:not(.actions) { overflow: hidden; }
-table.accounts td.actions { overflow: visible; }
+/* The one long value — the credit ratio — needs room for "3735 / 4600" plus its bar. */
+table.accounts td[data-label="积分"] { min-width: 130px; }
+/* Actions keep their own width; the label column absorbs the slack instead. */
+table.accounts td.actions { width: 1%; }
 /* The account cell is two lines (name, realm) while its neighbours are one line tall.
    Middle alignment centres them relative to the row, which reads as correct — but the
    controlling cells themselves need to centre their content, or a button sits at the
@@ -530,9 +515,6 @@ header > button + button,
 .foot > button + button,
 td.actions > button + button,
 .sched-row button + button { margin-left: 8px; }
-/* A wrapping cluster keeps a row-gap too, so a second line is not cramped against the
-   first. */
-td.actions { gap: 6px; }
 button.ok-btn { background: color-mix(in srgb, var(--success-color) 14%, transparent); color: var(--success-color); border-color: transparent; }
 button.ok-btn:hover { border-color: var(--success-color); }
 button.idle-btn { background: var(--bg-tertiary); color: var(--text-tertiary); }
@@ -608,17 +590,6 @@ label.field input[type=number] { width: 74px; }
    title and the refresh button on one line. */
 .seg-sm { width: auto; }
 .seg-sm button { padding: 4px 9px; font-size: 12px; }
-
-/* A wider control column for the tasks card, whose controls are rows of settings rather
-   than a short segmented picker. */
-.setting-control-wide { flex: 1 1 420px; align-items: stretch; }
-.setting-control-wide .sched-row { padding: 6px 0; border-bottom: none; }
-.setting-control-wide .seg { width: auto; }
-
-/* A row of immediate actions, with the breathing room the schedule rows have. */
-.action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.action-row button { margin-left: 0; }
-.action-row .primary { padding: 6px 14px; font-size: 13px; }
 
 /* ---------- settings groups ---------- */
 /* A heading between groups of cards. Cards alone do not say which settings belong
@@ -716,7 +687,6 @@ label.field input[type=number] { width: 74px; }
 .task-detail table { font-size: 12.5px; }
 .task-detail th, .task-detail td { padding: 7px 10px; }
 .ok-text { color: var(--success-color); }
-.warn-text { color: var(--quota-medium-color); }
 /* A disabled account's left strip is muted so an enabled one stands out in a long
    list. */
 .bar.idle-bar { opacity: .62; }
@@ -891,7 +861,6 @@ details > summary { cursor: pointer; }
      Letting the controls wrap turned a 52px row into a 400px one — four buttons
      stacked vertically, which is what made the table "too tall" on a phone. The
      column is allowed to be wide instead; the table scrolls. */
-  table.accounts td.actions { white-space: nowrap; }
   /* The one cell that is allowed to wrap: error text. A nowrap error would make the
      call log arbitrarily wide. */
   table.data td.wrap { white-space: normal; }

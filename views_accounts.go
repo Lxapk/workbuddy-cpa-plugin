@@ -180,14 +180,17 @@ func renderAccountRow(a workBuddyAccount) string {
 
 	// Name with the uid abbreviated underneath.
 	b.WriteString(`<td class="bar ` + bar + `" data-label="账号">`)
-	// The name only. The realm is its own column: alongside the name it competed for the
-	// same width and wrapped unpredictably, and a column is also what the reader scans
-	// when the question is "which of these is international".
-	b.WriteString(`<strong>` + html.EscapeString(a.Label) + `</strong>`)
-	if ident != "" && ident != a.Label {
-		b.WriteString(`<div class="uid mono" title="` + html.EscapeString(ident) + `">` +
-			html.EscapeString(shortenUID(ident)) + `</div>`)
+	// The label is "WorkBuddy <uuid>" — a name and an identifier. Split for display: the
+	// name on the first line, the identifier beneath it. On one line the pair is 46
+	// characters, which no sane column width holds, and clipping it mid-uuid is worse
+	// than useless because two accounts then look identical up to the cut.
+	displayName, identifier := splitAccountLabel(a.Label, ident)
+	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(displayName) + `</strong>`)
+	if identifier != "" {
+		b.WriteString(`<span class="uid mono" title="` + html.EscapeString(identifier) + `">` +
+			html.EscapeString(identifier) + `</span>`)
 	}
+	b.WriteString(`</div>`)
 	b.WriteString(`</td>`)
 
 	// Realm, in its own cell.
@@ -300,6 +303,52 @@ func renderCreditsCell(a workBuddyAccount, ident string) string {
 	return b.String()
 }
 
+// splitAccountLabel separates a display name from its identifier.
+//
+// Credentials are labelled "WorkBuddy <uuid>" by the host inventory. The prefix carries
+// no information when every row has it, and the uuid is what distinguishes one account
+// from another — so the two are rendered on separate lines: the name reads as a heading,
+// the identifier as the detail.
+func splitAccountLabel(label, ident string) (name, identifier string) {
+	label = strings.TrimSpace(label)
+	ident = strings.TrimSpace(ident)
+
+	// A label of the form "<prefix> <uuid>" where the uuid is the credential id.
+	if parts := strings.Fields(label); len(parts) >= 2 {
+		last := parts[len(parts)-1]
+		if last == ident || looksLikeUID(last) {
+			return strings.Join(parts[:len(parts)-1], " "), last
+		}
+	}
+	// A bare uuid as the label.
+	if looksLikeUID(label) {
+		return firstNonEmpty(shortenUID(label), label), ""
+	}
+	if ident != "" && ident != label {
+		return label, ident
+	}
+	return label, ""
+}
+
+// looksLikeUID reports whether a token has the shape of a credential identifier —
+// a hex-and-dash uuid, which is what the host uses.
+func looksLikeUID(token string) bool {
+	if len(token) < 32 {
+		return false
+	}
+	dashes := 0
+	for _, r := range token {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		case r == '-':
+			dashes++
+		default:
+			return false
+		}
+	}
+	return dashes >= 4
+}
+
 // shortenUID trims a long identifier for display, keeping both ends so it is still
 // recognisable against the full value shown on hover.
 func shortenUID(uid string) string {
@@ -364,18 +413,20 @@ func renderVariantBox(settings gatewaySettings) string {
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="setting-control"><div class="seg" id="authSeg">`)
 	for _, opt := range []struct{ v, label, title string }{
-		{"follow", "跟随上面", "与「调用时使用哪些账号」选同一侧"},
+		// Two options, not three. "Follow the call setting" was a third state that had to
+		// be reasoned about ("follow … which is currently …"), and the call setting is
+		// often "all", which has no realm — so the follow choice quietly resolved to
+		// domestic anyway. Naming the two realms directly says what will happen.
 		{"cn", "国内", "新授权记为 codebuddy.cn 账号"},
 		{"ai", "国际", "新授权记为 workbuddy.ai 账号"},
 	} {
 		b.WriteString(`<button type="button" class="` +
-			map[bool]string{true: "on", false: ""}[opt.v == settings.AuthSupplier] + `"` +
+			map[bool]string{true: "on", false: ""}[opt.v == authSupplierValue(settings.AuthSupplier)] + `"` +
 			` data-value="` + opt.v + `"` +
 			` data-call="setAuthSupplier" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="setting-effect" id="authSegEffect"` +
-		` data-follow="当前：新授权跟随「调用时使用哪些账号」的选择。"` +
 		` data-cn="当前：新授权记为国内账号。"` +
 		` data-ai="当前：新授权记为国际账号。">` +
 		authSupplierEffect(settings.AuthSupplier, settings.VariantOverride) + `</div>`)
@@ -401,22 +452,27 @@ func variantEffect(variant string) string {
 	}
 }
 
+// authSupplierValue maps a stored authorisation choice onto one of the two realms.
+//
+// The setting used to accept "follow", meaning "use whatever the call setting uses".
+// That third state is gone from the UI, but a stored value of "follow" — or an empty
+// one, which is the field's default — must still resolve to something, and domestic is
+// where the follow case landed anyway when calls were set to "all".
+func authSupplierValue(stored string) string {
+	switch strings.TrimSpace(stored) {
+	case string(variantAi):
+		return string(variantAi)
+	default:
+		return string(variantCn)
+	}
+}
+
 // authSupplierEffect spells out the current authorisation-side choice.
 func authSupplierEffect(supplier, variant string) string {
-	switch supplier {
-	case "cn":
-		return `当前：新授权记为国内账号。`
-	case "ai":
-		return `当前：新授权记为国际账号。`
+	switch authSupplierValue(supplier) {
+	case string(variantAi):
+		return `当前：新授权记为国际账号（workbuddy.ai）。`
 	default:
-		switch variant {
-		case "cn":
-			return `当前：新授权记为国内账号（跟随「调用时使用哪些账号」）。`
-		case "ai":
-			return `当前：新授权记为国际账号（跟随「调用时使用哪些账号」）。`
-		default:
-			return `当前：因为「调用时使用哪些账号」是「全部」，新授权会记为国内账号。` +
-				`如果这次要授权国际账号，请先把它改成「仅国际」。`
-		}
+		return `当前：新授权记为国内账号（codebuddy.cn）。`
 	}
 }
