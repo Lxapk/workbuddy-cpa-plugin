@@ -1468,3 +1468,50 @@ func TestStylesheetHasNoDuplicateSelectors(t *testing.T) {
 		}
 	}
 }
+
+// 面板的时间一律用固定的北京时间。
+//
+// 插件跑在 CPA 进程内，而该进程没有可靠的时区：Android 沙箱里 TZ 未设置，本地时区就是
+// UTC，而看面板的人在东八区。调用时间戳按 UTC 记，趋势就把 15:30 的调用标成 07:00，
+// 日界线也落在本地 08:00。固定时区让数字与墙上的钟一致，无论宿主怎么启动。
+func TestPanelTimesUseBeijingTime(t *testing.T) {
+	// 时区必须是 +08:00，且带名字（可用时用 Asia/Shanghai，否则退化为固定偏移）。
+	_, offset := time.Now().In(panelLocation).Zone()
+	if offset != 8*60*60 {
+		t.Errorf("面板时区偏移 %d 秒，应为 28800（+08:00）", offset)
+	}
+
+	// 一个落在 UTC 与北京时间不同日的时刻，必须归到北京时间那一天。
+	// 2026-03-10 23:00 UTC 就是 03-11 07:00 北京。
+	utcLate := time.Date(2026, 3, 10, 23, 0, 0, 0, time.UTC)
+	if got := utcLate.In(panelLocation).Format("2006-01-02"); got != "2026-03-11" {
+		t.Errorf("UTC 23:00 在北京时间应属 03-11，得到 %s", got)
+	}
+
+	// 桶按面板时区归档。
+	log := newCallLog(10)
+	log.add(callRecord{ProviderID: "p", StartedAt: utcLate, PromptTokens: 1, CompletionTokens: 1})
+	daily := log.dailyUsage()
+	if len(daily) != 1 || daily[0].Date != "2026-03-11" {
+		t.Errorf("日桶没有按北京时间归档：%+v", daily)
+	}
+	hourly := log.hourlyUsage()
+	if len(hourly) != 1 || hourly[0].Date != "2026-03-11 07" {
+		t.Errorf("小时桶没有按北京时间归档：%+v", hourly)
+	}
+}
+
+// 时间轴标签上的小时不得重复补零。
+//
+// Go 的 15 动词产出零填充的 "07"，而脚本里写的是 hm[1] < 10——字符串与数字比较，JS 把
+// "07" 转成 7，判定需要补零，于是又加一个零，7 点显示成 "0007:00"。
+func TestHourLabelDoesNotDoublePad(t *testing.T) {
+	script := mainPageScript()
+
+	if !strings.Contains(script, "parseInt(hm[1], 10)") {
+		t.Error("小时标签没有先把字符串转成数字再补零")
+	}
+	if strings.Contains(script, "hm[1] < 10 ? '0' + hm[1]") {
+		t.Error("仍在用字符串与数字比较来判断补零")
+	}
+}

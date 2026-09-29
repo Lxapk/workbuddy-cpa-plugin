@@ -322,7 +322,9 @@ func resolveContext(requestID string, headers http.Header, model, requestedModel
 	}
 	ctx.Stream = stream
 	if ctx.StartedAt.IsZero() {
-		ctx.StartedAt = nowUTC()
+		// Local, not UTC: these stamps are bucketed into hours and days and the labels
+		// are printed as-is, so they have to be wall-clock times in the operator's zone.
+		ctx.StartedAt = nowPanel()
 	}
 	return ctx
 }
@@ -331,7 +333,7 @@ func elapsed(ctx requestContext) int64 {
 	if ctx.StartedAt.IsZero() {
 		return 0
 	}
-	return nowUTC().Sub(ctx.StartedAt).Milliseconds()
+	return nowPanel().Sub(ctx.StartedAt).Milliseconds()
 }
 
 // extractUsage pulls the "usage" object out of a non-streaming response.

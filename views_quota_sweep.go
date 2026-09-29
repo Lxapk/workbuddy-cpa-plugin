@@ -36,7 +36,7 @@ func renderQuotaSweepNotes() string {
 	if len(failed) == 0 {
 		b.WriteString(`<div class="foot">全部 ` + fmt.Sprint(len(lastRun)) + ` 个账号的积分已更新`)
 		if !ranAt.IsZero() {
-			b.WriteString(` · ` + ranAt.Local().Format("15:04"))
+			b.WriteString(` · ` + ranAt.In(panelLocation).Format("15:04"))
 		}
 		b.WriteString(`</div>`)
 		return b.String()

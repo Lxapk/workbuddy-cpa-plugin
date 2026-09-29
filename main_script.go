@@ -973,14 +973,20 @@ function updateEffectLine(segId, value) {
       parts.push('</g>');
 
       // Axis label, trimmed to what actually varies.
-      //   "2006-01-02"        → 01-02   (the year only matters across a January)
+      //   "2006-01-02"        → 09-29   (the year only matters across a January)
       //   "2006-01-02 15"     → 15:00   (the date is the same on every bar)
-      // A full ISO stamp under every bar is unreadable at phone widths.
+      //
+      // Go's 15 verb is zero-padded, so the hour already arrives as "07". The previous
+      // version compared hm[1] against the number 10, which converts the string to 7,
+      // decides it needs padding and prepends another zero — the hour 7 rendered as
+      // "0007:00". Padding has to be applied to the digits, not to a string that may
+      // already carry it.
       var stamp = String(day.date);
       var shortLabel;
       if (stamp.indexOf(' ') > 0) {
         var hm = stamp.split(' ');
-        shortLabel = (hm[1] < 10 ? '0' + hm[1] : hm[1]) + ':00';
+        var hour = parseInt(hm[1], 10);
+        shortLabel = (isNaN(hour) ? hm[1] : (hour < 10 ? '0' : '') + hour) + ':00';
       } else {
         var ymd = stamp.split('-');
         shortLabel = ymd.length === 3 ? (ymd[1] + '-' + ymd[2]) : stamp;

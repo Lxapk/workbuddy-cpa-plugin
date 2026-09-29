@@ -404,7 +404,7 @@ func statusPage() string {
 			}
 			cooldown := "-"
 			if !lane.CooldownUntil.IsZero() {
-				cooldown = lane.CooldownUntil.Local().Format("15:04:05")
+				cooldown = lane.CooldownUntil.In(panelLocation).Format("15:04:05")
 			}
 			b.WriteString("<tr><td>" + html.EscapeString(lane.Provider) + "</td>")
 			b.WriteString("<td>" + html.EscapeString(firstNonEmpty(lane.Label, lane.UID)) + "</td>")
@@ -427,7 +427,7 @@ func statusPage() string {
 			if rec.StatusCode >= 400 || rec.Error != "" {
 				class = "bad"
 			}
-			b.WriteString("<tr><td>" + rec.StartedAt.Local().Format("15:04:05") + "</td>")
+			b.WriteString("<tr><td>" + rec.StartedAt.In(panelLocation).Format("15:04:05") + "</td>")
 			b.WriteString("<td>" + html.EscapeString(rec.ProviderID) + "</td>")
 			b.WriteString("<td><code>" + html.EscapeString(rec.Model) + "</code></td>")
 			b.WriteString("<td class=\"" + class + "\">" + fmt.Sprint(rec.StatusCode) + "</td>")

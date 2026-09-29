@@ -141,7 +141,7 @@ func renderAccountRow(a workBuddyAccount) string {
 		detail = a.Reason
 	case !a.CooldownUntil.IsZero() && time.Now().Before(a.CooldownUntil):
 		pillClass, statusText = "warn", "冷却中"
-		detail = "至 " + a.CooldownUntil.Local().Format("15:04")
+		detail = "至 " + a.CooldownUntil.In(panelLocation).Format("15:04")
 	}
 
 	ident := firstNonEmpty(a.UID, a.AuthIndex)

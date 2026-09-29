@@ -382,7 +382,7 @@ func (s *checkinState) record(run *checkinRun) {
 		s.history = s.history[:checkinHistoryMax]
 	}
 	if run.Trigger == "auto" && run.FinishedAt.After(run.StartedAt) {
-		s.lastAutoDay = run.StartedAt.Format("2006-01-02")
+		s.lastAutoDay = run.StartedAt.In(panelLocation).Format("2006-01-02")
 	}
 }
 

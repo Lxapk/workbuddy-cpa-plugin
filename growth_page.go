@@ -309,7 +309,7 @@ func renderGrowthSection() string {
 			b.WriteString(`<td class="num" data-label="失败">` + itoa(run.Failed) + `</td>`)
 			finished := "—"
 			if !run.FinishedAt.IsZero() {
-				finished = run.FinishedAt.Format("01-02 15:04")
+				finished = run.FinishedAt.In(panelLocation).Format("01-02 15:04")
 			}
 			b.WriteString(`<td class="muted small" data-label="完成时间">` + finished + `</td>`)
 			b.WriteString(`</tr>`)

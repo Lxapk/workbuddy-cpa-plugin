@@ -413,9 +413,15 @@ table.accounts td button { display: inline-flex; align-items: center; vertical-a
 /* The task table's first cell is two lines like the accounts page, so its control cells
    need the same centring. */
 table.data.tasks td { vertical-align: middle; }
-table.data.tasks td[data-label="账号"] { min-width: 150px; }
+/* The account cell carries a name and its identifier on two lines, the same as the
+   accounts page. It needs the same floor, or the identifier is ellipsised here and shown
+   in full there — the same credential rendered two different ways. */
+table.data.tasks td[data-label="账号"] { min-width: 190px; }
+/* The realm tag and the participation button sit on the row's centre line. */
 table.data.tasks td[data-label="参与"] > button,
 table.data.tasks td[data-label="状态"] > .pill { display: inline-flex; align-items: center; }
+/* The uid line under the name is secondary, on both tables. */
+table.data.tasks td .uid { line-height: 1.4; }
 
 /* Row controls are compact: four of them per row, and at full size they would dominate
    the table. Padding is trimmed and the label kept short ("禁用" not "停用该账号"). */

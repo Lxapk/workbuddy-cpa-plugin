@@ -342,7 +342,7 @@ func humanizeUntil(until time.Time) string {
 	default:
 		phrase = fmt.Sprintf("%d 秒后", int(remaining.Seconds()))
 	}
-	return fmt.Sprintf("%s（%s）", phrase, until.Format("15:04:05"))
+	return fmt.Sprintf("%s（%s）", phrase, until.In(panelLocation).Format("15:04:05"))
 }
 
 // triedAuthSet reads the already-attempted auth ids from scheduler metadata.

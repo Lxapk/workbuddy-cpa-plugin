@@ -12,7 +12,9 @@ import (
 // 忘了开新桶，昨天的量会被算进今天。两者都不会报错，只会让运营看到错误的走势。
 func TestDailyUsageBucketsByCalendarDay(t *testing.T) {
 	log := newCallLog(100)
-	base := time.Date(2026, 3, 10, 23, 0, 0, 0, time.UTC)
+	// 桶按面板展示的时区（北京时间）归类，所以测试也用那个时区构造时刻。若用 UTC 构造，
+	// 23:00 UTC 已经是次日 07:00，三条会落进同一天——那是正确行为，只是测不到跨天。
+	base := time.Date(2026, 3, 10, 23, 0, 0, 0, panelLocation)
 
 	log.add(callRecord{ProviderID: "p", StartedAt: base, PromptTokens: 10, CompletionTokens: 1})
 	log.add(callRecord{ProviderID: "p", StartedAt: base.Add(30 * time.Minute), PromptTokens: 20, CompletionTokens: 2})

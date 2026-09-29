@@ -215,7 +215,7 @@ func renderCallTable(recent []callRecord) string {
 		}
 		when := "—"
 		if !rec.StartedAt.IsZero() {
-			when = rec.StartedAt.Local().Format("15:04:05")
+			when = rec.StartedAt.In(panelLocation).Format("15:04:05")
 		}
 		tokens := fmt.Sprint(rec.PromptTokens) + " / " + fmt.Sprint(rec.CompletionTokens)
 

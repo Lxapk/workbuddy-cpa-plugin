@@ -357,7 +357,7 @@ func renderRun(run checkinRun) string {
 		trigger = run.Trigger
 	}
 	b.WriteString(`<div class="card"><div class="muted">` +
-		html.EscapeString(run.StartedAt.Local().Format("2006-01-02 15:04:05")) +
+		html.EscapeString(run.StartedAt.In(panelLocation).Format("2006-01-02 15:04:05")) +
 		` · ` + html.EscapeString(trigger))
 	if !run.FinishedAt.IsZero() {
 		b.WriteString(` · 耗时 ` + html.EscapeString(run.FinishedAt.Sub(run.StartedAt).Round(time.Millisecond).String()))

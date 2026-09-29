@@ -98,9 +98,12 @@ const hourlyUsageKept = 24
 // Called with the lock held. Periods with no traffic are not synthesised: the panel
 // fills the gaps so a bar chart can show an empty slot as empty rather than absent.
 func (l *callLog) rollDaily(rec callRecord) {
-	stamp := rec.StartedAt
-	if stamp.IsZero() {
-		stamp = time.Now()
+	// Both the record's own stamp and the fallback are put into the panel's zone before
+	// the keys are built. A record written before the zone was pinned still carries an
+	// offset, and formatting it as-is would file it under the wrong hour.
+	stamp := rec.StartedAt.In(panelLocation)
+	if rec.StartedAt.IsZero() {
+		stamp = nowPanel()
 	}
 
 	l.hourly = foldBucket(l.hourly, stamp.Format("2006-01-02 15"), hourlyUsageKept, rec)

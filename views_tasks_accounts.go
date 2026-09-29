@@ -167,8 +167,19 @@ func renderTaskAccountRow(row taskRow) string {
 		map[bool]string{true: "1", false: "0"}[row.Enabled] + `">`)
 
 	// Account: the name only. The realm is the next column, as on the accounts page.
+	// Account: rendered exactly as the accounts page renders it — the name on the first
+	// line, the credential id beneath it in small mono type. Two tables naming the same
+	// accounts should name them the same way; this one used to print the whole label on
+	// one line, so the same credential looked different depending on which tab you were
+	// looking at.
 	b.WriteString(`<td class="` + rowClass + `" data-label="账号">`)
-	b.WriteString(`<strong>` + html.EscapeString(row.Label) + `</strong>`)
+	displayName, identifier := splitAccountLabel(row.Label, row.UID)
+	b.WriteString(`<div class="acct-name"><strong>` + html.EscapeString(displayName) + `</strong>`)
+	if identifier != "" {
+		b.WriteString(`<span class="uid mono" title="` + html.EscapeString(identifier) + `">` +
+			html.EscapeString(identifier) + `</span>`)
+	}
+	b.WriteString(`</div>`)
 	b.WriteString(`</td>`)
 
 	// Realm.

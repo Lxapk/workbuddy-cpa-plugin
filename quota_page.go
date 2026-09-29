@@ -216,7 +216,7 @@ func quotaPage() string {
 	writeCard("已知额度合计", totalText)
 	writeCard("已查询账号", fmt.Sprintf("%d / %d", known, accounts))
 	if !lastRunAt.IsZero() {
-		writeCard("上次刷新", lastRunAt.Local().Format("15:04:05"))
+		writeCard("上次刷新", lastRunAt.In(panelLocation).Format("15:04:05"))
 	}
 	b.WriteString(`</div>`)
 

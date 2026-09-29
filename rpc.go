@@ -12,7 +12,7 @@ import (
 
 const (
 	pluginName    = "workbuddy"
-	pluginVersion = "0.13.81"
+	pluginVersion = "0.13.82"
 	pluginAuthor  = "BlackHawk"
 	pluginRepo    = "https://github.com/router-for-me/CLIProxyAPI"
 )
@@ -497,4 +497,32 @@ func logf(format string, _ ...any) {
 // recordingEnabled reports whether the plugin should record a call.
 func recordingEnabled() bool { return true }
 
+// nowUTC returns the current time in UTC.
+//
+// Kept for the few places that need an unambiguous instant. Call timestamps are NOT one
+// of them: the panel buckets them into hours and days and prints those labels, so they
+// have to be wall-clock times in the operator's zone.
 func nowUTC() time.Time { return time.Now().UTC() }
+
+// panelLocation is the time zone the panel displays times in.
+//
+// Beijing time, fixed rather than taken from the environment. The plugin runs inside the
+// CPA process, and that process has no reliable time zone: under the Android sandbox it
+// starts with TZ unset, so the local zone is UTC while the person reading the panel is
+// eight hours ahead. The trend then labelled a 15:30 call as 07:00, and the day boundary
+// fell at 08:00 local. Pinning the zone makes the figures match the clock on the wall
+// regardless of how the host was started.
+//
+// A machine whose clock is set to Asia/Shanghai needs nothing; one that is not still sees
+// correct Beijing times, which is the point.
+var panelLocation = func() *time.Location {
+	if loc, errLoad := time.LoadLocation("Asia/Shanghai"); errLoad == nil {
+		return loc
+	}
+	// No zoneinfo database: a fixed +08:00 offset is exactly equivalent for this zone
+	// (China has observed no daylight saving since 1991).
+	return time.FixedZone("CST", 8*60*60)
+}()
+
+// nowPanel returns the current time in the zone the panel displays.
+func nowPanel() time.Time { return time.Now().In(panelLocation) }
