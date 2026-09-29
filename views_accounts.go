@@ -244,43 +244,97 @@ func shortenUID(uid string) string {
 }
 
 // renderVariantBox draws the provider selection.
+// renderVariantBox draws the two supplier settings.
+//
+// They are shown as two separate groups rather than two rows of identical segmented
+// buttons. Both are "pick one of three", so without a structural break the eye reads
+// them as one question asked twice — and the two really are different: one decides
+// which credentials serve a call, the other which realm a new authorisation belongs to.
 func renderVariantBox(settings gatewaySettings) string {
 	var b strings.Builder
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>供应商 <span class="hint">仅影响模型调用</span></h3><span class="grow"></span>`)
-	// The segmented controls apply on click, so no "apply" button is needed: one
-	// would only add a step that changes nothing.
+	b.WriteString(`<header><h3>供应商</h3><span class="grow"></span>`)
+	b.WriteString(`<span class="note" id="variantMsg"></span>`)
 	b.WriteString(`</header>`)
-	b.WriteString(`<div class="pad">`)
-	b.WriteString(`<div class="note">调用设置 <span class="hint">决定<b>调用</b>时使用哪些账号，不影响已登录账号的归属</span></div>`)
-	b.WriteString(`<div class="seg" id="variantSeg">`)
+
+	// ---- what calls use ----
+	b.WriteString(`<div class="setting-group">`)
+	b.WriteString(`<div class="setting-label">`)
+	b.WriteString(`<span class="name">调用时使用哪些账号</span>`)
+	b.WriteString(`<span class="desc">决定一次模型调用会拿到哪一组凭据。已登录的账号不受影响——它们只是被排除在调用之外。</span>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="setting-control"><div class="seg" id="variantSeg">`)
 	for _, opt := range []struct{ v, label, title string }{
-		{"auto", "全部供应商", "两组账号都参与调用"},
-		{"cn", "国内供应商", "只调用 codebuddy.cn 账号"},
-		{"ai", "国际供应商", "只调用 workbuddy.ai 账号"},
+		{"auto", "全部", "国内与国际账号都参与调用"},
+		{"cn", "仅国内", "只调用 codebuddy.cn 账号"},
+		{"ai", "仅国际", "只调用 workbuddy.ai 账号"},
 	} {
 		b.WriteString(`<button type="button" class="` +
 			map[bool]string{true: "on", false: ""}[opt.v == settings.VariantOverride] + `"` +
 			` data-call="setVariant" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
-	b.WriteString(`<div class="note" style="margin-top:12px">授权来源 <span class="hint">只决定授权走哪一侧；新授权在 CPA 的 OAuth 登录中完成</span></div>`)
-	b.WriteString(`<div class="seg">`)
-	for _, opt := range []struct{ v, label string }{
-		{"follow", "跟随调用设置"},
-		{"cn", "国内授权"},
-		{"ai", "国际授权"},
+	// Spell out what the current choice means, so the pill row does not have to be
+	// decoded.
+	b.WriteString(`<div class="setting-effect">` + variantEffect(settings.VariantOverride) + `</div>`)
+	b.WriteString(`</div></div>`)
+
+	// ---- where new authorisations go ----
+	b.WriteString(`<div class="setting-group">`)
+	b.WriteString(`<div class="setting-label">`)
+	b.WriteString(`<span class="name">新增授权的归属</span>`)
+	b.WriteString(`<span class="desc">在 CPA 的 OAuth 登录页完成授权时，这个账号算国内还是国际。只影响新授权，不改变已有账号。</span>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="setting-control"><div class="seg">`)
+	for _, opt := range []struct{ v, label, title string }{
+		{"follow", "跟随上面", "与「调用时使用哪些账号」选同一侧"},
+		{"cn", "国内", "新授权记为 codebuddy.cn 账号"},
+		{"ai", "国际", "新授权记为 workbuddy.ai 账号"},
 	} {
 		b.WriteString(`<button type="button" class="` +
 			map[bool]string{true: "on", false: ""}[opt.v == settings.AuthSupplier] + `"` +
-			` data-call="setAuthSupplier" data-arg0="` + opt.v + `">` + opt.label + `</button>`)
+			` data-call="setAuthSupplier" data-arg0="` + opt.v + `" title="` + opt.title + `">` + opt.label + `</button>`)
 	}
 	b.WriteString(`</div>`)
-	b.WriteString(`<span class="note" id="variantMsg"></span>`)
-	b.WriteString(`<div class="note" style="margin-top:12px"><strong>要两个供应商的账号</strong>：` +
-		`这里选国内授权 → 到 CPA 完成授权；再选国际授权 → 到 CPA 完成授权；` +
-		`之后把上面的调用设置保持为「全部供应商」，两组账号会一起参与调用。</div>`)
-	b.WriteString(`<span class="note" id="authMsg"></span>`)
+	b.WriteString(`<div class="setting-effect">` + authSupplierEffect(settings.AuthSupplier, settings.VariantOverride) + `</div>`)
 	b.WriteString(`</div></div>`)
+
+	b.WriteString(`<div class="foot">`)
+	b.WriteString(`<span class="note">要同时使用两个供应商：先把「新增授权的归属」设为国内，去 CPA 完成一次授权；` +
+		`再设为国际，完成第二次；最后把「调用时使用哪些账号」保持为「全部」。</span>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`</div>`)
 	return b.String()
+}
+
+// variantEffect spells out the current call-side choice.
+func variantEffect(variant string) string {
+	switch variant {
+	case "cn":
+		return `当前：只有国内账号会收到调用；国际账号即使已登录也不参与。成长任务同样只支持国内账号。`
+	case "ai":
+		return `当前：只有国际账号会收到调用；国内账号即使已登录也不参与。成长任务与签到需要国内账号，当前不可用。`
+	default:
+		return `当前：两组账号一起参与调用，按路由策略挑选。`
+	}
+}
+
+// authSupplierEffect spells out the current authorisation-side choice.
+func authSupplierEffect(supplier, variant string) string {
+	switch supplier {
+	case "cn":
+		return `当前：新授权记为国内账号。`
+	case "ai":
+		return `当前：新授权记为国际账号。`
+	default:
+		switch variant {
+		case "cn":
+			return `当前：新授权记为国内账号（跟随「调用时使用哪些账号」）。`
+		case "ai":
+			return `当前：新授权记为国际账号（跟随「调用时使用哪些账号」）。`
+		default:
+			return `当前：因为「调用时使用哪些账号」是「全部」，新授权会记为国内账号。` +
+				`如果这次要授权国际账号，请先把它改成「仅国际」。`
+		}
+	}
 }

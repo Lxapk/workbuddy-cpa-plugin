@@ -238,10 +238,16 @@ func renderSettingsView() string {
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-settings" hidden>`)
 
-	// Routing is a policy, not a property of the account list, so it belongs with the
-	// other settings.
+	// Three groups, in the order they matter: how calls are served, who may reach the
+	// panel, and which supplier a new authorisation belongs to. The page used to be a
+	// flat run of cards, so it was not obvious which settings were related.
+	b.WriteString(`<div class="group-head"><h2>调用与路由</h2>` +
+		`<span class="desc">决定一次模型调用如何挑选账号</span></div>`)
 	b.WriteString(renderRoutingBox(routingStatusJSON()))
+	b.WriteString(renderVariantBox(settings))
 
+	b.WriteString(`<div class="group-head"><h2>面板访问</h2>` +
+		`<span class="desc">浏览器如何向 CPA 证明自己的身份</span></div>`)
 	b.WriteString(`<div class="box">`)
 	b.WriteString(`<header><h3>管理密钥 <span class="hint">仅保存在本机浏览器</span></h3></header>`)
 	b.WriteString(`<div class="pad">`)
@@ -252,8 +258,6 @@ func renderSettingsView() string {
 	b.WriteString(`<div class="note" style="margin-top:9px">密钥仅存在本机 localStorage，随请求头发送，不经过插件。` +
 		`与 CPA 面板使用同一个 management key。</div>`)
 	b.WriteString(`</div></div>`)
-
-	b.WriteString(renderVariantBox(settings))
 
 	b.WriteString(`</section>`)
 	return b.String()

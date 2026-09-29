@@ -1042,6 +1042,17 @@ func mainPageScript() string {
 
     call(BASE + '/growth/tasks?uid=' + encodeURIComponent(uid))
       .then(function (payload) {
+        // 端点对「找不到账号」这类情况返回 HTTP 200 加 ok:false，所以不能只看状态码，
+        // 否则错误对象会被当成明细渲染成一片空白——原先就是这样，界面上只有
+        // 「查询失败」四个字，没有原因。
+        if (payload && payload.ok === false) {
+          slot.innerHTML = '';
+          var why = document.createElement('div');
+          why.className = 'note warn-text';
+          why.textContent = payload.error || '查询失败';
+          slot.appendChild(why);
+          return;
+        }
         slot.innerHTML = renderTaskDetail(payload);
       })
       .catch(function (e) {

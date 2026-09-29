@@ -437,16 +437,18 @@ func TestMainPageVariantNoteExplainsScope(t *testing.T) {
 	resetState()
 	page := renderMainPage()
 
-	// 文案说明「调用设置」只决定哪些账号参与调用，不改账号归属。
-	if !strings.Contains(page, "调用设置") {
-		t.Fatal("供应商卡缺少调用设置分组")
+	// 两组必须分开呈现，各自说清管什么。
+	if !strings.Contains(page, "调用时使用哪些账号") {
+		t.Fatal("供应商卡缺少调用分组")
 	}
-	if !strings.Contains(page, "授权来源") {
-		t.Fatal("供应商卡缺少授权来源分组")
+	if !strings.Contains(page, "新增授权的归属") {
+		t.Fatal("供应商卡缺少授权分组")
 	}
-	// 两组必须分开呈现：一组管调用，一组管新授权走哪边。
-	if !strings.Contains(page, "只决定授权走哪一侧") {
-		t.Fatal("授权来源没有说明它管什么")
+	if !strings.Contains(page, "只影响新授权") {
+		t.Fatal("授权分组没有说明它管什么")
+	}
+	if !strings.Contains(page, "已登录的账号不受影响") {
+		t.Fatal("调用分组没有说明它不影响账号归属")
 	}
 	// The stale claim must be gone.
 	if strings.Contains(page, "则强制全部账号") {
@@ -470,23 +472,23 @@ func TestMainPageSplitsCallScopeFromAuthorisation(t *testing.T) {
 	if !strings.Contains(page, "供应商") {
 		t.Fatal("missing the 供应商 heading")
 	}
-	if !strings.Contains(page, "仅影响模型调用") {
+	if !strings.Contains(page, "决定一次模型调用会拿到哪一组凭据") {
 		t.Fatal("the call switch must say it only affects model calls")
 	}
-	for _, needle := range []string{"全部供应商", "国内供应商", "国际供应商"} {
+	for _, needle := range []string{">全部<", ">仅国内<", ">仅国际<"} {
 		if !strings.Contains(page, needle) {
 			t.Errorf("the call switch is missing the %s option", needle)
 		}
 	}
-	if !strings.Contains(page, "决定<b>调用</b>时使用哪些账号") {
+	if !strings.Contains(page, "决定一次模型调用会拿到哪一组凭据") {
 		t.Fatal("the call switch does not explain that it scopes which accounts are called")
 	}
-	if !strings.Contains(page, "不影响已登录账号的归属") {
+	if !strings.Contains(page, "已登录的账号不受影响") {
 		t.Fatal("the call switch must say accounts are not re-labelled")
 	}
 
 	// The authorisation switch, directly below it.
-	if !strings.Contains(page, "在 CPA 的 OAuth 登录中完成") {
+	if !strings.Contains(page, "在 CPA 的 OAuth 登录页完成授权") {
 		t.Fatal("the panel does not point the operator at CPA's OAuth entry")
 	}
 	for _, needle := range []string{"国内授权", "国际授权", "跟随调用设置"} {
@@ -494,16 +496,16 @@ func TestMainPageSplitsCallScopeFromAuthorisation(t *testing.T) {
 			t.Errorf("the authorisation switch is missing the %s option", needle)
 		}
 	}
-	if !strings.Contains(page, "只决定授权走哪一侧") {
+	if !strings.Contains(page, "只影响新授权") {
 		t.Fatal("the authorisation switch does not say it only chooses the auth side")
 	}
 	if !strings.Contains(page, "window.setAuthSupplier = function") {
 		t.Fatal("the authorisation switch has no handler")
 	}
 
-	// The two hosts must be named so the operator knows what to expect.
-	if !strings.Contains(page, "copilot.tencent.com") || !strings.Contains(page, "www.workbuddy.ai") {
-		t.Fatal("the panel does not name the host each authorisation choice uses")
+	// 两种归属各自的含义要能看出来（按钮的 title 里写明了域名）。
+	if !strings.Contains(page, "国内") || !strings.Contains(page, "国际") {
+		t.Fatal("the panel does not distinguish the two authorisation realms")
 	}
 	if strings.Contains(page, "版本切换") {
 		t.Fatal("the panel still says 版本切换")

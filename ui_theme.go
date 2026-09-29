@@ -258,11 +258,20 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .box > header .grow { flex: 1; min-width: 0; }
 .box > header .note { color: var(--text-secondary); font-size: 12.5px; }
 .box .pad { padding: var(--space-lg); }
+/* The footer holds a message and one or more actions. It is a flex row so the actions
+   keep a consistent gap instead of running together, and they wrap as a group rather
+   than each one landing wherever the text happens to end. */
 .box .foot {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 12px var(--space-lg);
   border-top: 1px solid var(--border-color);
   color: var(--text-secondary); font-size: 12.5px;
 }
+.box .foot .grow { flex: 1; min-width: 0; }
+.box .foot .note { margin-right: auto; }
+/* Actions sit together at the end, with a gap wide enough that adjacent buttons do not
+   look like one control. */
+.box .foot button + button { margin-left: 2px; }
 
 /* ======================= stats ======================= */
 /* Same card treatment as .box so the strip reads as one more card in the column
@@ -315,6 +324,16 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.actions { white-space: nowrap; text-align: right; }
+/* The action cell lays its buttons out as a row with a real gap.
+   Buttons are inline-block, and HTML collapses the whitespace between two of them to a
+   single space — which in a Go string built across several lines is often no space at
+   all. That is what made adjacent controls look fused. A flex gap fixes the spacing at
+   every count instead of relying on each caller to remember. */
+td.actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 6px; flex-wrap: nowrap;
+}
+td.actions > button { margin-left: 0; }
 /* The error text is the only long cell in the call log; cap it so it wraps instead of
    pushing the table wider than the card. */
 td.wrap { white-space: normal; min-width: 200px; max-width: 420px; word-break: break-word; }
@@ -403,6 +422,22 @@ button.danger:hover { background: color-mix(in srgb, var(--error-color) 12%, tra
 button.ghost { background: transparent; border-color: transparent; }
 button.ghost:hover { background: var(--bg-tertiary); border-color: transparent; }
 button.xs { padding: 5px 10px; font-size: 12.5px; border-radius: 6px; }
+
+/* Adjacent buttons need a gap.
+ *
+ * Buttons are inline-block, so two of them side by side have only the whitespace
+ * between the tags — which HTML collapses to nothing when they are written on
+ * consecutive lines of a Go string. The result was controls that looked fused, and in
+ * a wrapping row (the card header, the table's action column) they overlapped the
+ * neighbouring text. A sibling margin fixes every such pair at once instead of
+ * relying on each container to remember. */
+header > button + button,
+.foot > button + button,
+td.actions > button + button,
+.sched-row button + button { margin-left: 8px; }
+/* A wrapping cluster keeps a row-gap too, so a second line is not cramped against the
+   first. */
+td.actions { gap: 6px; }
 button.ok-btn { background: color-mix(in srgb, var(--success-color) 14%, transparent); color: var(--success-color); border-color: transparent; }
 button.ok-btn:hover { border-color: var(--success-color); }
 button.idle-btn { background: var(--bg-tertiary); color: var(--text-tertiary); }
@@ -445,6 +480,34 @@ label.field input[type=number] { width: 74px; }
 .seg button { border: none; border-radius: 0; background: transparent; }
 .seg button.on { background: var(--primary-color); color: var(--primary-contrast); }
 .seg button + button { border-left: 1px solid var(--border-primary); }
+
+/* ---------- settings groups ---------- */
+/* A heading between groups of cards. Cards alone do not say which settings belong
+   together; a heading does, and it lets the page be read at a glance. */
+.group-head { margin: 6px 0 10px; }
+.group-head:not(:first-child) { margin-top: 26px; }
+.group-head h2 { font-size: 15px; font-weight: 680; letter-spacing: -.01em; }
+.group-head .desc { display: block; color: var(--text-secondary); font-size: 12.5px; margin-top: 3px; }
+
+/* One setting: a label block on the left, the control on the right. Sized so the
+   description has room to explain and the control keeps a fixed column, which is what
+   makes two similar-looking rows read as two different settings. */
+.setting-group {
+  display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  padding: 16px var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+.setting-group:last-of-type { border-bottom: none; }
+.setting-label { flex: 1 1 260px; min-width: 0; }
+.setting-label .name { display: block; font-weight: 600; font-size: 13.5px; }
+.setting-label .desc {
+  display: block; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6;
+  margin-top: 4px;
+}
+.setting-control { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+/* The consequence of the current choice, in one line. A segmented control shows what
+   is selected but not what it means. */
+.setting-effect { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; max-width: 42ch; }
 
 /* ---------- run summary ---------- */
 /* The counts sit inline with the note that explains them, so the figure and its

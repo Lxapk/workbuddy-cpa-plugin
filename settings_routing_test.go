@@ -816,3 +816,68 @@ func TestTaskDetailHandlesEmptyRecord(t *testing.T) {
 		t.Error("空记录时应提示先执行一次")
 	}
 }
+
+// 不在成长任务范围内的账号，不该出现「展开任务」按钮。
+//
+// 成长任务中心仅国内版可用，执行端会据此过滤。页面上原先给每个账号都放了展开按钮，
+// 国际版账号点下去必然失败——而且失败信息还被前端吞掉，只剩「查询失败」四个字。
+func TestInternationalAccountsHaveNoGrowthControls(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	tasks := sectionOf(page, "view-tasks")
+
+	if tasks == "" {
+		t.Fatal("未找到任务页")
+	}
+	// 判断谓词要与执行端一致：空 variant 视为国内。
+	if !growthEligibleVariant("") {
+		t.Error("未知 variant 应按国内处理，与执行端默认一致")
+	}
+	if !growthEligibleVariant("cn") {
+		t.Error("国内版应在成长任务范围内")
+	}
+	if growthEligibleVariant("ai") {
+		t.Error("国际版不在成长任务范围内")
+	}
+}
+
+// 端点返回 ok:false 时必须显示原因，不能渲染成空白。
+func TestTaskDetailSurfacesServerSideError(t *testing.T) {
+	// 前端要把 ok:false 当成一条消息，而不是当成明细数据。
+	script := mainPageScript()
+	if !strings.Contains(script, "payload.ok === false") {
+		t.Error("前端没有检查 ok:false，服务端拒绝会被渲染成空白")
+	}
+	if !strings.Contains(script, "payload.error") {
+		t.Error("前端没有把服务端给出的原因显示出来")
+	}
+}
+
+// 任务明细要区分「未完成」与「无法代做」。
+//
+// 上游对需要真实桌面操作的任务给出 skip_reason。把它和未完成混在一起，剩余计数就是
+// 错的，也看不出为什么。
+func TestTaskDetailSeparatesSkippedFromPending(t *testing.T) {
+	detail := map[string]any{
+		"tasks": []any{
+			map[string]any{"name": "猫猫日常", "current": 1, "target": 1},
+			map[string]any{"name": "写文档", "current": 0, "target": 1},
+			map[string]any{"name": "资料库", "current": 0, "target": 1, "skip_reason": "需要真实桌面操作"},
+		},
+	}
+	out := renderTaskDetail(detail)
+
+	if !strings.Contains(out, "无法代做") {
+		t.Error("带 skip_reason 的任务应标为「无法代做」")
+	}
+	if !strings.Contains(out, "未完成") {
+		t.Error("应保留「未完成」这一态")
+	}
+	if !strings.Contains(out, "已完成") {
+		t.Error("应保留「已完成」这一态")
+	}
+	// 中文任务名优先于机器码。
+	if !strings.Contains(out, "猫猫日常") || !strings.Contains(out, "资料库") {
+		t.Error("明细应显示任务名")
+	}
+}
