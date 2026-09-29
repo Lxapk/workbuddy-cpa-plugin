@@ -929,6 +929,59 @@ func accountDisplayLabelFor(uid, authIndex string) string {
 	return authIndex
 }
 
+// recordAccountLabel resolves the account a call record belongs to, for display.
+//
+// A record written before the executor stamped identifiers carries CPA's runtime auth id
+// — sixteen hex digits, with no relationship to the credential's uid that the accounts
+// page shows. Neither the accounts page nor the pool recognise that string, so the call
+// list used to print it verbatim and the reader had no way to tell which account it was.
+//
+// The resolution order puts the authoritative sources first: the label the caller already
+// resolved, then the pool, then the credential inventory (which knows the auth_index →
+// uid mapping even for an account the pool never observed). Only when nothing matches is
+// the raw identifier shown — hiding it entirely would leave the row unattributable rather
+// than merely hard to read.
+func recordAccountLabel(rec callRecord) string {
+	if label := strings.TrimSpace(rec.Label); label != "" {
+		return label
+	}
+	identifier := strings.TrimSpace(rec.UID)
+	if identifier == "" {
+		return "—"
+	}
+
+	// The pool knows the accounts currently in rotation.
+	for _, lane := range state.pool.snapshot() {
+		if lane.UID != canonicalUID(identifier) && lane.UID != identifier {
+			continue
+		}
+		if name := strings.TrimSpace(lane.Label); name != "" {
+			return name
+		}
+		if lane.UID != "" {
+			return "WorkBuddy " + lane.UID
+		}
+	}
+
+	// The inventory covers accounts the pool has not seen this process — it is where the
+	// auth_index → uid mapping lives.
+	canonical := canonicalUID(identifier)
+	for _, account := range listWorkBuddyAccounts() {
+		if account.UID != canonical && account.AuthIndex != identifier && account.UID != identifier {
+			continue
+		}
+		if name := strings.TrimSpace(account.Label); name != "" {
+			return name
+		}
+		if account.UID != "" {
+			return "WorkBuddy " + account.UID
+		}
+	}
+
+	// Nothing matched. Show what the record holds rather than an empty cell.
+	return identifier
+}
+
 // variantOfDomain maps a credential's domain to the realm name the panel uses.
 func variantOfDomain(domain string) string {
 	if strings.Contains(strings.ToLower(domain), "codebuddy.cn") {

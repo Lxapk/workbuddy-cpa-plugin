@@ -221,7 +221,9 @@ func renderCallTable(recent []callRecord) string {
 		tokens := fmt.Sprint(rec.PromptTokens) + " / " + fmt.Sprint(rec.CompletionTokens)
 
 		b.WriteString(`<tr><td class="note mono" data-label="时间">` + html.EscapeString(when) + `</td>`)
-		b.WriteString(`<td data-label="账号">` + html.EscapeString(firstNonEmpty(rec.Label, rec.UID, "—")) + `</td>`)
+		// Resolved rather than printed: a record written before identifiers were stamped
+		// carries CPA's runtime auth id, which matches nothing the accounts page shows.
+		b.WriteString(`<td data-label="账号">` + html.EscapeString(recordAccountLabel(rec)) + `</td>`)
 		b.WriteString(`<td class="mono" data-label="模型">` + html.EscapeString(rec.Model) + `</td>`)
 		b.WriteString(`<td class="num" data-label="状态"><span class="pill ` + cls + `">` +
 			fmt.Sprint(rec.StatusCode) + `</span></td>`)
