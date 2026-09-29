@@ -524,6 +524,45 @@ function updateEffectLine(segId, value) {
   // between them without a round trip.
   var trendData = { hourly: [], daily: [], range: 'day' };
 
+  // switchLogTab shows one of the two lists on the records page.
+  //
+  // Calls and operational notes answer different questions, so they get a tab each
+  // rather than being mixed into one table where half of every row would be empty.
+  window.switchLogTab = function (which, button) {
+    var group = document.getElementById('logTab');
+    if (group) {
+      var btns = group.querySelectorAll('button');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('on', btns[i].getAttribute('data-log-tab') === which);
+      }
+    }
+    var calls = document.getElementById('logPaneCalls');
+    var notes = document.getElementById('logPaneNotes');
+    if (calls) calls.hidden = which !== 'calls';
+    if (notes) notes.hidden = which !== 'notes';
+    // The clear button only applies to the log; leaving it visible beside the call list
+    // would invite clearing the accounting figures.
+    var clear = document.querySelector('[data-call="clearRequestLog"]');
+    if (clear) clear.hidden = which !== 'notes';
+  };
+
+  // clearRequestLog empties the request log after a confirmation.
+  window.clearRequestLog = function (button) {
+    if (!window.confirm('清空请求日志？调用记录不受影响。')) return;
+    var original = button ? button.textContent : '';
+    if (button) button.disabled = true;
+    call(BASE + '/log/clear', { method: 'POST' })
+      .then(function (payload) {
+        msgSet('logMsg', '已清空 ' + ((payload && payload.removed) || 0) + ' 条', 'ok');
+        var pane = document.getElementById('logPaneNotes');
+        if (pane) pane.innerHTML = '<div class="empty">暂无请求日志。签到、任务、限流与禁用等事件会记在这里。</div>';
+      })
+      .catch(function (e) { msgSet('logMsg', '清空失败：' + e.message, 'bad'); })
+      .then(function () {
+        if (button) { button.disabled = false; button.textContent = original; }
+      });
+  };
+
   // refreshUsageTrend pulls both series and draws the current range.
   //
   // Fetched once for all three views: an hour's detail and a week's summary come from
@@ -1495,6 +1534,11 @@ function updateEffectLine(segId, value) {
       if (node.hasAttribute && node.hasAttribute('data-account-toggle')) {
         ev.preventDefault();
         toggleAccount(node.getAttribute('data-uid'), node.getAttribute('data-action'), node.getAttribute('data-auth-index') || '');
+        return;
+      }
+      if (node.hasAttribute && node.hasAttribute('data-log-tab')) {
+        ev.preventDefault();
+        switchLogTab(node.getAttribute('data-log-tab'), node);
         return;
       }
       if (node.hasAttribute && node.hasAttribute('data-trend-range')) {

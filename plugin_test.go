@@ -547,7 +547,7 @@ func TestInterceptResponseRecordsSuccessAndUsage(t *testing.T) {
 		Model:          "gpt-4o",
 		RequestedModel: "gpt-4o",
 		StatusCode:     http.StatusOK,
-		RequestHeaders: http.Header{"X-WorkBuddy-Provider": []string{"openai"}, "X-WorkBuddy-Auth-Id": []string{"acc-1"}},
+		RequestHeaders: http.Header{"X-WorkBuddy-Provider": []string{workBuddyProviderKey}, "X-WorkBuddy-Auth-Id": []string{"acc-1"}},
 		Body:           []byte(`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`),
 	})
 	if len(res) == 0 {
@@ -561,7 +561,7 @@ func TestInterceptResponseRecordsSuccessAndUsage(t *testing.T) {
 		t.Fatalf("token totals = %+v", totals)
 	}
 	rec := state.log.recent(1)[0]
-	if rec.ProviderID != "openai" || rec.UID != "acc-1" {
+	if rec.ProviderID != workBuddyProviderKey || rec.UID != "acc-1" {
 		t.Fatalf("record = %+v", rec)
 	}
 }
@@ -571,13 +571,13 @@ func TestInterceptResponseClassifiesFailure(t *testing.T) {
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
 		ConfigYAML: []byte("error_threshold: 1\n"),
 	})
-	state.pool.observe("openai", "acc-1", "acct")
+	state.pool.observe(workBuddyProviderKey, "acc-1", "acct")
 
 	callOK(t, pluginabi.MethodResponseInterceptAfter, pluginapi.ResponseInterceptRequest{
 		RequestID:      "r1",
 		Model:          "gpt-4o",
 		StatusCode:     http.StatusUnauthorized,
-		RequestHeaders: http.Header{"X-WorkBuddy-Provider": []string{"openai"}, "X-WorkBuddy-Auth-Id": []string{"acc-1"}},
+		RequestHeaders: http.Header{"X-WorkBuddy-Provider": []string{workBuddyProviderKey}, "X-WorkBuddy-Auth-Id": []string{"acc-1"}},
 		Body:           []byte(`{"error":{"message":"invalid key","code":"invalid_api_key"}}`),
 	})
 
@@ -585,7 +585,7 @@ func TestInterceptResponseClassifiesFailure(t *testing.T) {
 	if totals.TotalFailed != 1 {
 		t.Fatalf("failed = %d, want 1", totals.TotalFailed)
 	}
-	if lane := state.pool.pick("openai", nil, time.Now()); lane != nil {
+	if lane := state.pool.pick(workBuddyProviderKey, nil, time.Now()); lane != nil {
 		t.Fatal("credential should be cooling down after 401")
 	}
 }
@@ -621,7 +621,7 @@ func TestStreamChunkHeaderInit(t *testing.T) {
 		RequestID:       "s1",
 		ChunkIndex:      pluginapi.StreamChunkHeaderInitIndex,
 		Model:           "gpt-4o",
-		RequestHeaders:  http.Header{"X-WorkBuddy-Provider": []string{"openai"}},
+		RequestHeaders:  http.Header{"X-WorkBuddy-Provider": []string{workBuddyProviderKey}},
 		ResponseHeaders: http.Header{"Content-Type": []string{"text/event-stream"}},
 	})
 	var out pluginapi.StreamChunkInterceptResponse
@@ -638,7 +638,7 @@ func TestHandleUsageRecordsTotals(t *testing.T) {
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{})
 
 	callOK(t, pluginabi.MethodUsageHandle, pluginapi.UsageRecord{
-		Provider:    "openai",
+		Provider:    workBuddyProviderKey,
 		Model:       "gpt-4o",
 		AuthIndex:   "acc-9",
 		Stream:      true,
@@ -655,7 +655,7 @@ func TestHandleUsageRecordsTotals(t *testing.T) {
 	if totals.TotalCalls != 1 || totals.TotalPrompt != 100 || totals.TotalCompletion != 50 {
 		t.Fatalf("totals = %+v", totals)
 	}
-	if lane := state.pool.pick("openai", nil, time.Now()); lane == nil {
+	if lane := state.pool.pick(workBuddyProviderKey, nil, time.Now()); lane == nil {
 		t.Fatal("credential should be registered by the usage hook")
 	}
 }

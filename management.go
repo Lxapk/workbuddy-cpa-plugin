@@ -85,6 +85,11 @@ func managementRegistration() managementRegistrationResponse {
 				Path:        "/workbuddy/calls",
 				Description: "Recent reverse-proxy calls recorded by the WorkBuddy plugin.",
 			},
+			{
+				Method:      http.MethodPost,
+				Path:        "/workbuddy/log/clear",
+				Description: "Clear the request log (operational events, not call records).",
+			},
 			// The check-in page itself is also mounted on the management path so
 			// the browser can land there directly (and after a form POST).
 			{

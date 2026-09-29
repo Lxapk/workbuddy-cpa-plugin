@@ -27,14 +27,25 @@ func handleUsage(request []byte) ([]byte, error) {
 		model = rec.Alias
 	}
 
+	// Only this plugin's own traffic belongs in the call list.
+	//
+	// This hook is CPA-wide: it fires for every request the host handles, so the panel
+	// was showing other providers' calls — grok, gpt-oss and whatever else is configured
+	// — alongside the WorkBuddy accounts. A row from another provider has no account in
+	// this pool, no credit figure, and its failures say nothing about these credentials.
+	// Filtering at the entry means they never reach the counters, the pool or the list.
+	if !isWorkBuddyRecord(provider) {
+		return okEnvelope(map[string]any{})
+	}
+
 	// A caller hanging up is dropped before anything is written or counted.
 	//
-	// This is the hook that finally explained the 499 rows. CPA calls it after every
-	// request — including ones the client abandoned — and passes the failure detail
-	// through. The response interceptor never runs for an abandoned call and the
-	// executor's own report is guarded, so this was the remaining path: the record
-	// appeared in the panel and the failure was handed to the pool, which would bench an
-	// account that had been answering perfectly well until someone pressed stop.
+	// CPA calls this hook after every request — including ones the client abandoned — and
+	// passes the failure detail through. The response interceptor never runs for an
+	// abandoned call and the executor's own report is guarded, so this was the remaining
+	// path: the record appeared in the panel and the failure was handed to the pool,
+	// which would bench an account that had been answering perfectly well until someone
+	// pressed stop.
 	if rec.Failed && isClientAbortFailure(rec.Failure.StatusCode, rec.Failure.Body) {
 		return okEnvelope(map[string]any{})
 	}

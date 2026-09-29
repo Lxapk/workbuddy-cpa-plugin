@@ -16,10 +16,10 @@ func TestDailyUsageBucketsByCalendarDay(t *testing.T) {
 	// 23:00 UTC 已经是次日 07:00，三条会落进同一天——那是正确行为，只是测不到跨天。
 	base := time.Date(2026, 3, 10, 23, 0, 0, 0, panelLocation)
 
-	log.add(callRecord{ProviderID: "p", StartedAt: base, PromptTokens: 10, CompletionTokens: 1})
-	log.add(callRecord{ProviderID: "p", StartedAt: base.Add(30 * time.Minute), PromptTokens: 20, CompletionTokens: 2})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: base, PromptTokens: 10, CompletionTokens: 1})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: base.Add(30 * time.Minute), PromptTokens: 20, CompletionTokens: 2})
 	// 跨天：这条必须落到新的桶里。
-	log.add(callRecord{ProviderID: "p", StartedAt: base.Add(2 * time.Hour), PromptTokens: 30, CompletionTokens: 3})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: base.Add(2 * time.Hour), PromptTokens: 30, CompletionTokens: 3})
 
 	daily := log.dailyUsage()
 	if len(daily) != 2 {
@@ -43,9 +43,9 @@ func TestDailyUsageCountsFailures(t *testing.T) {
 	log := newCallLog(100)
 	now := time.Now()
 
-	log.add(callRecord{ProviderID: "p", StartedAt: now, StatusCode: http.StatusOK})
-	log.add(callRecord{ProviderID: "p", StartedAt: now, StatusCode: http.StatusTooManyRequests})
-	log.add(callRecord{ProviderID: "p", StartedAt: now, Error: "boom"})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: now, StatusCode: http.StatusOK})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: now, StatusCode: http.StatusTooManyRequests})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: now, Error: "boom"})
 
 	daily := log.dailyUsage()
 	if len(daily) != 1 {
@@ -65,7 +65,7 @@ func TestDailyUsageIsBounded(t *testing.T) {
 	start := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	for day := 0; day < dailyUsageKept+5; day++ {
-		log.add(callRecord{ProviderID: "p", StartedAt: start.AddDate(0, 0, day)})
+		log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: start.AddDate(0, 0, day)})
 	}
 
 	daily := log.dailyUsage()
@@ -87,8 +87,8 @@ func TestDailyUsageDoesNotInventEmptyDays(t *testing.T) {
 	log := newCallLog(100)
 	start := time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC)
 
-	log.add(callRecord{ProviderID: "p", StartedAt: start})
-	log.add(callRecord{ProviderID: "p", StartedAt: start.AddDate(0, 0, 3)})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: start})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: start.AddDate(0, 0, 3)})
 
 	daily := log.dailyUsage()
 	if len(daily) != 2 {
@@ -99,7 +99,7 @@ func TestDailyUsageDoesNotInventEmptyDays(t *testing.T) {
 // dailyUsage 返回副本，调用方改动不得影响内部状态。
 func TestDailyUsageReturnsCopy(t *testing.T) {
 	log := newCallLog(100)
-	log.add(callRecord{ProviderID: "p", StartedAt: time.Now()})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: time.Now()})
 
 	first := log.dailyUsage()
 	first[0].Calls = 999

@@ -45,6 +45,24 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 			}),
 		}, true
 
+	case "/log/clear":
+		if method != http.MethodPost {
+			return managementResponse{
+				StatusCode: http.StatusMethodNotAllowed,
+				Headers:    jsonResponseHeaders(),
+				Body:       mustJSON(map[string]any{"error": "POST required"}),
+			}, true
+		}
+		// Only the request log. The call list is the accounting behind the totals and the
+		// trend, so clearing it would leave those figures describing records that no
+		// longer exist.
+		removed := state.log.clearNotices()
+		return managementResponse{
+			StatusCode: http.StatusOK,
+			Headers:    jsonResponseHeaders(),
+			Body:       mustJSON(map[string]any{"ok": true, "removed": removed}),
+		}, true
+
 	case "/models":
 		return handleModelsRequest(req)
 

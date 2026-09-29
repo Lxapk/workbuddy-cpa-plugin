@@ -70,7 +70,7 @@ func renderNav() string {
 	for _, item := range []struct{ view, label string }{
 		{"view-accounts", "账号"},
 		{"view-tasks", "任务"},
-		{"view-usage", "用量"},
+		{"view-usage", "记录"},
 		{"view-settings", "设置"},
 	} {
 		b.WriteString(`<button type="button" class="tab" data-view="` + item.view + `">` +
@@ -133,9 +133,6 @@ func renderAccountsView() string {
 // renderUsageView is the traffic page.
 func renderUsageView() string {
 	totals := state.log.totals()
-	// Only model calls: the log also holds scheduler notices, which have no model and no
-	// tokens, and listing them here invites reading them as traffic.
-	recent := state.log.modelCallsOnly(60)
 
 	var b strings.Builder
 	b.WriteString(`<section class="view" id="view-usage" hidden>`)
@@ -178,13 +175,43 @@ func renderUsageView() string {
 	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 
+	// Two lists, one card. Calls and operational notes answer different questions —
+	// "what did the models serve" versus "what did the plugin itself do" — and mixing
+	// them made each harder to read, so they get a tab each. Calls come first because
+	// that is what the page is usually opened for.
+	calls := state.log.modelCallsOnly(logListLimit)
+	notes := state.log.noticeLog(logListLimit)
+
 	b.WriteString(`<div class="box">`)
-	b.WriteString(`<header><h3>最近调用 <span class="hint">` + fmt.Sprint(len(recent)) + ` 条</span></h3></header>`)
-	if len(recent) == 0 {
+	b.WriteString(`<header><h3>记录</h3>`)
+	b.WriteString(`<div class="seg seg-sm" id="logTab">`)
+	b.WriteString(`<button type="button" class="on" data-log-tab="calls">调用记录</button>`)
+	b.WriteString(`<button type="button" class="" data-log-tab="notes">请求日志</button>`)
+	b.WriteString(`</div>`)
+	b.WriteString(`<span class="grow"></span>`)
+	b.WriteString(`<span class="note" id="logMsg"></span>`)
+	// Clearing only the notes. The call list is the accounting the rest of the page is
+	// built from, so throwing it away would leave the totals describing records that are
+	// no longer there.
+	b.WriteString(`<button type="button" class="xs danger" data-call="clearRequestLog">清空日志</button>`)
+	b.WriteString(`</header>`)
+
+	b.WriteString(`<div class="log-pane" id="logPaneCalls">`)
+	if len(calls) == 0 {
 		b.WriteString(`<div class="empty">暂无调用记录。发起一次请求后这里会出现明细。</div>`)
 	} else {
-		b.WriteString(renderCallTable(recent))
+		b.WriteString(renderCallTable(calls))
 	}
+	b.WriteString(`</div>`)
+
+	b.WriteString(`<div class="log-pane" id="logPaneNotes" hidden>`)
+	if len(notes) == 0 {
+		b.WriteString(`<div class="empty">暂无请求日志。签到、任务、限流与禁用等事件会记在这里。</div>`)
+	} else {
+		b.WriteString(renderNoteTable(notes))
+	}
+	b.WriteString(`</div>`)
+
 	b.WriteString(`</div>`)
 
 	b.WriteString(`</section>`)

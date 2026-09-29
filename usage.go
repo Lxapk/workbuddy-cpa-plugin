@@ -43,9 +43,15 @@ type callRecord struct {
 // callLog ports V1.f2.C1121t: a bounded, newest-first ring of call records
 // (the APK keeps the newest 100 per provider shard and prunes older entries).
 type callLog struct {
-	mu   sync.Mutex
-	max  int
+	mu  sync.Mutex
+	max int
+	// recs holds call records only. Notices live in notices: keeping them apart means
+	// the call list is a direct read rather than a scan-and-filter, and a notice can
+	// never displace a call from the ring before anyone has seen it.
 	recs []callRecord
+	// notices holds informational records — scheduler notes, task summaries. They are
+	// shown where they belong rather than mixed in with traffic.
+	notices []callRecord
 
 	totalCalls  int64
 	totalFailed int64
@@ -141,9 +147,12 @@ func (l *callLog) addNotice(rec callRecord) {
 	rec.StartedAt = time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.recs = append([]callRecord{rec}, l.recs...)
-	if len(l.recs) > l.max {
-		l.recs = l.recs[:l.max]
+	// Notices have their own ring. Writing them into recs would put a non-call in the
+	// list the panel reads as traffic, and would let a note push a real call out of the
+	// history.
+	l.notices = append([]callRecord{rec}, l.notices...)
+	if len(l.notices) > l.max {
+		l.notices = l.notices[:l.max]
 	}
 }
 
@@ -178,18 +187,27 @@ func (l *callLog) add(rec callRecord) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// A notice is not a call: it is stored so the panel can show it, but it must not
-	// move any counter. Writing it as a zero-value record would otherwise inflate the
-	// call count, and giving it an Error string would put it in the failure column —
-	// which is how a note about the scheduler ended up in the failure trend.
-	notice := rec.Notice
+	// A notice goes to its own ring and touches nothing else. Keeping it out of recs
+	// means the call list holds calls and only calls, so reading it is a copy rather
+	// than a scan, and a note cannot push a call out of the ring.
+	if rec.Notice {
+		l.notices = append([]callRecord{rec}, l.notices...)
+		if len(l.notices) > l.max {
+			l.notices = l.notices[:l.max]
+		}
+		return
+	}
+
+	// A record without a model is not a call. Nothing should reach here that way — the
+	// call list is read as traffic, and a nameless row in it would be counted in the
+	// totals while telling the reader nothing. Dropping it keeps the ring honest.
+	if strings.TrimSpace(rec.Model) == "" {
+		return
+	}
 
 	l.recs = append([]callRecord{rec}, l.recs...)
 	if len(l.recs) > l.max {
 		l.recs = l.recs[:l.max]
-	}
-	if notice {
-		return
 	}
 
 	l.totalCalls++
@@ -301,27 +319,23 @@ func shutdownPlugin() {
 	stopQuotaScheduler()
 }
 
-// modelCallsOnly returns the most recent records that represent a model call.
+// modelCallsOnly returns the most recent calls, newest first.
 //
-// The log also carries records that are not calls: notices from the scheduler, the
-// summary a scheduled task pass writes. They are worth keeping for the panel to show,
-// but they have no model, no tokens and no upstream — listing them among the calls
-// invites reading them as traffic, which is how a note about credentials ended up
-// looking like a failed request. This filters them out.
+// Calls have their own ring, so this is a bounded copy rather than a scan of every
+// record followed by a filter. The list is fetched on a timer; walking the whole history
+// each time to discard notices was work with nothing to show for it.
 func (l *callLog) modelCallsOnly(limit int) []callRecord {
+	if limit < 1 {
+		limit = 1
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	out := make([]callRecord, 0, limit)
-	for _, rec := range l.recs {
-		if !isModelCall(rec) {
-			continue
-		}
-		out = append(out, rec)
-		if len(out) >= limit {
-			break
-		}
+	if limit > len(l.recs) {
+		limit = len(l.recs)
 	}
+	out := make([]callRecord, limit)
+	copy(out, l.recs[:limit])
 	return out
 }
 
@@ -344,13 +358,55 @@ func recordFailed(rec callRecord) bool {
 	return rec.Error != "" || rec.StatusCode >= 400
 }
 
-// isModelCall reports whether a record came from serving a model request.
+// isWorkBuddyRecord reports whether a record came from this plugin's provider.
 //
-// A call names a model. Notices name a task or nothing at all, and the scheduler's
-// notes are marked as notices outright.
-func isModelCall(rec callRecord) bool {
-	if rec.Notice {
-		return false
+// The provider key is the constant the plugin registers with; a record carrying anything
+// else was produced by a different part of CPA and is not this panel's business.
+func isWorkBuddyRecord(provider string) bool {
+	key := strings.ToLower(strings.TrimSpace(provider))
+	// Empty means the record predates the field or came from a path that does not fill
+	// it; those are this plugin's own records, so they stay.
+	if key == "" {
+		return true
 	}
-	return strings.TrimSpace(rec.Model) != ""
+	return key == workBuddyProviderKey || strings.Contains(key, workBuddyProviderKey)
+}
+
+// logListLimit caps both lists on the records page.
+//
+// A hundred is what the operator can scroll through, and it keeps the JSON the page
+// fetches small enough to be sent on a timer without noticing.
+const logListLimit = 100
+
+// noticeLog returns the most recent notices, newest first.
+//
+// Notices are the plugin's own operational events — sign-in results, task runs, an
+// account being parked or disabled. They live in their own ring and are read directly,
+// with no filtering.
+func (l *callLog) noticeLog(limit int) []callRecord {
+	if limit < 1 {
+		limit = 1
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if limit > len(l.notices) {
+		limit = len(l.notices)
+	}
+	out := make([]callRecord, limit)
+	copy(out, l.notices[:limit])
+	return out
+}
+
+// clearNotices drops the notice ring and reports how many went.
+//
+// Only notices. The call list is the accounting the totals and the trend are computed
+// from; discarding it would leave those figures describing records that are no longer
+// there.
+func (l *callLog) clearNotices() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := len(l.notices)
+	l.notices = nil
+	return n
 }

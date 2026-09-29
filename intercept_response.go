@@ -60,6 +60,16 @@ func interceptResponse(request []byte) ([]byte, error) {
 		return okEnvelope(pluginapi.ResponseInterceptResponse{})
 	}
 
+	// Only this plugin's own traffic is recorded.
+	//
+	// The interceptor is registered for the whole host, so its callback fires for every
+	// request CPA serves. A record from another provider has no account here, no credit
+	// figure, and its failures are not evidence about these credentials — putting one in
+	// the call list makes the panel report another product's problems.
+	if !isWorkBuddyRecord(ctx.Provider) {
+		return okEnvelope(pluginapi.ResponseInterceptResponse{})
+	}
+
 	// --- failure classification (V1/o.k step 9) ------------------------
 	if statusCode >= 400 {
 		upErr := classifyUpstream(statusCode, req.Body)

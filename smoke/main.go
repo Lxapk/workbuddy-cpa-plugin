@@ -181,17 +181,17 @@ func main() {
 	ok("routed openai/gpt-4o -> provider=openai model=gpt-4o (prefix stripped, stream preserved)")
 
 	// --- 5. response interception: usage accounting ---------------------
-	respResp := call(plugin, "response.intercept_after", json.RawMessage(`{"RequestID":"smoke-1","StatusCode":200,"Model":"gpt-4o","RequestedModel":"openai/gpt-4o","RequestHeaders":{"X-Aigw-Provider":["openai"],"X-Aigw-Auth-Id":["acc-smoke"]},"Body":"eyJjaG9pY2VzIjpbeyJtZXNzYWdlIjp7ImNvbnRlbnQiOiJoaSJ9fV0sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjEyLCJjb21wbGV0aW9uX3Rva2VucyI6NywidG90YWxfdG9rZW5zIjoxOX19"}`))
+	respResp := call(plugin, "response.intercept_after", json.RawMessage(`{"RequestID":"smoke-1","StatusCode":200,"Model":"gpt-4o","RequestedModel":"openai/gpt-4o","RequestHeaders":{"X-WorkBuddy-Provider":["codebuddy"],"X-WorkBuddy-Auth-Id":["acc-smoke"]},"Body":"eyJjaG9pY2VzIjpbeyJtZXNzYWdlIjp7ImNvbnRlbnQiOiJoaSJ9fV0sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjEyLCJjb21wbGV0aW9uX3Rva2VucyI6NywidG90YWxfdG9rZW5zIjoxOX19"}`))
 	assertOK(respResp, "response.intercept_after")
 	ok("response intercepted and recorded")
 
 	// --- 6. stream chunk interception ----------------------------------
-	streamResp := call(plugin, "response.intercept_stream_chunk", json.RawMessage(`{"RequestID":"smoke-2","ChunkIndex":0,"Model":"gpt-4o","RequestHeaders":{"X-Aigw-Provider":["openai"]}}`))
+	streamResp := call(plugin, "response.intercept_stream_chunk", json.RawMessage(`{"RequestID":"smoke-2","ChunkIndex":0,"Model":"gpt-4o","RequestHeaders":{"X-WorkBuddy-Provider":["codebuddy"]}}`))
 	assertOK(streamResp, "response.intercept_stream_chunk(header init)")
 	ok("stream header-init accepted")
 
 	// --- 7. usage hook -------------------------------------------------
-	usageResp := call(plugin, "usage.handle", json.RawMessage(`{"Provider":"openai","Model":"gpt-4o","AuthIndex":"acc-smoke","Stream":true,"RequestedAt":"2026-09-23T04:00:00Z","Latency":1500000000,"Detail":{"InputTokens":12,"OutputTokens":7,"TotalTokens":19}}`))
+	usageResp := call(plugin, "usage.handle", json.RawMessage(`{"Provider":"codebuddy","Model":"gpt-4o","AuthIndex":"acc-smoke","Stream":true,"RequestedAt":"2026-09-23T04:00:00Z","Latency":1500000000,"Detail":{"InputTokens":12,"OutputTokens":7,"TotalTokens":19}}`))
 	assertOK(usageResp, "usage.handle")
 	ok("usage recorded")
 
@@ -577,7 +577,7 @@ func main() {
 		die("combined page status=%d len=%d", homeEnv.StatusCode, len(homeEnv.Body))
 	}
 	home := string(homeEnv.Body)
-	for _, want := range []string{"管理密钥", "账号 <span", "每日签到", "账号与任务", "最近调用"} {
+	for _, want := range []string{"管理密钥", "账号 <span", "每日签到", "账号与任务", "调用记录"} {
 		if !strings.Contains(home, want) {
 			die("combined page missing %q", want)
 		}

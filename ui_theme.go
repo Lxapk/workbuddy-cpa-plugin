@@ -478,6 +478,17 @@ table.data.tasks td .uid { line-height: 1.4; }
 .notes-block { padding-top: 14px; padding-bottom: 14px; }
 .notes-block .note { line-height: 1.7; }
 
+/* ---------- records page ---------- */
+/* The two lists share one card and one header; a tab picks which is shown. Keeping them
+   in the same card means the heading, the count and the clear action stay put when
+   switching, rather than the whole block moving. */
+.log-pane { border-top: 1px solid var(--border-color); }
+.log-pane[hidden] { display: none; }
+/* The notes table is two narrow columns and one sentence, so it gets its own column
+   widths rather than the call table's. */
+table.data.notes th:nth-child(1), table.data.notes td:nth-child(1) { white-space: nowrap; }
+table.data.notes td[data-label="账号"] { min-width: 150px; }
+
 /* ======================= badges ======================= */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;

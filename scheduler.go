@@ -145,58 +145,6 @@ type schedulerCandidate struct {
 	ModelCoolModel string
 }
 
-// describeAuthInventory renders the host's view of every credential.
-//
-// This is the diagnostic for "why was this request refused": CPA decides
-// availability from each credential's unavailable / quota / next_retry_after, and
-// when a model is throttled on one credential the remaining one must still look
-// available or the request is refused outright with no usable explanation.
-func describeAuthInventory() string {
-	raw, errList := callHost("host.auth.list", map[string]any{})
-	if errList != nil || len(raw) == 0 {
-		return "host.auth.list 无响应"
-	}
-	var resp hostAuthListResponse
-	if errUnmarshal := json.Unmarshal(raw, &resp); errUnmarshal != nil {
-		return "host.auth.list 解析失败"
-	}
-	entries := hostAuthListEntries(resp)
-	if len(entries) == 0 {
-		return "host.auth.list 返回空"
-	}
-	parts := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		status := strings.TrimSpace(entry.Status)
-		if status == "" {
-			status = "-"
-		}
-		retry := "-"
-		if !entry.NextRetryAfter.IsZero() {
-			retry = entry.NextRetryAfter.UTC().Format(time.RFC3339)
-		}
-		parts = append(parts, fmt.Sprintf("%s/%s/unavail=%v/disabled=%v/retry=%s",
-			firstNonEmpty(entry.Label, entry.ID, entry.AuthIndex),
-			status, entry.Unavailable, entry.Disabled, retry))
-	}
-	return strings.Join(parts, " | ")
-}
-
-// describeCandidates renders a candidate list for diagnostics.
-func describeCandidates(candidates []pluginapi.SchedulerAuthCandidate) string {
-	if len(candidates) == 0 {
-		return "无"
-	}
-	parts := make([]string, 0, len(candidates))
-	for _, c := range candidates {
-		status := strings.TrimSpace(c.Status)
-		if status == "" {
-			status = "?"
-		}
-		parts = append(parts, c.ID+"/"+status)
-	}
-	return strings.Join(parts, ", ")
-}
-
 // collectCandidates ports A0/s.java:596's availability guard and folds in the
 // quota reading so strategies can rank by it.
 //
@@ -500,17 +448,20 @@ func schedulerPick(request []byte) ([]byte, error) {
 					req.Model, humanizeUntil(until)),
 			})
 		}
-		// Record what the host offered and why nothing survived: an empty list
-		// here is the difference between "every account is parked for this model"
-		// (correct) and "the host never offered the accounts we expected" (a bug
-		// that looks identical from the outside).
+		// Report that nothing was usable, in one sentence.
+		//
+		// The previous version dumped the host's candidate list and the full credential
+		// inventory into the message — a hundred-account wall that filled the call list
+		// and read like a crash. What the operator needs from this row is that the model
+		// went unserved and, when it did, why: every account is parked for this model, or
+		// the pool has nothing this request could use. The detail is available from the
+		// accounts page; it does not belong in a table cell.
+		reason := describeNoCandidateReason(len(req.Candidates), len(candidates), len(usableCandidates(candidates)))
 		state.log.add(callRecord{
 			ProviderID: req.Provider,
 			Model:      req.Model,
 			StatusCode: http.StatusServiceUnavailable,
-			Error: fmt.Sprintf("选号无候选：host 提供 %d 个（%s），本地 lanes=%d，账号状态=[%s]",
-				len(req.Candidates), describeCandidates(req.Candidates),
-				len(state.pool.snapshot()), describeAuthInventory()),
+			Error:      reason,
 		})
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
@@ -728,4 +679,54 @@ func (s *schedulerState) noteSwitch(at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastSwitch = at
+}
+
+// usableCandidates counts the candidates that are not parked for the requested model.
+//
+// The message needs to distinguish "the accounts exist but are cooling down" from "the
+// host offered accounts the pool cannot match", so it is told how many of each there are
+// rather than being handed the lists.
+func usableCandidates(candidates []schedulerCandidate) []schedulerCandidate {
+	out := make([]schedulerCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c.HasCool && time.Now().Before(c.Cooldown) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// describeNoCandidateReason explains why a request could not be served, in one sentence.
+//
+// Three cases, and they call for different actions:
+//
+//	the host offered nothing — the request was for a model this provider does not serve,
+//	  or the client asked for something the plugin never registered;
+//	the host offered accounts and they are all parked for this model — the ordinary
+//	  throttle case, which clears itself;
+//	the host offered accounts and the pool matched none of them — the two disagree about
+//	  which credentials exist, which is worth looking into.
+//
+// The account inventories are deliberately omitted. The previous message listed every
+// candidate and every credential CPA holds — hundreds of entries — which filled the cell,
+// read like a crash, and buried the one line that matters.
+func describeNoCandidateReason(offered int, collected, usable int) string {
+	switch {
+	case offered == 0:
+		return "选号无候选：宿主没有为该模型提供任何账号（这个模型可能不由本插件服务）"
+	case collected < offered:
+		// The two sides disagree about which credentials exist, so the cooldown state is
+		// not the story — the pool simply did not recognise what it was offered. Checked
+		// before the cooldown case, which would otherwise claim them all for being parked
+		// when most of them were never seen at all.
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地只认出 %d 个（凭据可能尚未载入）",
+			offered, collected)
+	case usable == 0:
+		return fmt.Sprintf("选号无候选：宿主提供了 %d 个账号，全部正在为该模型冷却中；稍后会自动恢复",
+			offered)
+	default:
+		return fmt.Sprintf("选号无候选：宿主提供 %d 个账号，本地可用 %d 个，但不满足本次请求的要求",
+			offered, usable)
+	}
 }

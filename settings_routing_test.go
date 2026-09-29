@@ -494,7 +494,7 @@ func TestNoticesDoNotAffectUsageCounters(t *testing.T) {
 	log := newCallLog(50)
 
 	// 一次真实失败。
-	log.add(callRecord{ProviderID: "p", StatusCode: 429, Error: "限流", StartedAt: timeNowForTest()})
+	log.add(callRecord{ProviderID: "p", Model: "m", StatusCode: 429, Error: "限流", StartedAt: timeNowForTest()})
 	// 三条诊断信息。
 	for i := 0; i < 3; i++ {
 		log.addNotice(callRecord{ProviderID: "p", Model: "growth", Error: "选号：host 提供 3 个"})
@@ -517,9 +517,12 @@ func TestNoticesDoNotAffectUsageCounters(t *testing.T) {
 		t.Errorf("日趋势被诊断污染：calls=%d failed=%d, want 1/1", daily[0].Calls, daily[0].Failed)
 	}
 
-	// 但诊断本身要留下来，面板上能看到。
-	if len(log.recent(10)) != 4 {
-		t.Errorf("诊断没有进入记录列表：%d 条", len(log.recent(10)))
+	// 诊断本身要留下来，只是放在通知环里；调用列表读出来就是干净的。
+	if len(log.noticeLog(10)) != 3 {
+		t.Errorf("诊断没有进入通知列表：%d 条", len(log.noticeLog(10)))
+	}
+	if got := len(log.modelCallsOnly(10)); got != 1 {
+		t.Errorf("调用列表应只有 1 条，实际 %d", got)
 	}
 }
 
@@ -532,8 +535,12 @@ func TestNoticeFlagIsHonouredByAdd(t *testing.T) {
 		t.Errorf("带 Notice 标记的记录仍被计数：calls=%d failed=%d",
 			totals.TotalCalls, totals.TotalFailed)
 	}
-	if len(log.recent(10)) != 1 {
-		t.Error("带 Notice 标记的记录应仍然可见")
+	// 通知有自己的环，调用列表读出来不含它。
+	if len(log.recent(10)) != 0 {
+		t.Error("带 Notice 标记的记录不该出现在调用列表里")
+	}
+	if len(log.noticeLog(10)) != 1 {
+		t.Error("带 Notice 标记的记录应保存在通知环里")
 	}
 }
 
@@ -929,18 +936,19 @@ func TestRecentCallsExcludeNonModelRecords(t *testing.T) {
 	log := newCallLog(50)
 	log.add(callRecord{ProviderID: "p", Model: "glm-5.3", StatusCode: 200, StartedAt: timeNowForTest()})
 	log.addNotice(callRecord{ProviderID: "p", Model: "growth", Error: "定时任务完成"})
-	log.add(callRecord{ProviderID: "p", StatusCode: 200, StartedAt: timeNowForTest()}) // 无模型名
+	log.add(callRecord{ProviderID: "p", StatusCode: 200, StartedAt: timeNowForTest()}) // 无模型名，add 会丢弃
 
+	// add 会丢弃没有模型名的记录：它不是调用，没有资格进这个列表。
 	only := log.modelCallsOnly(10)
 	if len(only) != 1 {
-		t.Fatalf("应只保留 1 条模型调用，得到 %d", len(only))
+		t.Fatalf("只有一条真正的调用，得到 %d", len(only))
 	}
 	if only[0].Model != "glm-5.3" {
 		t.Errorf("保留的不是模型调用：%q", only[0].Model)
 	}
-	// 全部记录仍在，供其他视图使用。
-	if len(log.recent(10)) != 3 {
-		t.Errorf("原始记录不应被删除，得到 %d 条", len(log.recent(10)))
+	// 通知另有去处，没有被丢弃。
+	if len(log.noticeLog(10)) != 1 {
+		t.Errorf("通知环应有 1 条，得到 %d", len(log.noticeLog(10)))
 	}
 }
 
@@ -1490,7 +1498,7 @@ func TestPanelTimesUseBeijingTime(t *testing.T) {
 
 	// 桶按面板时区归档。
 	log := newCallLog(10)
-	log.add(callRecord{ProviderID: "p", StartedAt: utcLate, PromptTokens: 1, CompletionTokens: 1})
+	log.add(callRecord{ProviderID: "p", Model: "m", StartedAt: utcLate, PromptTokens: 1, CompletionTokens: 1})
 	daily := log.dailyUsage()
 	if len(daily) != 1 || daily[0].Date != "2026-03-11" {
 		t.Errorf("日桶没有按北京时间归档：%+v", daily)
@@ -1637,5 +1645,97 @@ func TestClientAbortLeavesNoRecord(t *testing.T) {
 		if !strings.Contains(readSourceFile(t, file), needle) {
 			t.Errorf("%s 没有拦截客户端断开，记录会漏出来", file)
 		}
+	}
+}
+
+// 记录页分成两个列表，默认显示调用记录。
+//
+// 调用与插件自身的操作事件回答的是两个问题——「模型服务了什么」和「插件自己做了什么」
+// ——混在一张表里各自都更难读，而调用记录是打开这一页通常要看的东西。
+func TestRecordsPageSplitsCallsAndLog(t *testing.T) {
+	resetState()
+	page := renderMainPage()
+	usage := sectionOf(page, "view-usage")
+	if usage == "" {
+		t.Fatal("未找到记录页")
+	}
+
+	// 两个页签，默认选中调用记录。
+	if !strings.Contains(usage, `data-log-tab="calls"`) || !strings.Contains(usage, `data-log-tab="notes"`) {
+		t.Error("记录页缺少两个页签")
+	}
+	if !strings.Contains(usage, `class="on" data-log-tab="calls"`) {
+		t.Error("默认应选中调用记录")
+	}
+	// 两个列表，日志那份默认隐藏。
+	if !strings.Contains(usage, `id="logPaneCalls"`) || !strings.Contains(usage, `id="logPaneNotes"`) {
+		t.Error("记录页缺少两个列表容器")
+	}
+	if !strings.Contains(usage, `id="logPaneNotes" hidden`) {
+		t.Error("请求日志默认应是隐藏的")
+	}
+	// 清空按钮存在。
+	if !strings.Contains(usage, `data-call="clearRequestLog"`) {
+		t.Error("缺少清空按钮")
+	}
+}
+
+// 清空只作用于请求日志，不动调用记录。
+//
+// 调用记录是总数与趋势的账本，清掉它会让那些数字描述一批已经不存在的记录。
+func TestClearingOnlyAffectsTheRequestLog(t *testing.T) {
+	log := newCallLog(10)
+	log.add(callRecord{ProviderID: workBuddyProviderKey, Model: "glm-5.3", StatusCode: 200, StartedAt: timeNowForTest()})
+	log.addNotice(callRecord{ProviderID: workBuddyProviderKey, Error: "签到完成"})
+	log.addNotice(callRecord{ProviderID: workBuddyProviderKey, Error: "账号已冷却"})
+
+	if got := log.clearNotices(); got != 2 {
+		t.Errorf("应清掉 2 条日志，实际 %d", got)
+	}
+	if len(log.noticeLog(10)) != 0 {
+		t.Error("日志没有被清空")
+	}
+	// 调用记录与计数都还在。
+	if len(log.modelCallsOnly(10)) != 1 {
+		t.Error("调用记录被误删")
+	}
+	if log.totals().TotalCalls != 1 {
+		t.Error("调用计数被误改")
+	}
+}
+
+// 两个列表各留最近 100 条。
+func TestRecordListsAreCappedAtOneHundred(t *testing.T) {
+	if logListLimit != 100 {
+		t.Errorf("上限应为 100，实际 %d", logListLimit)
+	}
+
+	log := newCallLog(500)
+	for i := 0; i < 150; i++ {
+		log.add(callRecord{ProviderID: workBuddyProviderKey, Model: "m", StatusCode: 200, StartedAt: timeNowForTest()})
+		log.addNotice(callRecord{ProviderID: workBuddyProviderKey, Error: "事件"})
+	}
+	if got := len(log.modelCallsOnly(1000)); got != 150 {
+		t.Errorf("环内应保留 150 条调用，实际 %d", got)
+	}
+	// 页面只取前 100 条。
+	if got := len(log.modelCallsOnly(logListLimit)); got != logListLimit {
+		t.Errorf("调用列表应截到 %d 条，实际 %d", logListLimit, got)
+	}
+	if got := len(log.noticeLog(logListLimit)); got != logListLimit {
+		t.Errorf("日志列表应截到 %d 条，实际 %d", logListLimit, got)
+	}
+}
+
+// 没有模型名的记录不是调用，不该进调用环，也不该计入总数。
+func TestRecordsWithoutModelAreNotCalls(t *testing.T) {
+	log := newCallLog(10)
+	log.add(callRecord{ProviderID: workBuddyProviderKey, StatusCode: 200, StartedAt: timeNowForTest()})
+
+	if len(log.modelCallsOnly(10)) != 0 {
+		t.Error("没有模型名的记录进了调用环")
+	}
+	if log.totals().TotalCalls != 0 {
+		t.Error("没有模型名的记录被计入总数")
 	}
 }

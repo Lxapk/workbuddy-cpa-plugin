@@ -231,3 +231,36 @@ func renderCallTable(recent []callRecord) string {
 	b.WriteString(`</tbody></table></div>`)
 	return b.String()
 }
+
+// renderNoteTable draws the operational events: sign-ins, task runs, throttling, an
+// account being parked or disabled.
+//
+// Its shape differs from the call table on purpose. A note has no model, no tokens and no
+// upstream status; what it has is a time, an account it concerns, and a sentence. Showing
+// it in the call columns would leave most of every row empty and invite reading the
+// sentence as an error.
+func renderNoteTable(notes []callRecord) string {
+	var b strings.Builder
+	b.WriteString(`<div class="tbl-wrap"><table class="data notes"><thead><tr>`)
+	b.WriteString(`<th>时间</th><th>账号</th><th>事件</th>`)
+	b.WriteString(`</tr></thead><tbody>`)
+
+	for _, rec := range notes {
+		when := "—"
+		if !rec.StartedAt.IsZero() {
+			when = rec.StartedAt.In(panelLocation).Format("01-02 15:04:05")
+		}
+		account := firstNonEmpty(rec.Label, rec.UID)
+		if account == "" {
+			account = "—"
+		}
+		b.WriteString(`<tr>`)
+		b.WriteString(`<td class="mono" data-label="时间">` + html.EscapeString(when) + `</td>`)
+		b.WriteString(`<td data-label="账号">` + html.EscapeString(account) + `</td>`)
+		b.WriteString(`<td class="note wrap" data-label="事件">` + html.EscapeString(rec.Error) + `</td>`)
+		b.WriteString(`</tr>`)
+	}
+
+	b.WriteString(`</tbody></table></div>`)
+	return b.String()
+}

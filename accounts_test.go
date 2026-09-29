@@ -302,7 +302,7 @@ func TestSinglePageContainsEverything(t *testing.T) {
 		"账号总数",     // account summary
 		"每日签到",     // check-in card (on the tasks tab)
 		"账号与任务",    // task participation table
-		"最近调用",     // usage
+		"调用记录",     // usage
 		"Acct One", // the account is rendered server-side
 	} {
 		if !strings.Contains(page, want) {
