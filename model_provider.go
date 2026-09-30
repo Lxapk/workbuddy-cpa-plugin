@@ -310,7 +310,9 @@ func handleModelsRequest(req pluginapi.ManagementRequest) (managementResponse, b
 		workBuddyModelCache.clear()
 	}
 
-	accounts, errCollect := collectCheckinAccounts()
+	// Every realm has a model catalogue, so this must not use the check-in list, which
+	// holds domestic accounts only and left international accounts out of the report.
+	accounts, errCollect := collectAllAccounts()
 	if errCollect != nil {
 		return managementResponse{
 			StatusCode: http.StatusOK,
