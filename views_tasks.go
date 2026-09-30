@@ -108,7 +108,7 @@ func renderScheduleBox() string {
 	b.WriteString(`<span class="note" id="runMsg"></span>`)
 	b.WriteString(`<span class="grow"></span>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
-	b.WriteString(`<button type="button" class="xs" data-call="runAllTasks">立即执行任务</button>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="runAllTasks">立即执行任务</button>`)
 	b.WriteString(`</div>`)
 
 	b.WriteString(`</div>`)

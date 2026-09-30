@@ -265,10 +265,12 @@ func renderTasksView() string {
 	b.WriteString(`<div class="action-row">`)
 	b.WriteString(`<span class="note">「全部执行」依次完成成长任务、签到与猫猫旅行。</span>`)
 	b.WriteString(`<span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="primary" data-call="runAllTasks">全部执行</button>`)
+	// Secondary actions first, the primary one last at the right edge — the order the
+	// rest of the panel (and CPA's own dialogs) use, and all the same size.
+	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runGrowthTasks">成长任务</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="runTravel">猫猫旅行</button>`)
-	b.WriteString(`<button type="button" class="xs" data-call="runCheckin">立即签到</button>`)
+	b.WriteString(`<button type="button" class="xs primary" data-call="runAllTasks">全部执行</button>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`<div class="empty" id="taskResult" hidden></div>`)
 	b.WriteString(`</div>`)
@@ -330,8 +332,8 @@ func renderSettingsView() string {
 	b.WriteString(`<header><h3>管理密钥 <span class="hint">仅保存在本机浏览器</span></h3></header>`)
 	b.WriteString(`<div class="pad">`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" style="flex:1 1 300px">`)
-	b.WriteString(`<button type="button" class="primary" data-call="saveKey">保存到浏览器</button>`)
-	b.WriteString(`<button type="button" class="ghost" data-call="clearKey">清除</button></div>`)
+	b.WriteString(`<button type="button" class="ghost" data-call="clearKey">清除</button>`)
+	b.WriteString(`<button type="button" class="primary" data-call="saveKey">保存到浏览器</button></div>`)
 	b.WriteString(`<div class="note" id="keyState" style="margin-top:9px"></div>`)
 	b.WriteString(`<div class="note" style="margin-top:9px">密钥仅存在本机 localStorage，随请求头发送，不经过插件。` +
 		`与 CPA 面板使用同一个 management key。</div>`)

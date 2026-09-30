@@ -79,9 +79,10 @@ func renderTaskAccountsBox(accounts []workBuddyAccount) string {
 	var b strings.Builder
 	b.WriteString(`<div class="box" id="taskAccountsBox">`)
 	b.WriteString(`<header><h3>账号与任务</h3><span class="grow"></span>`)
-	b.WriteString(`<button type="button" class="xs" data-call="selectAllTaskAccounts">全部启用</button>`)
+	// View control first, then the bulk switches that change state.
+	b.WriteString(`<button type="button" class="xs ghost" data-call="expandAllTaskDetail">展开全部任务</button>`)
 	b.WriteString(`<button type="button" class="xs" data-call="clearAllTaskAccounts">全部停用</button>`)
-	b.WriteString(`<button type="button" class="xs" data-call="expandAllTaskDetail">展开全部任务</button>`)
+	b.WriteString(`<button type="button" class="xs" data-call="selectAllTaskAccounts">全部启用</button>`)
 	b.WriteString(`</header>`)
 
 	if len(rows) == 0 {

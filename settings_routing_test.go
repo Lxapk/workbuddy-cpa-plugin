@@ -48,8 +48,12 @@ func TestRoutingHasNoAccountInfo(t *testing.T) {
 		t.Error("设置页仍保留了顺序预览（含账号信息）")
 	}
 	// 策略本身的两个操作要在。
-	if !strings.Contains(settings, `data-call="saveStrategy"`) {
-		t.Error("路由卡缺少应用按钮")
+	// 策略点选即生效（与供应商开关一致），不再有单独的「应用策略」按钮。
+	if !strings.Contains(settings, `data-call="pickStrategy"`) {
+		t.Error("路由卡缺少策略选择")
+	}
+	if strings.Contains(settings, `data-call="saveStrategy"`) {
+		t.Error("路由卡不应再有单独的应用按钮")
 	}
 	if !strings.Contains(settings, `data-call="resetRotation"`) {
 		t.Error("路由卡缺少重置按钮")

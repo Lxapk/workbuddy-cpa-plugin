@@ -731,7 +731,7 @@ func TestMainPageShowsStrategySection(t *testing.T) {
 	installAuthList(t, nil)
 	page := renderMainPage()
 	// 策略卡现在是「路由策略」，且「应用」按钮与「应用策略」文案随之调整。
-	for _, want := range []string{"路由策略", "按额度", "轮巡", "随机", "应用策略", "重置轮巡位置"} {
+	for _, want := range []string{"路由策略", "按额度", "轮巡", "随机", "重置轮巡位置"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("combined page missing %q", want)
 		}

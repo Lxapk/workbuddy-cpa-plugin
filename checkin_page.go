@@ -293,8 +293,8 @@ func checkinPageWithRun(fresh *checkinRun) string {
 	// in localStorage and attached by fetch() below.
 	b.WriteString(`<h2>管理密钥</h2><div class="card">`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" ` +
-		`style="width:min(420px,70%);padding:5px 8px"> <button type="button" data-call="saveKey">保存到浏览器</button>` +
-		` <button type="button" data-call="clearKey">清除</button></div>`)
+		`style="width:min(420px,70%);padding:5px 8px"> <button type="button" data-call="clearKey">清除</button>` +
+		` <button type="button" data-call="saveKey">保存到浏览器</button></div>`)
 	b.WriteString(`<div class="muted" id="keyState"></div>`)
 	b.WriteString(`<div class="muted">密钥仅保存在本机浏览器（localStorage），不会上传到插件或服务器。` +
 		`对应 CPA 配置中的 <code>remote-management.secret-key</code>。</div>`)

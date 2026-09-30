@@ -385,7 +385,7 @@ func shortenUID(uid string) string {
 func renderVariantBox(settings gatewaySettings) string {
 	var b strings.Builder
 	b.WriteString(`<div class="box supplier-card">`)
-	b.WriteString(`<header><h3>供应商</h3><span class="grow"></span>`)
+	b.WriteString(`<header><h3>供应商 <span class="hint">调用与新授权各自归属哪个区域</span></h3><span class="grow"></span>`)
 	b.WriteString(`<span class="note" id="variantMsg"></span>`)
 	// A second slot: each group reports its own outcome, so a message from one does not
 	// overwrite the other's.

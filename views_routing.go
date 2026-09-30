@@ -62,8 +62,9 @@ func renderRoutingBox(routing map[string]any) string {
 	b.WriteString(`<span class="note">当前：<b id="strategyCurrent">` +
 		html.EscapeString(fmt.Sprint(routing["strategy_label"])) + `</b> · <span id="rotationHint">` +
 		html.EscapeString(nextRotationHint()) + `</span></span>`)
+	// The strategy applies on click, like the supplier switch below it, so there is no
+	// separate apply button; only the rotation reset remains.
 	b.WriteString(`<button type="button" class="xs" data-call="resetRotation">重置轮巡位置</button>`)
-	b.WriteString(`<button type="button" class="xs primary" data-call="saveStrategy">应用策略</button>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
 	return b.String()

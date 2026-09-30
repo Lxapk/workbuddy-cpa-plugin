@@ -173,12 +173,12 @@ func mainPageScript() string {
   };
 
   // ---- strategy --------------------------------------------------------
-  // pickStrategy only moves the highlight and swaps the one-line description; the
-  // choice takes effect when 应用策略 is pressed, as before.
+  // pickStrategy applies the choice immediately, the same way the supplier switch does,
+  // so every segmented control on the settings page behaves alike.
   window.pickStrategy = function (v) {
     markSegmented('strategySeg', v);
     updateEffectLine('strategySeg', v);
-    msgSet('strategyMsg', '未应用', 'muted');
+    window.saveStrategy();
   };
 
   window.saveStrategy = function () {
