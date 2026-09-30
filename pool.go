@@ -952,3 +952,72 @@ func (p *credentialPool) laneFor(identifier string) (credentialLane, bool) {
 	}
 	return credentialLane{}, false
 }
+
+// applyHostDisabledFlags mirrors the host's disabled flag onto the pool's lanes.
+//
+// The flag belongs to the host: it is what CPA reads when building its candidate list, and
+// what the panel's own enable/disable writes. Treating it as one-way — plugin writes,
+// host reads — left the pool holding its own opinion, so an account switched off in CPA
+// still looked usable here and could be named by this plugin's pick.
+//
+// Only the host-owned bit is touched. DisabledByUser and AutoDisabled belong to this
+// plugin and are made to agree with it rather than overwritten: with the host saying
+// enabled, those two cannot remain set, and with the host saying disabled the pool has to
+// treat the lane as unavailable regardless of who turned it off.
+func (p *credentialPool) applyHostDisabledFlags(accounts []workBuddyAccount) {
+	if len(accounts) == 0 {
+		return
+	}
+	byUID := make(map[string]bool, len(accounts))
+	for _, a := range accounts {
+		// Raw identifiers only. canonicalUID resolves through the account table, and we are
+		// being called from it — see the note on the loop below.
+		key := strings.TrimSpace(a.UID)
+		if key == "" {
+			key = strings.TrimSpace(a.AuthIndex)
+		}
+		if key == "" {
+			continue
+		}
+		// An account duplicated across files is disabled only if every copy is.
+		if prev, seen := byUID[key]; seen {
+			byUID[key] = prev && a.Disabled
+			continue
+		}
+		byUID[key] = a.Disabled
+		// The auth index is registered too, so a lane keyed by either spelling is found.
+		if idx := strings.TrimSpace(a.AuthIndex); idx != "" && idx != key {
+			byUID[idx] = a.Disabled
+		}
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, lane := range p.lanes {
+		if lane == nil {
+			continue
+		}
+		// Matched on the raw uid, deliberately.
+		//
+		// canonicalUID resolves an identifier through the account table, and the table is
+		// what called us — listWorkBuddyAccounts reads the inventory and then mirrors it
+		// here. Going through the resolver re-enters that path and recurses until the stack
+		// runs out. The uid in a lane and the uid in an inventory row are the same field
+		// from the same source, so no resolution is needed.
+		want, known := byUID[lane.UID]
+		if !known {
+			continue
+		}
+		if want {
+			lane.Disabled = true
+			continue
+		}
+		// Enabled at the host: the plugin's own reasons to hold it back no longer apply,
+		// because the operator has just said so in the place that governs routing.
+		lane.Disabled = false
+		lane.DisabledByUser = false
+		lane.AutoDisabled = false
+		lane.DisabledReason = ""
+		lane.DisabledAt = time.Time{}
+	}
+}

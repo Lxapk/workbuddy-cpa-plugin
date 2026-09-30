@@ -2104,12 +2104,18 @@ func TestVariantScopeMirrorsDisabledToHostFiles(t *testing.T) {
 
 	// 宿主提供 host.auth.list（列出凭据）与 host.auth.save（用来定位目录，其返回值里的
 	// path 就是 auth 文件所在处）。
-	restore := stubHostCall(func(method string, _ any) (json.RawMessage, error) {
+	restore := stubHostCall(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
 		case "host.auth.save":
+			// 宿主回报它实际写下的文件路径；插件据此定位要改的凭据文件。
+			req, _ := payload.(map[string]any)
+			name, _ := req["name"].(string)
+			if name == "" {
+				name = "probe.json"
+			}
 			return mustMarshal(t, map[string]any{
-				"name": "probe.json",
-				"path": filepath.Join(dir, "probe.json"),
+				"name": name,
+				"path": filepath.Join(dir, name),
 			}), nil
 		case "host.auth.list":
 			read := func(name string) json.RawMessage {
@@ -2157,5 +2163,54 @@ func TestVariantScopeMirrorsDisabledToHostFiles(t *testing.T) {
 	}
 	if disabledIn(aiPath) {
 		t.Error("切回自动时，国际凭据不该被改")
+	}
+}
+
+// 宿主侧启用的账号，插件必须跟着启用。
+//
+// disabled 归宿主所有：它是 CPA 构建候选时读的标志，也是面板开关写入的地方。只写不读的话
+// 两边会各持己见——在 CPA 里把账号关掉，插件仍认为它可用，面板显示为已启用，插件的选号也
+// 可能点上它。反向同理：在 CPA 里重新打开之后，插件必须跟着放开。
+func TestHostDisabledFlagFlowsBackToPool(t *testing.T) {
+	resetState()
+	state.pool.observe(workBuddyProviderKey, "u-1", "一号")
+	state.pool.observe(workBuddyProviderKey, "u-2", "二号")
+
+	// 宿主说 u-1 被禁用、u-2 正常。
+	state.pool.applyHostDisabledFlags([]workBuddyAccount{
+		{UID: "u-1", Disabled: true},
+		{UID: "u-2", Disabled: false},
+	})
+	lane, found := state.pool.laneFor("u-1")
+	if !found || !lane.Disabled {
+		t.Fatal("宿主禁用的账号没有同步到池")
+	}
+	lane, found = state.pool.laneFor("u-2")
+	if !found || lane.Disabled {
+		t.Fatal("宿主启用的账号不该被标为禁用")
+	}
+
+	// 选号时它不该出现。
+	req := pluginapi.SchedulerPickRequest{
+		Model: "glm-5.3",
+		Candidates: []pluginapi.SchedulerAuthCandidate{
+			{ID: "u-1", Provider: workBuddyProviderKey, Status: "active"},
+			{ID: "u-2", Provider: workBuddyProviderKey, Status: "active"},
+		},
+	}
+	if got := newSchedulerState().collectCandidates(req); len(got) != 1 || got[0].ID != "u-2" {
+		t.Fatalf("宿主禁用的账号仍可选：%+v", got)
+	}
+
+	// 宿主重新启用：插件跟着放开，并且插件自己的两种禁用原因一并清除——操作者是在决定
+	// 路由的地方把它打开，插件内部那些理由不再成立。
+	state.pool.disableAccountKeyed("u-1", "", true)
+	state.pool.applyHostDisabledFlags([]workBuddyAccount{{UID: "u-1", Disabled: false}})
+	lane, _ = state.pool.laneFor("u-1")
+	if lane.Disabled || lane.DisabledByUser || lane.AutoDisabled {
+		t.Fatalf("宿主启用后插件仍持反对意见：%+v", lane)
+	}
+	if got := newSchedulerState().collectCandidates(req); len(got) != 2 {
+		t.Fatalf("宿主启用后应恢复可选，实际 %+v", got)
 	}
 }

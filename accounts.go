@@ -168,6 +168,13 @@ func (s *accountStore) accounts() []workBuddyAccount {
 	s.cached = list
 	s.fetchedAt = time.Now()
 	s.lastErr = ""
+	// The host's flag is mirrored onto the pool by whoever consumes this list, outside
+	// this lock.
+	//
+	// Doing it here deadlocks: the pool resolves a lane's realm by calling back into this
+	// store for the account table, so the order accounts()→pool.mu would meet the order
+	// pool.mu→accounts() and the two would wait on each other. The list is returned and the
+	// caller — which is not holding either lock — applies it.
 	return append([]workBuddyAccount(nil), list...)
 }
 
@@ -210,15 +217,16 @@ func loadWorkBuddyAccounts() ([]workBuddyAccount, error) {
 			// is what made one account appear several times in the panel.
 			recovered := recoverIdentityFromStorage(storage)
 			out = append(out, workBuddyAccount{
-				AuthIndex: entry.AuthIndex,
-				Label:     firstNonEmpty(entry.Label, entry.Name, recovered.nickname, recovered.uid, entry.AuthIndex),
-				UID:       recovered.uid,
-				Nickname:  recovered.nickname,
-				Domain:    recovered.domain,
-				Region:    workBuddyRegion(recovered.domain),
-				Usable:    false,
-				Reason:    "凭据无法解析",
-				Disabled:  entry.Disabled,
+				AuthIndex:      entry.AuthIndex,
+				Label:          firstNonEmpty(entry.Label, entry.Name, recovered.nickname, recovered.uid, entry.AuthIndex),
+				UID:            recovered.uid,
+				Nickname:       recovered.nickname,
+				Domain:         recovered.domain,
+				Region:         workBuddyRegion(recovered.domain),
+				Usable:         false,
+				Reason:         "凭据无法解析",
+				Disabled:       hostDisabledFor(entry, recovered),
+				DisabledByUser: hostDisabledFor(entry, recovered),
 			})
 			continue
 		}
@@ -234,8 +242,12 @@ func loadWorkBuddyAccounts() ([]workBuddyAccount, error) {
 			EnterpriseID: creds.EnterpriseID,
 			ExpiresAt:    creds.ExpiresAt,
 			Expired:      creds.expired(),
-			Disabled:     entry.Disabled,
-			Usable:       !entry.Disabled,
+			// The flag lives inside the credential blob; host.auth.list does not surface it
+			// as a field of its own, so entry.Disabled is empty for a file-based credential
+			// and the blob is what carries the operator's choice.
+			Disabled:       hostDisabled(entry, storage),
+			DisabledByUser: hostDisabled(entry, storage),
+			Usable:         !hostDisabled(entry, storage),
 		}
 		out = append(out, account)
 	}
@@ -265,6 +277,11 @@ type recoveredIdentity struct {
 	uid      string
 	nickname string
 	domain   string
+	// disabled is the host's own flag, which lives inside the credential blob rather than
+	// beside it — host.auth.list does not surface it as a field of its own.
+	disabled bool
+	// hasDisabled distinguishes "the file says enabled" from "the file does not say".
+	hasDisabled bool
 }
 
 // recoverIdentityFromStorage extracts uid/nickname/domain from a blob that
@@ -289,6 +306,10 @@ func recoverIdentityFromStorage(storage []byte) recoveredIdentity {
 		uid:      pickString(doc, "uid", "userId", "user_id"),
 		nickname: pickString(doc, "nickname", "nickName", "name"),
 		domain:   pickString(doc, "domain"),
+	}
+	if raw, present := doc["disabled"]; present {
+		out.hasDisabled = true
+		out.disabled, _ = raw.(bool)
 	}
 	if out.uid == "" {
 		if token := pickString(doc, "accessToken", "access_token"); token != "" {
@@ -647,8 +668,17 @@ func enrichWithRuntime(accounts []workBuddyAccount) []workBuddyAccount {
 }
 
 // listWorkBuddyAccounts is the entry point used by the UI.
+// listWorkBuddyAccounts reads the inventory and mirrors the host's disabled flag.
+//
+// The mirror happens after the store's lock is released — accounts() returns a copy and
+// holds nothing — and before the pool's lock is taken, so neither store is ever entered
+// while the other is held. That ordering is the whole point: the pool resolves a lane's
+// realm by asking this store for the account table, so a call the other way round from
+// inside accounts() met itself and both sides waited.
 func listWorkBuddyAccounts() []workBuddyAccount {
-	return enrichWithRuntime(state.accounts.accounts())
+	accounts := enrichWithRuntime(state.accounts.accounts())
+	state.pool.applyHostDisabledFlags(accounts)
+	return accounts
 }
 
 // expired reports whether the stored access token is past its expiry, allowing
@@ -686,4 +716,26 @@ func accountSummary(accounts []workBuddyAccount) (total, usable, known int, tota
 // contextWithTimeout is a small helper shared by the refresh paths.
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
+}
+
+// hostDisabled reports whether the host holds this credential as disabled.
+//
+// Two sources, because the flag travels differently depending on where CPA learned the
+// credential from: the auth file on disk carries it as a top-level field beside the token,
+// while a runtime entry may surface it as a field of the entry itself. Reading only the
+// entry left every file-based credential looking enabled no matter what the file said.
+func hostDisabled(entry hostAuthEntry, storage []byte) bool {
+	if entry.Disabled {
+		return true
+	}
+	recovered := recoverIdentityFromStorage(storage)
+	return recovered.hasDisabled && recovered.disabled
+}
+
+// hostDisabledFor is hostDisabled for a credential already reduced to its recovered fields.
+func hostDisabledFor(entry hostAuthEntry, recovered recoveredIdentity) bool {
+	if entry.Disabled {
+		return true
+	}
+	return recovered.hasDisabled && recovered.disabled
 }

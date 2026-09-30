@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -201,18 +202,22 @@ func syncAccountDisabledToHost(uid, authIndex string, disabled bool) {
 		logf("disable sync: cannot encode %s: %v", entry.AuthIndex, errMarshal)
 		return
 	}
-	name := entry.AuthIndex
-	if !strings.HasSuffix(strings.ToLower(name), ".json") {
-		name += ".json"
-	}
-	if _, errSave := callHost("host.auth.save", map[string]any{
-		"name": name,
-		"json": json.RawMessage(encoded),
-	}); errSave != nil {
-		logf("disable sync: save %s failed: %v", name, errSave)
+	// Written to the file the host reports, not through host.auth.save.
+	//
+	// That call re-serialises the payload into the host's schema, and a top-level flag
+	// beside the credential is dropped on the way through — the call returns a path and
+	// the watcher fires, while the file still says disabled:false. Its answer is used for
+	// the path only.
+	target, errTarget := hostAuthFileFor(entry.AuthIndex, storage)
+	if errTarget != nil {
+		logf("disable sync: cannot locate %s: %v", entry.AuthIndex, errTarget)
 		return
 	}
-	logf("disable sync: %s disabled=%v", name, disabled)
+	if errWrite := os.WriteFile(target, encoded, 0o600); errWrite != nil {
+		logf("disable sync: write %s failed: %v", target, errWrite)
+		return
+	}
+	logf("disable sync: %s disabled=%v → %s", entry.AuthIndex, disabled, target)
 }
 
 // findAuthEntryForAccount locates the host's auth entry for an account, by uid or by the

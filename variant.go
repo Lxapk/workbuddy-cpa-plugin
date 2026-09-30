@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -417,26 +416,25 @@ func syncVariantScopeToHost(scope string) {
 		if errMarshal != nil {
 			continue
 		}
-		name := entry.AuthIndex
-		if !strings.HasSuffix(strings.ToLower(name), ".json") {
-			name += ".json"
-		}
-		// The directory comes from the host, by asking it to save the file unchanged: the
-		// response reports the physical path it wrote, and its parent is the directory the
-		// host is watching. That call re-serialises the payload, so the credential fields
-		// survive while flags beside them do not — which is exactly why the flag cannot go
-		// through it, and why its answer is used only for the path.
-		dir, errDir := hostAuthDirFor(name, storage)
-		if errDir != nil {
-			logf("variant scope: cannot locate %s: %v", name, errDir)
+		// The path to write comes from the host, not from a name built here.
+		//
+		// host.auth.save is asked to persist the credential unchanged and answers with the
+		// file it wrote. That reply is the only authoritative statement of where this
+		// credential lives: the entry's AuthIndex is sometimes the bare runtime id rather
+		// than the file name, and composing a name from it created a second file for the
+		// same account — the host then listed both, and they could disagree about
+		// "disabled". Its payload is re-serialised on the way through, so the flag still
+		// cannot travel this way; only its answer is used.
+		target, errTarget := hostAuthFileFor(entry.AuthIndex, storage)
+		if errTarget != nil {
+			logf("variant scope: cannot locate %s: %v", entry.AuthIndex, errTarget)
 			continue
 		}
-		path := filepath.Join(dir, filepath.Base(name))
-		if errWrite := os.WriteFile(path, encoded, 0o600); errWrite != nil {
-			logf("variant scope: write %s failed: %v", path, errWrite)
+		if errWrite := os.WriteFile(target, encoded, 0o600); errWrite != nil {
+			logf("variant scope: write %s failed: %v", target, errWrite)
 			continue
 		}
-		logf("variant scope: %s realm=%q scope=%q disabled=%v → %s", name, realm, scope, want, path)
+		logf("variant scope: %s realm=%q scope=%q disabled=%v → %s", entry.AuthIndex, realm, scope, want, target)
 	}
 }
 
@@ -455,12 +453,15 @@ func stringFromDoc(doc map[string]any, key string) string {
 	return s
 }
 
-// hostAuthDirFor locates the directory the host keeps credentials in.
+// hostAuthFileFor resolves the physical file the host keeps a credential in.
 //
-// There is no call that simply reports it. host.auth.save answers with the physical path it
-// wrote, so the plugin asks it to write the credential back unchanged and takes the parent
-// directory from the reply — the same directory the host's watcher is looking at.
-func hostAuthDirFor(name string, storage json.RawMessage) (string, error) {
+// There is no call that simply reports it. host.auth.save answers with the path it wrote,
+// so the plugin asks it to persist the credential unchanged and takes the file name from
+// the reply — the same file the host's watcher is looking at. Deriving a name from the
+// entry's AuthIndex is not equivalent: that field sometimes holds the bare runtime id
+// rather than the file name, and writing under the derived name produced a second file for
+// one account.
+func hostAuthFileFor(name string, storage json.RawMessage) (string, error) {
 	if len(storage) == 0 {
 		return "", fmt.Errorf("no credential payload to locate %s", name)
 	}
@@ -478,5 +479,5 @@ func hostAuthDirFor(name string, storage json.RawMessage) (string, error) {
 	if strings.TrimSpace(saved.Path) == "" {
 		return "", fmt.Errorf("host reported no path for %s", name)
 	}
-	return filepath.Dir(saved.Path), nil
+	return saved.Path, nil
 }
