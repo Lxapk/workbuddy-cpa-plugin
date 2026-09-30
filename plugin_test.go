@@ -779,6 +779,17 @@ func resetState() {
 		// request log lost every task entry without anyone noticing.
 		growth: newGrowthStore(),
 	}
+	// Caches keyed by credential identifier outlive a state swap unless cleared: the maps
+	// are package-level, so one test's write stays visible to the next and a case that
+	// expects the host's value sees a stale pending one instead.
+	pendingDisabled.Range(func(k, _ any) bool {
+		pendingDisabled.Delete(k)
+		return true
+	})
+	authPathCache.Range(func(k, _ any) bool {
+		authPathCache.Delete(k)
+		return true
+	})
 	inflight = newInflightMap()
 	streamAccumulators.mu.Lock()
 	streamAccumulators.items = make(map[string]*streamAccumulator)

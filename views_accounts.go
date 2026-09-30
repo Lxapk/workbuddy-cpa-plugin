@@ -482,3 +482,22 @@ func authSupplierEffect(supplier, variant string) string {
 		return `当前：新授权记为国内账号（codebuddy.cn）。`
 	}
 }
+
+// renderAccountSummary draws the stat cards above the account table.
+//
+// Extracted so the panel can repaint it together with the table: the counts it shows — how
+// many accounts are usable, how many are disabled — change with the same toggle that
+// changes the rows, and refreshing one without the other left the header contradicting the
+// list beneath it.
+func renderAccountSummary(accounts []workBuddyAccount) string {
+	total, usable, _, _ := accountSummary(accounts)
+	var b strings.Builder
+	b.WriteString(`<div class="stats" data-account-stats="1">`)
+	statCard(&b, "", "账号总数", total)
+	statCard(&b, "good", "可用", usable)
+	statCard(&b, "warn", "冷却中", accountCoolingCount(accounts))
+	statCard(&b, "bad", "已禁用", accountDisabledCount(accounts))
+	statCard(&b, "", "积分合计", accountCreditsTotal(accounts))
+	b.WriteString(`</div>`)
+	return b.String()
+}

@@ -87,6 +87,11 @@ func managementRegistration() managementRegistrationResponse {
 			},
 			{
 				Method:      http.MethodGet,
+				Path:        "/workbuddy/accounts/table",
+				Description: "The account table and stat cards as HTML, for in-place repainting.",
+			},
+			{
+				Method:      http.MethodGet,
 				Path:        "/workbuddy/debug",
 				Description: "Report whether verbose plugin logging is on.",
 			},

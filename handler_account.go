@@ -136,10 +136,27 @@ func handleAccountToggleRequest(req pluginapi.ManagementRequest) (managementResp
 			Body:       mustJSON(map[string]any{"error": "未知操作"}),
 		}, true
 	}
+	// The repainted table and stat cards travel back with the acknowledgement.
+	//
+	// The panel repaints from them instead of reloading, so the row's button flips on the
+	// spot. A reload raced the plugin's own state — the page came back before the switch it
+	// had just written showed up in the data it renders — and the button then displayed the
+	// state the operator had just left.
+	accounts := listWorkBuddyAccounts()
+	// The inventory is rebuilt from the host's listing, which lags the write we just made —
+	// so the row would come back describing the state the operator just left, and the
+	// repainted button would point the wrong way. Apply the value that was just written
+	// before rendering.
+	accounts = applyPendingDisabled(accounts)
 	return managementResponse{
 		StatusCode: http.StatusOK,
 		Headers:    jsonResponseHeaders(),
-		Body:       mustJSON(map[string]any{"ok": true}),
+		Body: mustJSON(map[string]any{
+			"ok":           true,
+			"count":        len(accounts),
+			"table_html":   renderAccountTable(accounts),
+			"summary_html": renderAccountSummary(accounts),
+		}),
 	}, true
 }
 
@@ -255,10 +272,22 @@ func findAuthEntryForAccount(uid, authIndex string) (*hostAuthEntry, []byte, err
 	for i := range entries {
 		entry := entries[i]
 		if !wanted[entry.AuthIndex] && !wanted[entry.ID] && !wanted[entry.Name] {
-			continue
+			// The panel addresses an account by its uid, while the host's entries are keyed
+			// by file name or runtime index — neither contains the uid. The credential
+			// payload does, so it is consulted before giving up: without this, a toggle
+			// by uid found no entry and the write never happened.
+			storage := credentialPayload(entry)
+			if len(storage) == 0 {
+				continue
+			}
+			recovered := recoverIdentityFromStorage(storage)
+			if !wanted[recovered.uid] && !wanted[canonicalUID(recovered.uid)] {
+				continue
+			}
+			return &entries[i], storage, nil
 		}
 		// The host reports the file's location, so read it rather than its snapshot.
-		storage := entry.StorageJSON
+		storage := credentialPayload(entry)
 		if path := strings.TrimSpace(entry.Path); path != "" {
 			if raw, errRead := os.ReadFile(path); errRead == nil {
 				rememberAuthFilePath(entry, path)

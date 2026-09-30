@@ -348,22 +348,53 @@ function updateEffectLine(segId, value) {
   // ---- account toggle --------------------------------------------------
   // toggleAccount enables or disables one account.
   //
-  // Feedback goes to #accountMsg, which lives in the accounts tab. The previous
-  // version wrote to #runMsg — an element in a different tab — so a successful
-  // toggle produced no visible change at all and read as "禁用没生效".
+  // The reply carries the repainted table and the stat cards, so the row's button and the
+  // counts above it change immediately.
+  //
+  // It used to reload the whole page half a second later. Besides the delay, that reload
+  // raced the plugin's own state: the page came back before the switch it had just written
+  // was reflected in the data it renders, so the button showed the state the operator had
+  // just left — the toggle looked like it had done nothing, twice in a row. Repainting
+  // from the reply removes the race and keeps the scroll position.
   window.toggleAccount = function (uid, action, authIndex) {
     msgSet('accountMsg', '操作中…', 'muted');
     call(BASE + '/account/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, auth_index: authIndex || '', action: action || 'toggle' })
-    }).then(function () {
-      msgSet('accountMsg', action === 'enable' ? '已启用，正在刷新列表…' : '已禁用，正在刷新列表…', 'ok');
-      setTimeout(function () { location.reload(); }, 500);
+    }).then(function (payload) {
+      repaintAccounts(payload);
+      msgSet('accountMsg', (action === 'enable' ? '已启用' : '已禁用') +
+        ((payload && payload.count) ? '，当前 ' + payload.count + ' 个账号' : ''), 'ok');
     }).catch(function (e) {
       msgSet('accountMsg', '操作失败：' + e.message, 'bad');
     });
   };
+
+  // repaintAccounts replaces the account table and the stat cards in place.
+  //
+  // Falls back to a reload when the reply carries no markup — an older plugin build, or a
+  // response shape this page does not know.
+  function repaintAccounts(payload) {
+    var table = document.querySelector('[data-account-table]');
+    if (table && payload && payload.table_html) {
+      var holder = document.createElement('div');
+      holder.innerHTML = payload.table_html;
+      var fresh = holder.querySelector('[data-account-table]');
+      if (fresh) {
+        table.parentNode.replaceChild(fresh, table);
+        var stats = document.querySelector('[data-account-stats]');
+        if (stats && payload.summary_html) {
+          var holder2 = document.createElement('div');
+          holder2.innerHTML = payload.summary_html;
+          var freshStats = holder2.querySelector('[data-account-stats]');
+          if (freshStats) stats.parentNode.replaceChild(freshStats, stats);
+        }
+        return;
+      }
+    }
+    location.reload();
+  }
 
   // ---- task tab --------------------------------------------------------
   //

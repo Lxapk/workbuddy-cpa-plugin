@@ -918,3 +918,51 @@ func knownAuthFilePath(entry hostAuthEntry) string {
 	}
 	return ""
 }
+
+// applyPendingDisabled overlays the values this plugin has just written onto an inventory.
+//
+// The inventory comes from the host's listing, and the host rebuilds that listing from what
+// it has loaded — asynchronously, on a file watcher. One request after a toggle it therefore
+// still describes the previous state, and anything rendered from it (the table sent back
+// with the acknowledgement, most visibly) shows the operator the state they just left.
+//
+// Matching is attempted on every identifier an account carries, because the row and the
+// host entry do not necessarily populate the same fields.
+func applyPendingDisabled(accounts []workBuddyAccount) []workBuddyAccount {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	out := make([]workBuddyAccount, len(accounts))
+	copy(out, accounts)
+	for i := range out {
+		for _, id := range []string{
+			out[i].AuthIndex, out[i].UID, out[i].Label,
+		} {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			pending, ok := pendingDisabled.Load(id)
+			if !ok {
+				continue
+			}
+			disabled, _ := pending.(bool)
+			out[i].Disabled = disabled
+			out[i].Usable = !disabled
+			break
+		}
+	}
+	return out
+}
+
+// credentialPayload returns a host entry's stored credential, fetching it when the listing
+// did not carry it.
+func credentialPayload(entry hostAuthEntry) json.RawMessage {
+	if len(entry.StorageJSON) > 0 {
+		return entry.StorageJSON
+	}
+	if strings.TrimSpace(entry.AuthIndex) != "" {
+		return fetchAuthStorage(entry.AuthIndex)
+	}
+	return nil
+}

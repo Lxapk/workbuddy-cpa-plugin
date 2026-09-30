@@ -94,7 +94,7 @@ func renderAccountsView() string {
 	b.WriteString(`<section class="view" id="view-accounts">`)
 
 	// ---- summary ----
-	b.WriteString(`<div class="stats">`)
+	b.WriteString(`<div class="stats" data-account-stats="1">`)
 	statCard(&b, "", "账号总数", total)
 	statCard(&b, "good", "可用", usable)
 	statCard(&b, "warn", "冷却中", accountCoolingCount(accounts))

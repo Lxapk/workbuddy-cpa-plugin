@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2250,5 +2251,48 @@ func TestDisabledStateFollowsOperatorChoice(t *testing.T) {
 	}
 	if !hostDisabled(hostAuthEntry{Path: path, Disabled: false}, blob) {
 		t.Error("应以磁盘上的值为准，而不是条目里的旧字段")
+	}
+}
+
+// 切换开关的响应要带回重绘所需的标记。
+//
+// 面板据此就地重绘，而不是整页重载。重载会与插件自身的状态赛跑——页面回来时，它刚写入
+// 的那个开关还没有反映在它渲染的数据里——于是按钮显示的是操作者刚刚离开的那个状态。
+// 顺带给出的还有统计卡片：可用数与禁用数随同一个开关变化，只刷新表格会让表头与下方的
+// 列表自相矛盾。
+func TestAccountToggleReturnsRepaintMarkup(t *testing.T) {
+	resetState()
+	installAuthList(t, []map[string]any{
+		{"auth_index": "codebuddy-u-1.json", "provider": workBuddyProviderKey, "label": "一号",
+			"storage_json": json.RawMessage(`{"accessToken":"t","refreshToken":"r","uid":"u-1","domain":"copilot.tencent.com","disabled":false}`)},
+	})
+	state.pool.observe(workBuddyProviderKey, "u-1", "一号")
+	refreshAccountsAfterLogin()
+
+	body, _ := json.Marshal(map[string]any{"uid": "u-1", "action": "disable"})
+	resp, handled := handleAccountToggleRequest(pluginapi.ManagementRequest{
+		Method:  http.MethodPost,
+		Path:    "/account/toggle",
+		Body:    body,
+		Headers: http.Header{},
+	})
+	if !handled || resp.StatusCode != http.StatusOK {
+		t.Fatalf("toggle 未成功：handled=%v status=%d", handled, resp.StatusCode)
+	}
+	var payload map[string]any
+	if errUnmarshal := json.Unmarshal(resp.Body, &payload); errUnmarshal != nil {
+		t.Fatalf("响应不是 JSON：%v", errUnmarshal)
+	}
+	table, _ := payload["table_html"].(string)
+	summary, _ := payload["summary_html"].(string)
+	if !strings.Contains(table, "data-account-table") {
+		t.Error("响应缺少账号表标记")
+	}
+	if !strings.Contains(summary, "data-account-stats") {
+		t.Error("响应缺少统计卡片标记")
+	}
+	// 表里该行的按钮应已翻到相反动作。
+	if !strings.Contains(table, ">启用<") {
+		t.Error("重绘用的表里没有「启用」按钮——按钮状态没有跟着翻")
 	}
 }

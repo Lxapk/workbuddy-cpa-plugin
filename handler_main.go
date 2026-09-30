@@ -42,6 +42,20 @@ func handleMainRequest(req pluginapi.ManagementRequest) (managementResponse, boo
 				"total_credits": credits,
 				"fetched_at":    time.Now().Format(time.RFC3339),
 				"warning":       state.accounts.lastError(),
+				"table_html":    renderAccountTable(accounts),
+				"summary_html":  renderAccountSummary(accounts),
+			}),
+		}, true
+
+	case "/accounts/table":
+		// Just the table, for a panel that wants to repaint it in place.
+		accounts := listWorkBuddyAccounts()
+		return managementResponse{
+			StatusCode: http.StatusOK,
+			Headers:    jsonResponseHeaders(),
+			Body: mustJSON(map[string]any{
+				"table_html":   renderAccountTable(accounts),
+				"summary_html": renderAccountSummary(accounts),
 			}),
 		}, true
 
