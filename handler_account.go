@@ -186,14 +186,30 @@ func syncAccountDisabledToHost(uid, authIndex string, disabled bool) {
 		logf("disable sync: no auth file for uid=%q index=%q err=%v", uid, authIndex, errLookup)
 		return
 	}
+	logf("disable sync: uid=%q found index=%q name=%q path=%q want=%v",
+		uid, entry.AuthIndex, entry.Name, entry.Path, disabled)
 
 	var doc map[string]any
 	if errUnmarshal := json.Unmarshal(storage, &doc); errUnmarshal != nil {
 		logf("disable sync: %s is not an object: %v", entry.AuthIndex, errUnmarshal)
 		return
 	}
-	if was, _ := doc["disabled"].(bool); was == disabled && doc["disabled"] != nil {
-		return // already in the requested state
+	// "Already in the requested state" is decided from the file, not from the payload the
+	// host handed over.
+	//
+	// That payload is the host's loaded copy, so it lags every write made since the host
+	// read the file — including the one this function made a moment ago. Judging by it made
+	// a second toggle in the opposite direction a no-op: the stale copy said "disabled",
+	// the caller asked for "enabled", the two disagreed, and the write was skipped,
+	// leaving the account in the state the operator had just tried to leave.
+	if raw, ok := readAuthFile(entry.Path); ok {
+		var onDisk map[string]any
+		if errDisk := json.Unmarshal(raw, &onDisk); errDisk == nil {
+			if was, _ := onDisk["disabled"].(bool); was == disabled && onDisk["disabled"] != nil {
+				rememberDisabled(*entry, disabled)
+				return
+			}
+		}
 	}
 	doc["disabled"] = disabled
 
@@ -208,11 +224,13 @@ func syncAccountDisabledToHost(uid, authIndex string, disabled bool) {
 	// beside the credential is dropped on the way through — the call returns a path and
 	// the watcher fires, while the file still says disabled:false. Its answer is used for
 	// the path only.
-	target, errTarget := hostAuthFileFor(entry.AuthIndex, storage)
+	target, errTarget := hostAuthFileFor(*entry, storage)
 	if errTarget != nil {
 		logf("disable sync: cannot locate %s: %v", entry.AuthIndex, errTarget)
 		return
 	}
+	rememberAuthFilePath(*entry, target)
+	rememberDisabled(*entry, disabled)
 	if errWrite := os.WriteFile(target, encoded, 0o600); errWrite != nil {
 		logf("disable sync: write %s failed: %v", target, errWrite)
 		return
@@ -239,7 +257,14 @@ func findAuthEntryForAccount(uid, authIndex string) (*hostAuthEntry, []byte, err
 		if !wanted[entry.AuthIndex] && !wanted[entry.ID] && !wanted[entry.Name] {
 			continue
 		}
+		// The host reports the file's location, so read it rather than its snapshot.
 		storage := entry.StorageJSON
+		if path := strings.TrimSpace(entry.Path); path != "" {
+			if raw, errRead := os.ReadFile(path); errRead == nil {
+				rememberAuthFilePath(entry, path)
+				return &entries[i], raw, nil
+			}
+		}
 		if len(storage) == 0 && entry.AuthIndex != "" {
 			storage = fetchAuthStorage(entry.AuthIndex)
 		}

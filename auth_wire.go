@@ -28,6 +28,14 @@ type hostAuthEntry struct {
 	AuthIndex string `json:"auth_index,omitempty"`
 	// Name is the credential file name or runtime identifier.
 	Name string `json:"name"`
+	// Path is the absolute location of the credential file on disk.
+	//
+	// Reported directly, which is what makes it possible to read the current state of a
+	// credential rather than the host's snapshot of it — the listing is assembled from
+	// what the host has loaded, so a change written moments ago is not in it yet.
+	Path string `json:"path,omitempty"`
+	// Source describes where the credential came from (file, runtime, …).
+	Source string `json:"source,omitempty"`
 	// Type is the credential provider type.
 	Type string `json:"type,omitempty"`
 	// Provider is the credential provider key.

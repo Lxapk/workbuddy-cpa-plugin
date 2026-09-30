@@ -2214,3 +2214,41 @@ func TestHostDisabledFlagFlowsBackToPool(t *testing.T) {
 		t.Fatalf("宿主启用后应恢复可选，实际 %+v", got)
 	}
 }
+
+// 面板的禁用状态必须立刻反映操作者的选择。
+//
+// 宿主的清单是从它已加载的副本拼出来的，而它靠文件监听异步重载——刚点完开关的那一刻，
+// 清单描述的还是上一个状态。照它显示的话，「禁用」看着没反应，「启用」看着像禁用，两者
+// 都与操作刚刚做的事相反。
+//
+// 用待定值覆盖，并把它存放在条目的每一个标识下：写的一侧来自 host.auth.list，读的一侧
+// 来自账号清单，两次调用填的字段并不一致，只按其中一个作键会让读写对不上，待定值永远
+// 命不中，面板只能退回宿主的旧副本。
+func TestDisabledStateFollowsOperatorChoice(t *testing.T) {
+	resetState()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codebuddy-u-1.json")
+	blob := json.RawMessage(`{"accessToken":"t","refreshToken":"r","uid":"u-1","disabled":false}`)
+	if err := os.WriteFile(path, blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 写入侧用一套标识，读取侧用另一套 —— 正是两次宿主调用的差异。
+	rememberDisabled(hostAuthEntry{Name: "codebuddy-u-1.json", AuthIndex: "idx-1"}, true)
+	if !hostDisabled(hostAuthEntry{ID: "idx-1", Path: path}, blob) {
+		t.Error("刚写入的禁用没有立刻反映出来")
+	}
+
+	rememberDisabled(hostAuthEntry{Name: "codebuddy-u-1.json", AuthIndex: "idx-1"}, false)
+	if hostDisabled(hostAuthEntry{ID: "idx-1", Path: path}, blob) {
+		t.Error("刚写入的启用没有立刻反映出来")
+	}
+
+	// 没有待定值时，以文件为准 —— 即使条目自己的字段说反话。
+	if err := os.WriteFile(path, []byte(`{"accessToken":"t","uid":"u-1","disabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hostDisabled(hostAuthEntry{Path: path, Disabled: false}, blob) {
+		t.Error("应以磁盘上的值为准，而不是条目里的旧字段")
+	}
+}

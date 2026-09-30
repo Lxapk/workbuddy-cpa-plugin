@@ -408,8 +408,15 @@ func syncVariantScopeToHost(scope string) {
 		if scope == "cn" || scope == "ai" {
 			want = realm != "" && realm != scope
 		}
-		if was, _ := doc["disabled"].(bool); was == want {
-			continue
+		// Judged from the file: the payload is the host's loaded copy, which lags writes
+		// made since it read the file.
+		if raw, ok := readAuthFile(entry.Path); ok {
+			var onDisk map[string]any
+			if errDisk := json.Unmarshal(raw, &onDisk); errDisk == nil {
+				if was, _ := onDisk["disabled"].(bool); was == want && onDisk["disabled"] != nil {
+					continue
+				}
+			}
 		}
 		doc["disabled"] = want
 		encoded, errMarshal := json.Marshal(doc)
@@ -425,7 +432,7 @@ func syncVariantScopeToHost(scope string) {
 		// same account — the host then listed both, and they could disagree about
 		// "disabled". Its payload is re-serialised on the way through, so the flag still
 		// cannot travel this way; only its answer is used.
-		target, errTarget := hostAuthFileFor(entry.AuthIndex, storage)
+		target, errTarget := hostAuthFileFor(entry, storage)
 		if errTarget != nil {
 			logf("variant scope: cannot locate %s: %v", entry.AuthIndex, errTarget)
 			continue
@@ -455,29 +462,54 @@ func stringFromDoc(doc map[string]any, key string) string {
 
 // hostAuthFileFor resolves the physical file the host keeps a credential in.
 //
-// There is no call that simply reports it. host.auth.save answers with the path it wrote,
-// so the plugin asks it to persist the credential unchanged and takes the file name from
-// the reply — the same file the host's watcher is looking at. Deriving a name from the
-// entry's AuthIndex is not equivalent: that field sometimes holds the bare runtime id
-// rather than the file name, and writing under the derived name produced a second file for
-// one account.
-func hostAuthFileFor(name string, storage json.RawMessage) (string, error) {
+// The host reports it outright in the entry's Path, so nothing has to be inferred or probed.
+// Earlier revisions asked host.auth.save to write the credential back purely to learn where
+// it lived, which had two costs: the call re-serialises the payload, and composing a name
+// when its answer was unusable produced a second file for one account.
+func hostAuthFileFor(entry hostAuthEntry, storage json.RawMessage) (string, error) {
+	if path := strings.TrimSpace(entry.Path); path != "" {
+		rememberAuthFilePath(entry, path)
+		return path, nil
+	}
 	if len(storage) == 0 {
-		return "", fmt.Errorf("no credential payload to locate %s", name)
+		return "", fmt.Errorf("no credential payload to locate %s", entry.AuthIndex)
 	}
-	raw, errCall := callHost("host.auth.save", map[string]any{
-		"name": name,
-		"json": json.RawMessage(storage),
-	})
-	if errCall != nil {
-		return "", errCall
+	// Fallback for a host that does not report the path: ask it to persist the credential
+	// and read the location off the answer.
+	candidates := []string{entry.Name, entry.AuthIndex, entry.ID}
+	seen := map[string]bool{}
+	var lastErr error
+	for _, candidate := range candidates {
+		name := strings.TrimSpace(candidate)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !strings.HasSuffix(strings.ToLower(name), ".json") {
+			name += ".json"
+		}
+		raw, errCall := callHost("host.auth.save", map[string]any{
+			"name": name,
+			"json": json.RawMessage(storage),
+		})
+		if errCall != nil {
+			lastErr = errCall
+			continue
+		}
+		var saved pluginapi.HostAuthSaveResponse
+		if errUnmarshal := json.Unmarshal(raw, &saved); errUnmarshal != nil {
+			lastErr = errUnmarshal
+			continue
+		}
+		if strings.TrimSpace(saved.Path) == "" {
+			lastErr = fmt.Errorf("host reported no path for %s", name)
+			continue
+		}
+		rememberAuthFilePath(entry, saved.Path)
+		return saved.Path, nil
 	}
-	var saved pluginapi.HostAuthSaveResponse
-	if errUnmarshal := json.Unmarshal(raw, &saved); errUnmarshal != nil {
-		return "", errUnmarshal
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no candidate file name for %s", entry.AuthIndex)
 	}
-	if strings.TrimSpace(saved.Path) == "" {
-		return "", fmt.Errorf("host reported no path for %s", name)
-	}
-	return saved.Path, nil
+	return "", lastErr
 }
