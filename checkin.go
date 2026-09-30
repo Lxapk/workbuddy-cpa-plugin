@@ -185,6 +185,18 @@ func splitAccountsByVariant(accounts []workBuddyAccount) (cn, ai []workBuddyAcco
 // whenever a host exposed a credential solely through its file name — the
 // account showed up in the list but was missing from quota totals and check-in.
 func collectCheckinAccounts() ([]checkinAccount, error) {
+	return collectAccounts(false)
+}
+
+// collectAllAccounts is collectCheckinAccounts without the check-in-only rule that
+// drops international accounts. The credit query exists for both realms, so the
+// quota refresh must see them: excluding them left every international row at
+// 「余额未知」 because no request was ever made for it.
+func collectAllAccounts() ([]checkinAccount, error) {
+	return collectAccounts(true)
+}
+
+func collectAccounts(includeInternational bool) ([]checkinAccount, error) {
 	raw, errList := callHost("host.auth.list", map[string]any{})
 	if errList != nil {
 		return nil, errList
@@ -227,7 +239,7 @@ func collectCheckinAccounts() ([]checkinAccount, error) {
 		// Only a domain that positively names the international realm is excluded. An
 		// absent domain is not evidence either way, and variableByDomain treats empty as
 		// international — which would drop every credential whose file omits the field.
-		if variantOfDomain(creds.Domain) == string(variantAi) && domainSaysInternational(creds.Domain) {
+		if !includeInternational && variantOfDomain(creds.Domain) == string(variantAi) && domainSaysInternational(creds.Domain) {
 			continue
 		}
 		out = append(out, checkinAccount{

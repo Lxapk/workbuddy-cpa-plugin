@@ -226,10 +226,16 @@ func renderAccountRow(a workBuddyAccount) string {
 		b.WriteString(`<button type="button" class="xs" data-row-action="checkin" data-uid="` +
 			html.EscapeString(ident) + `">签到</button>`)
 	}
+	// International accounts have no growth task centre either, so their 任务 button is
+	// disabled the same way. It sits before 余额 so the two realm-only actions are adjacent.
+	if a.Variant == string(variantAi) {
+		b.WriteString(`<button type="button" class="xs" disabled title="国际版无任务功能">任务</button>`)
+	} else {
+		b.WriteString(`<button type="button" class="xs" data-row-action="tasks" data-uid="` +
+			html.EscapeString(ident) + `">任务</button>`)
+	}
 	b.WriteString(`<button type="button" class="xs" data-row-action="quota" data-uid="` +
 		html.EscapeString(ident) + `">余额</button>`)
-	b.WriteString(`<button type="button" class="xs" data-row-action="tasks" data-uid="` +
-		html.EscapeString(ident) + `">任务</button>`)
 	b.WriteString(`<button type="button" class="xs ` +
 		map[bool]string{true: "danger", false: ""}[rowAction == "disable"] + `"` +
 		` data-account-toggle="1" data-uid="` + html.EscapeString(ident) + `"` +

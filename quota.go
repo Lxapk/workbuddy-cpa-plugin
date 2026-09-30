@@ -112,9 +112,15 @@ func fetchQuotaForAccounts() ([]quotaRefreshResult, error) {
 // for a full sweep (and its upstream traffic) to answer the question is wasteful,
 // and the per-row button in the panel would otherwise have to re-fetch everyone.
 func fetchQuotaForAccountsFiltered(filterUID string) ([]quotaRefreshResult, error) {
-	accounts, errCollect := collectActionableAccounts()
+	all, errCollect := collectAllAccounts()
 	if errCollect != nil {
 		return nil, errCollect
+	}
+	// A named account is queried even when the supplier switch rules its realm out:
+	// reading a balance routes nothing, and the row's 余额 button should answer.
+	accounts := all
+	if strings.TrimSpace(filterUID) == "" {
+		accounts = selectActionableAccounts(all)
 	}
 
 	filterUID = strings.TrimSpace(filterUID)
@@ -192,19 +198,23 @@ func runQuotaRefresh(trigger string) ([]quotaRefreshResult, error) {
 // the upstream, so letting it run alongside a full sweep would double the traffic
 // to the same credential and race on the cached readings.
 func runQuotaRefreshFor(trigger string, filterUID string) ([]quotaRefreshResult, error) {
-	state.quota.mu.Lock()
-	if state.quota.running {
-		state.quota.mu.Unlock()
+	// Hold on to one store for the whole run: the busy flag is set and cleared on the
+	// same object even if state.quota is swapped meanwhile (tests reset state while
+	// the background loop is mid-refresh, which unlocked a mutex never locked).
+	q := state.quota
+	q.mu.Lock()
+	if q.running {
+		q.mu.Unlock()
 		return nil, errQuotaBusy
 	}
-	state.quota.running = true
-	state.quota.mu.Unlock()
+	q.running = true
+	q.mu.Unlock()
 
 	defer func() {
-		state.quota.mu.Lock()
-		state.quota.running = false
-		state.quota.lastRunAt = time.Now()
-		state.quota.mu.Unlock()
+		q.mu.Lock()
+		q.running = false
+		q.lastRunAt = time.Now()
+		q.mu.Unlock()
 	}()
 
 	results, errFetch := fetchQuotaForAccountsFiltered(filterUID)
