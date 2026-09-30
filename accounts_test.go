@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -446,13 +448,47 @@ func TestRunEndpointDoesBoth(t *testing.T) {
 // installAuthList stubs host.auth.list with the given raw entries.
 func installAuthList(t *testing.T, entries []map[string]any) {
 	t.Helper()
-	restore := stubHostCall(func(method string, _ any) (json.RawMessage, error) {
+	// A writable directory so a test that toggles an account has somewhere real to write.
+	// Without it the host stub answered host.auth.save with an empty payload, the plugin
+	// could not locate the credential's file, and the write — and the pending value it
+	// records — never happened, quietly turning the toggle into a no-op.
+	dir := t.TempDir()
+	restore := stubHostCall(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
 		case "host.auth.list":
 			if entries == nil {
 				entries = []map[string]any{}
 			}
+			// Entries carrying storage are also materialised on disk and given a path, so
+			// the plugin can read the current state rather than the host's snapshot.
+			for i, entry := range entries {
+				blob, hasBlob := entry["storage_json"].(json.RawMessage)
+				if !hasBlob {
+					continue
+				}
+				name, _ := entry["auth_index"].(string)
+				if name == "" {
+					name = "auth-" + string(rune('a'+i)) + ".json"
+				}
+				path := filepath.Join(dir, name)
+				if err := os.WriteFile(path, blob, 0o600); err != nil {
+					t.Fatalf("seed %s: %v", path, err)
+				}
+				if _, set := entry["path"]; !set {
+					entry["path"] = path
+				}
+			}
 			return mustMarshal(t, map[string]any{"auths": entries}), nil
+		case "host.auth.save":
+			req, _ := payload.(map[string]any)
+			name, _ := req["name"].(string)
+			if name == "" {
+				return json.RawMessage(`{}`), nil
+			}
+			return mustMarshal(t, map[string]any{
+				"name": name,
+				"path": filepath.Join(dir, filepath.Base(name)),
+			}), nil
 		case "host.auth.get":
 			return json.RawMessage(`{}`), nil
 		}
