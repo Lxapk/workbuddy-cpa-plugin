@@ -661,26 +661,29 @@ func main() {
 	}
 	ok("routing strategy switchable: by_expiry / round_robin / random / by_credits")
 
-	// round_robin must delegate to CPA's built-in scheduler rather than running
-	// a private cursor, so the host's priority/quota awareness is preserved.
-	// Select it explicitly: the loop above ends on by_credits.
+	// round_robin is picked by the plugin over the filtered candidates (not delegated
+	// to CPA's selector, which does not see the supplier switch).
 	setRR := call(plugin, "management.handle", json.RawMessage(`{"Method":"POST","Path":"/v0/management/workbuddy/routing/config","Headers":{"Content-Type":["application/json"]},"Body":"eyJzdHJhdGVneSI6InJvdW5kX3JvYmluIn0="}`))
 	assertOK(setRR, "routing/config round_robin")
-	deleg := call(plugin, "scheduler.pick", json.RawMessage(`{"Provider":"codebuddy","Candidates":[{"ID":"a","Provider":"codebuddy","Status":"active"}]}`))
-	assertOK(deleg, "scheduler.pick(round_robin delegate)")
-	var delegOut struct {
-		Handled         bool   `json:"Handled"`
-		AuthID          string `json:"AuthID"`
-		DelegateBuiltin string `json:"DelegateBuiltin"`
+	rrSeen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		rr := call(plugin, "scheduler.pick", json.RawMessage(`{"Provider":"codebuddy","Candidates":[{"ID":"a","Provider":"codebuddy","Status":"active"},{"ID":"b","Provider":"codebuddy","Status":"active"}]}`))
+		assertOK(rr, "scheduler.pick(round_robin)")
+		var rrOut struct {
+			Handled         bool   `json:"Handled"`
+			AuthID          string `json:"AuthID"`
+			DelegateBuiltin string `json:"DelegateBuiltin"`
+		}
+		mustUnmarshal(rr.Result, &rrOut)
+		if !rrOut.Handled || rrOut.AuthID == "" || rrOut.DelegateBuiltin != "" {
+			die("round_robin should name an auth itself, got %+v", rrOut)
+		}
+		rrSeen[rrOut.AuthID] = true
 	}
-	mustUnmarshal(deleg.Result, &delegOut)
-	if !delegOut.Handled || delegOut.DelegateBuiltin != "round-robin" {
-		die("round_robin should delegate to the built-in scheduler, got %+v", delegOut)
+	if len(rrSeen) != 2 {
+		die("round_robin did not rotate: %v", rrSeen)
 	}
-	if delegOut.AuthID != "" {
-		die("a delegated pick must not also name an auth: %+v", delegOut)
-	}
-	ok("by delegation -> DelegateBuiltin=%s (host performs the selection)", delegOut.DelegateBuiltin)
+	ok("round_robin rotates across candidates itself")
 
 	routingResp := call(plugin, "management.handle", json.RawMessage(`{"Method":"GET","Path":"/v0/management/workbuddy/routing/status"}`))
 	assertOK(routingResp, "management.handle(/routing/status)")

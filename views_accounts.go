@@ -218,8 +218,14 @@ func renderAccountRow(a workBuddyAccount) string {
 
 	// Row controls: sign in, refresh this account's balance, run its tasks, disable.
 	b.WriteString(`<td class="actions">`)
-	b.WriteString(`<button type="button" class="xs" data-row-action="checkin" data-uid="` +
-		html.EscapeString(ident) + `">签到</button>`)
+	// International accounts have no check-in endpoint; the button is shown disabled
+	// with the reason instead of offering an action that cannot happen.
+	if a.Variant == string(variantAi) {
+		b.WriteString(`<button type="button" class="xs" disabled title="国际版无签到功能">签到</button>`)
+	} else {
+		b.WriteString(`<button type="button" class="xs" data-row-action="checkin" data-uid="` +
+			html.EscapeString(ident) + `">签到</button>`)
+	}
 	b.WriteString(`<button type="button" class="xs" data-row-action="quota" data-uid="` +
 		html.EscapeString(ident) + `">余额</button>`)
 	b.WriteString(`<button type="button" class="xs" data-row-action="tasks" data-uid="` +

@@ -390,10 +390,22 @@ func TestAllFourStrategiesAreActuallyEffective(t *testing.T) {
 		})
 		var out pluginapi.SchedulerPickResponse
 		mustDecode(t, res, &out)
-		// Round-robin is delegated to CPA's built-in scheduler; the plugin must
-		// name it rather than picking on its own.
-		if out.DelegateBuiltin != pluginapi.SchedulerBuiltinRoundRobin {
-			t.Fatalf("delegate = %q, want the builtin round-robin", out.DelegateBuiltin)
+		// Round-robin is picked by the plugin over the filtered candidates, so the
+		// supplier switch and the panel's rotation counter both apply to it.
+		if !out.Handled || out.AuthID == "" || out.DelegateBuiltin != "" {
+			t.Fatalf("round_robin must name an auth itself, got %+v", out)
+		}
+		seen := map[string]bool{out.AuthID: true}
+		for i := 0; i < 2; i++ {
+			res := callOK(t, pluginabi.MethodSchedulerPick, pluginapi.SchedulerPickRequest{
+				Provider: workBuddyProviderKey, Candidates: candidates(),
+			})
+			var next pluginapi.SchedulerPickResponse
+			mustDecode(t, res, &next)
+			seen[next.AuthID] = true
+		}
+		if len(seen) != 3 {
+			t.Fatalf("three picks should visit all three accounts, got %v", seen)
 		}
 	})
 
@@ -486,11 +498,11 @@ func TestSchedulerPickByCredits(t *testing.T) {
 	}
 }
 
-// TestSchedulerPickRoundRobinDelegates checks that the round_robin strategy
-// hands the decision to CPA's own scheduler rather than running a private
-// cursor: the host's version accounts for priorities and quota state the plugin
-// cannot see, and it survives plugin reloads.
-func TestSchedulerPickRoundRobinDelegates(t *testing.T) {
+// TestSchedulerPickRoundRobinRotatesItself checks that round_robin is decided by the
+// plugin, not delegated: CPA's built-in selector does not see the supplier switch, so a
+// delegated pick could land on the excluded realm, and the panel's reset button would
+// act on a cursor nothing advanced.
+func TestSchedulerPickRoundRobinRotatesItself(t *testing.T) {
 	resetState()
 	applyRoutingConfig(routingSettings{Strategy: strategyRoundRobin})
 
@@ -502,17 +514,21 @@ func TestSchedulerPickRoundRobinDelegates(t *testing.T) {
 		},
 	})
 
-	res := callOK(t, pluginabi.MethodSchedulerPick, json.RawMessage(payload))
-	var out pluginapi.SchedulerPickResponse
-	mustDecode(t, res, &out)
-	if !out.Handled {
-		t.Fatal("should be handled")
+	var got []string
+	for i := 0; i < 2; i++ {
+		res := callOK(t, pluginabi.MethodSchedulerPick, json.RawMessage(payload))
+		var out pluginapi.SchedulerPickResponse
+		mustDecode(t, res, &out)
+		if !out.Handled || out.DelegateBuiltin != "" {
+			t.Fatalf("round_robin must pick itself, got %+v", out)
+		}
+		got = append(got, out.AuthID)
 	}
-	if out.DelegateBuiltin != pluginapi.SchedulerBuiltinRoundRobin {
-		t.Fatalf("delegate = %q, want %q", out.DelegateBuiltin, pluginapi.SchedulerBuiltinRoundRobin)
+	if got[0] == got[1] {
+		t.Fatalf("two picks returned the same account: %v", got)
 	}
-	if out.AuthID != "" {
-		t.Fatalf("a delegated pick must not also name an auth, got %q", out.AuthID)
+	if nextRotationHint() == "尚未开始轮巡" {
+		t.Fatal("the panel's rotation counter did not advance")
 	}
 }
 

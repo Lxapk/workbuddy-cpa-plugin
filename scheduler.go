@@ -599,25 +599,23 @@ func schedulerPick(request []byte) ([]byte, error) {
 
 	strategy := state.settings.get().Routing.Strategy
 	var chosen string
-	var delegate string
 
 	switch strategy {
 	case strategyByExpiry:
 		chosen, _ = pickByExpiryScheduler(req, candidates)
 	case strategyRoundRobin:
-		delegate = pluginapi.SchedulerBuiltinRoundRobin
+		// Rotated here, over the candidates that survived the supplier switch, the
+		// disabled check and the per-model parks. Delegating to CPA's built-in
+		// round-robin handed the choice to a selector that sees none of those filters —
+		// 仅国内 could still land on an international account — and left the panel's
+		// 重置轮巡位置 button and rotation counter wired to a cursor nothing advanced.
+		chosen = state.scheduler.pickRoundRobin(schedulerProviderKey(req), candidates)
 	case strategyRandom:
 		chosen = state.scheduler.pickRandom(candidates)
 	default:
 		chosen = pickByCredits(candidates)
 	}
 
-	if delegate != "" {
-		return okEnvelope(pluginapi.SchedulerPickResponse{
-			Handled:         true,
-			DelegateBuiltin: delegate,
-		})
-	}
 	if chosen == "" {
 		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}

@@ -614,6 +614,11 @@ label.field input[type=number] { width: 74px; }
 .tag-ai { background: color-mix(in srgb, var(--primary-color) 20%, transparent); color: var(--text-primary); }
 .tag-unknown { background: var(--bg-tertiary); color: var(--text-tertiary); }
 
+/* Four strategies in one row: wide enough that none of the labels truncates. The
+   selector carries the card class so it outranks ".setting-control .seg" (260px). */
+.routing-card .setting-control .seg.seg-4 { width: 100%; max-width: 420px; }
+.routing-card .setting-group { padding-top: 12px; padding-bottom: 12px; }
+.routing-card .setting-control { gap: 6px; }
 /* A compact variant for use inside a card header: the default 260px would crowd the
    title and the refresh button on one line. */
 .seg-sm { width: auto; }

@@ -96,14 +96,16 @@ func routingStatusJSON() map[string]any {
 	rows := make([]map[string]any, 0, len(order))
 	for i, a := range order {
 		rows = append(rows, map[string]any{
-			"position":      i + 1,
-			"label":         a.Label,
-			"auth_id":       a.AuthIndex,
-			"uid":           a.UID,
-			"credits":       a.Credits,
-			"known":         a.CreditsKnown,
-			"usable":        a.Usable,
-			"picks":         picks[a.AuthIndex],
+			"position": i + 1,
+			"label":    a.Label,
+			"auth_id":  a.AuthIndex,
+			"uid":      a.UID,
+			"credits":  a.Credits,
+			"known":    a.CreditsKnown,
+			"usable":   a.Usable,
+			// Picks are recorded under the id the host offered, which is the uid for
+			// file-backed credentials; fall back to the auth index for the others.
+			"picks":         picks[a.UID] + picks[a.AuthIndex],
 			"expire_days":   a.CreditsExpireDays,
 			"expiring_soon": a.CreditsExpiringSoon,
 			"expired":       a.CreditsExpired,

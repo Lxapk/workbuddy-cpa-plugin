@@ -645,3 +645,65 @@ func allAccountsInternational(accounts []checkinAccount) bool {
 	}
 	return true
 }
+
+// runCheckinForAccount checks in one account, the one a row's 签到 button names.
+//
+// An international account is answered with an explicit skip rather than being looked
+// up in the check-in list: that list leaves international credentials out altogether,
+// so a lookup would only say "not found", which reads like a fault.
+func runCheckinForAccount(uid string) *checkinRun {
+	run := &checkinRun{StartedAt: nowPanel(), Trigger: "manual"}
+	finish := func(res checkinResult) *checkinRun {
+		run.Total = 1
+		switch {
+		case res.Skipped:
+			run.Skipped = 1
+		case res.Success && res.Error == "":
+			run.Succeeded = 1
+		default:
+			run.Failed = 1
+		}
+		run.Results = []checkinResult{res}
+		run.FinishedAt = nowPanel()
+		state.checkin.record(run)
+		return run
+	}
+
+	for _, a := range listWorkBuddyAccounts() {
+		if a.UID != uid && a.AuthIndex != uid {
+			continue
+		}
+		if a.Variant == string(variantAi) {
+			return finish(checkinResult{
+				AuthID: a.AuthIndex, Label: a.Label, UID: a.UID, Domain: a.Domain,
+				Skipped: true, Message: "国际版无签到功能", CheckedAt: time.Now(),
+			})
+		}
+		break
+	}
+
+	state.checkin.mu.Lock()
+	if state.checkin.running {
+		state.checkin.mu.Unlock()
+		return finish(checkinResult{UID: uid, Error: "已有签到任务正在运行"})
+	}
+	state.checkin.running = true
+	state.checkin.mu.Unlock()
+	defer func() {
+		state.checkin.mu.Lock()
+		state.checkin.running = false
+		state.checkin.mu.Unlock()
+	}()
+
+	accounts, errCollect := collectCheckinAccounts()
+	if errCollect != nil {
+		return finish(checkinResult{UID: uid, Error: "读取账号失败：" + errCollect.Error()})
+	}
+	for _, account := range accounts {
+		if account.AuthID != uid && (account.Creds == nil || account.Creds.UID != uid) {
+			continue
+		}
+		return finish(checkinOne(account, state.settings.get().Checkin))
+	}
+	return finish(checkinResult{UID: uid, Error: "账号不存在、已停用或不支持签到"})
+}

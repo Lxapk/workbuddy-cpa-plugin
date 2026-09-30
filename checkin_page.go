@@ -54,7 +54,15 @@ func handleCheckinRequest(req pluginapi.ManagementRequest) (managementResponse, 
 				Body:       mustJSON(map[string]any{"error": "POST required"}),
 			}, true
 		}
-		run := runFromManagement()
+		// A row's 签到 button names one account. Ignoring that and running the whole pool
+		// made every row report the pool's outcome — an international account, which has
+		// no check-in at all, answered 签到完成.
+		var run *checkinRun
+		if uid := strings.TrimSpace(req.Query.Get("uid")); uid != "" {
+			run = runCheckinForAccount(uid)
+		} else {
+			run = runFromManagement()
+		}
 		return managementResponse{
 			StatusCode: http.StatusOK,
 			Headers:    jsonResponseHeaders(),

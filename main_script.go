@@ -173,23 +173,36 @@ func mainPageScript() string {
   };
 
   // ---- strategy --------------------------------------------------------
+  // pickStrategy only moves the highlight and swaps the one-line description; the
+  // choice takes effect when 应用策略 is pressed, as before.
+  window.pickStrategy = function (v) {
+    markSegmented('strategySeg', v);
+    updateEffectLine('strategySeg', v);
+    msgSet('strategyMsg', '未应用', 'muted');
+  };
+
   window.saveStrategy = function () {
-    var picked = document.querySelector('input[name="strategy"]:checked');
-    if (!picked) { msgSet('strategyMsg', '请选择一种策略', 'bad'); return; }
+    var picked = document.querySelector('#strategySeg button.on');
+    var value = picked ? picked.getAttribute('data-value') : '';
+    if (!value) { msgSet('strategyMsg', '请选择一种策略', 'bad'); return; }
     msgSet('strategyMsg', '应用中…', 'muted');
     call(BASE + '/routing/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ strategy: picked.value })
-    }).then(function () {
-      msgSet('strategyMsg', '已应用：' + picked.value, 'ok');
-      setTimeout(function () { location.reload(); }, 700);
+      body: JSON.stringify({ strategy: value })
+    }).then(function (payload) {
+      var r = (payload && payload.routing) || {};
+      var cur = document.getElementById('strategyCurrent');
+      if (cur && r.strategy_label) cur.textContent = r.strategy_label;
+      msgSet('strategyMsg', '已应用：' + (r.strategy_label || value), 'ok');
     }).catch(function (e) { msgSet('strategyMsg', '应用失败：' + e.message, 'bad'); });
   };
 
   window.resetRotation = function () {
     msgSet('strategyMsg', '重置中…', 'muted');
     call(BASE + '/routing/reset', { method: 'POST' }).then(function () {
+      var hint = document.getElementById('rotationHint');
+      if (hint) hint.textContent = '尚未开始轮巡';
       msgSet('strategyMsg', '轮巡位置已重置', 'ok');
     }).catch(function (e) { msgSet('strategyMsg', '重置失败：' + e.message, 'bad'); });
   };
@@ -1532,8 +1545,13 @@ function updateEffectLine(segId, value) {
       msgSet('accountMsg', '正在为 ' + uid + ' 签到…', 'muted');
       call(BASE + '/checkin/run?uid=' + encodeURIComponent(uid), { method: 'POST' })
         .then(function (data) {
-          var hit = ((data && data.accounts) || [])[0] || {};
-          done(hit.error ? ('签到失败：' + hit.error) : '签到完成', !hit.error);
+          // The run carries one result for the named account. Read its own outcome:
+          // skipped (international), already done, success, or the upstream's reason.
+          var hit = ((data && data.results) || [])[0] || {};
+          if (hit.skipped) { done(hit.message || '国际版无签到功能', false); return; }
+          if (hit.error) { done('签到失败：' + hit.error, false); return; }
+          if (!hit.success) { done('签到失败：' + (hit.message || '上游未确认'), false); return; }
+          done(hit.already_checked_in ? '今天已签到' : ('签到成功' + (hit.message ? '：' + hit.message : '')), true);
         })
         .catch(function (e) { done('签到失败：' + e.message, false); });
       return;

@@ -1174,9 +1174,9 @@ func TestSupplierSwitchesAreWired(t *testing.T) {
 			t.Errorf("%s 的按钮没有 data-value，脚本无法判断该高亮哪个", segID)
 		}
 	}
-	// 调用范围三项，授权归属两项（只要国内与国际，不再有「跟随」）。
-	if got := strings.Count(settings, `data-value=`); got != 5 {
-		t.Errorf("data-value 应有 5 个（3 + 2），实际 %d", got)
+	// 调用范围三项，授权归属两项（只要国内与国际，不再有「跟随」），路由策略四项。
+	if got := strings.Count(settings, `data-value=`); got != 9 {
+		t.Errorf("data-value 应有 9 个（3 + 2 + 4），实际 %d", got)
 	}
 	if strings.Contains(settings, `data-value="follow"`) {
 		t.Error("授权归属仍有「跟随」选项，应只保留国内与国际")
