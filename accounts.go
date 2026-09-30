@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -203,9 +201,6 @@ func loadWorkBuddyAccounts() ([]workBuddyAccount, error) {
 		if !isWorkBuddyAuthEntry(entry) {
 			continue
 		}
-		logf("auth entry: index=%q name=%q id=%q path=%q disabled=%v",
-			entry.AuthIndex, entry.Name, entry.ID, entry.Path, entry.Disabled)
-
 		storage := entry.StorageJSON
 		if len(storage) == 0 && entry.AuthIndex != "" {
 			storage = fetchAuthStorage(entry.AuthIndex)
@@ -229,8 +224,9 @@ func loadWorkBuddyAccounts() ([]workBuddyAccount, error) {
 				Region:         workBuddyRegion(recovered.domain),
 				Usable:         false,
 				Reason:         "凭据无法解析",
-				Disabled:       hostDisabledFor(entry, recovered),
-				DisabledByUser: hostDisabledFor(entry, recovered),
+				Disabled:       hostDisabled(entry, storage),
+				DisabledByUser: hostDisabled(entry, storage),
+				DisabledReason: regionHoldReason(entry),
 			})
 			continue
 		}
@@ -246,12 +242,14 @@ func loadWorkBuddyAccounts() ([]workBuddyAccount, error) {
 			EnterpriseID: creds.EnterpriseID,
 			ExpiresAt:    creds.ExpiresAt,
 			Expired:      creds.expired(),
-			// The flag lives inside the credential blob; host.auth.list does not surface it
-			// as a field of its own, so entry.Disabled is empty for a file-based credential
-			// and the blob is what carries the operator's choice.
-			Disabled:       hostDisabled(entry, storage),
-			DisabledByUser: hostDisabled(entry, storage),
-			Usable:         !hostDisabled(entry, storage),
+		}
+		// Read once: the file on disk decides, see hostDisabled.
+		disabled := hostDisabled(entry, storage)
+		account.Disabled = disabled
+		account.DisabledByUser = disabled
+		account.Usable = !disabled
+		if disabled {
+			account.DisabledReason = regionHoldReason(entry)
 		}
 		out = append(out, account)
 	}
@@ -663,15 +661,19 @@ func enrichWithRuntime(accounts []workBuddyAccount) []workBuddyAccount {
 		// the pool lane, so leaving it out made a disabled account keep
 		// reporting 可用 in the very column the operator looks at, which read as
 		// "禁用没有生效" even though the flag was stored.
-		now := time.Now()
-		blockedByReason := a.Reason != "" && !a.CreditsKnown && a.UID == "" && a.CoolKind == ""
-		a.Usable = !a.Disabled && !a.DisabledByUser && !a.Expired && !a.CreditsExpired &&
-			!blockedByReason && (a.CooldownUntil.IsZero() || !now.Before(a.CooldownUntil))
+		a.Usable = accountUsable(a, time.Now())
 	}
 	return accounts
 }
 
-// listWorkBuddyAccounts is the entry point used by the UI.
+// accountUsable is the single usability rule for an inventory row. applyPendingDisabled
+// reuses it, so a row repainted after a toggle is judged exactly like a freshly listed one.
+func accountUsable(a *workBuddyAccount, now time.Time) bool {
+	blockedByReason := a.Reason != "" && !a.CreditsKnown && a.UID == "" && a.CoolKind == ""
+	return !a.Disabled && !a.DisabledByUser && !a.AutoDisabled && !a.Expired && !a.CreditsExpired &&
+		!blockedByReason && (a.CooldownUntil.IsZero() || !now.Before(a.CooldownUntil))
+}
+
 // listWorkBuddyAccounts reads the inventory and mirrors the host's disabled flag.
 //
 // The mirror happens after the store's lock is released — accounts() returns a copy and
@@ -720,249 +722,4 @@ func accountSummary(accounts []workBuddyAccount) (total, usable, known int, tota
 // contextWithTimeout is a small helper shared by the refresh paths.
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
-}
-
-// hostDisabled reports whether the host holds this credential as disabled.
-//
-// The flag is read from the file on disk when its location is known, and from the entry
-// and its payload otherwise.
-//
-// Reading the file matters because the host's own listing is a snapshot: it answers from
-// the copy it loaded, so a change written moments ago — by this plugin, when the operator
-// disables an account — is not in it yet. Consulting the listing first made that change
-// invisible, and the mirror then treated the host's stale "enabled" as the operator's
-// intent and undid it.
-// resolveAuthPath turns the host's reported location into an absolute one.
-//
-// The host reports it relative to its own working directory ("auths/x.json"), which is not
-// necessarily this process's — the plugin runs inside the host, but a path is only usable
-// if it is either absolute or relative to the process that opens it. Resolving against the
-// host's directory is what makes the read reliable; without it the file appears
-// unreadable and the caller falls back to the host's stale snapshot of it.
-func resolveAuthPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
-	}
-	if filepath.IsAbs(path) {
-		return path
-	}
-	if base := strings.TrimSpace(hostWorkingDirectory()); base != "" {
-		return filepath.Join(base, path)
-	}
-	return path
-}
-
-// hostWorkingDirectory returns the host process's working directory, if it reports one.
-var hostWorkingDirectory = sync.OnceValue(func() string {
-	if wd, errGet := os.Getwd(); errGet == nil {
-		return wd
-	}
-	return ""
-})
-
-// readAuthFile reads a credential file, resolving a relative location first.
-func readAuthFile(path string) ([]byte, bool) {
-	resolved := resolveAuthPath(path)
-	if resolved == "" {
-		return nil, false
-	}
-	raw, errRead := os.ReadFile(resolved)
-	if errRead != nil {
-		return nil, false
-	}
-	return raw, true
-}
-
-func hostDisabled(entry hostAuthEntry, storage []byte) bool {
-	// A write made by this plugin is authoritative for the account table until the host's
-	// own listing catches up.
-	//
-	// The host assembles its listing from what it has loaded, and it reloads on a file
-	// watcher — asynchronously. Immediately after a toggle the listing therefore still
-	// describes the previous state, and reading it back showed the operator the opposite of
-	// what they had just asked for: disable appeared to do nothing, then enable appeared to
-	// disable. This map holds what was written until the host publishes the same value.
-	for _, key := range disabledKeys(entry) {
-		pending, hasPending := pendingDisabled.Load(key)
-		if !hasPending {
-			continue
-		}
-		want, _ := pending.(bool)
-		if want {
-			// Written as disabled. The host may still list it as enabled until its watcher
-			// catches up, but the operator's instruction is unambiguous.
-			if hostSays, hasHost := hostDisabledFromSources(entry, storage); !hasHost || hostSays {
-				if hasHost {
-					pendingDisabled.Delete(key)
-				}
-			}
-			logf("disabled read: key=%q pending=true → true", key)
-			return true
-		}
-		pendingDisabled.Delete(key)
-		logf("disabled read: key=%q pending=false → false", key)
-		return false
-	}
-	value, hasHost := hostDisabledFromSources(entry, storage)
-	logf("disabled read: keys=%v pending=none file=%v hasHost=%v", disabledKeys(entry), value, hasHost)
-	return value
-}
-
-// hostSays is the second return: whether any source could be consulted at all.
-func hostDisabledFromSources(entry hostAuthEntry, storage []byte) (bool, bool) {
-	for _, path := range []string{entry.Path, knownAuthFilePath(entry)} {
-		if strings.TrimSpace(path) == "" {
-			continue
-		}
-		raw, ok := readAuthFile(path)
-		if !ok {
-			logf("disabled: cannot open %q", path)
-			continue
-		}
-		recovered := recoverIdentityFromStorage(raw)
-		if recovered.hasDisabled {
-			return recovered.disabled, true
-		}
-	}
-	if entry.Disabled {
-		return true, true
-	}
-	recovered := recoverIdentityFromStorage(storage)
-	if recovered.hasDisabled {
-		return recovered.disabled, true
-	}
-	return false, false
-}
-
-// pendingDisabled records what this plugin last wrote for a credential.
-var pendingDisabled sync.Map // key → bool
-
-// rememberDisabled records the value just written to a credential's file.
-//
-// Stored under every identifier the entry carries, because the entry that writes and the
-// entry that later reads come from two different host calls — host.auth.list for the write
-// path and the account inventory for the read — and they do not necessarily populate the
-// same fields. Keying on one field meant the write and the read disagreed about the key,
-// the pending value was never found, and the panel showed the host's stale copy.
-func rememberDisabled(entry hostAuthEntry, disabled bool) {
-	for _, id := range []string{entry.Name, entry.AuthIndex, entry.ID, entry.Path} {
-		if id = strings.TrimSpace(id); id != "" {
-			pendingDisabled.Store(id, disabled)
-		}
-	}
-}
-
-// disabledKeys enumerates every identifier a credential may be pending under.
-func disabledKeys(entry hostAuthEntry) []string {
-	var out []string
-	for _, id := range []string{entry.Name, entry.AuthIndex, entry.ID, entry.Path} {
-		if id = strings.TrimSpace(id); id != "" {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-// hostDisabledFor is hostDisabled for a credential already reduced to its recovered fields.
-func hostDisabledFor(entry hostAuthEntry, recovered recoveredIdentity) bool {
-	for _, path := range []string{entry.Path, knownAuthFilePath(entry)} {
-		if strings.TrimSpace(path) == "" {
-			continue
-		}
-		raw, errRead := os.ReadFile(path)
-		if errRead != nil {
-			continue
-		}
-		fresh := recoverIdentityFromStorage(raw)
-		if fresh.hasDisabled {
-			return fresh.disabled
-		}
-	}
-	if entry.Disabled {
-		return true
-	}
-	return recovered.hasDisabled && recovered.disabled
-}
-
-// authPathCache remembers where a credential's file lives.
-//
-// The location is only discoverable by asking the host to write the file, which is far too
-// heavy to do on every read. It does not change in practice — a credential keeps its file
-// — so the answer is cached under the identifiers the host may use for it.
-var authPathCache sync.Map // identifier → string
-
-// rememberAuthFilePath records a resolved location.
-func rememberAuthFilePath(entry hostAuthEntry, path string) {
-	if strings.TrimSpace(path) == "" {
-		return
-	}
-	for _, id := range []string{entry.Name, entry.AuthIndex, entry.ID} {
-		if id = strings.TrimSpace(id); id != "" {
-			authPathCache.Store(id, path)
-		}
-	}
-}
-
-// knownAuthFilePath returns a previously resolved location, if any.
-func knownAuthFilePath(entry hostAuthEntry) string {
-	for _, id := range []string{entry.Name, entry.AuthIndex, entry.ID} {
-		if id = strings.TrimSpace(id); id == "" {
-			continue
-		}
-		if path, ok := authPathCache.Load(id); ok {
-			if s, _ := path.(string); s != "" {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
-// applyPendingDisabled overlays the values this plugin has just written onto an inventory.
-//
-// The inventory comes from the host's listing, and the host rebuilds that listing from what
-// it has loaded — asynchronously, on a file watcher. One request after a toggle it therefore
-// still describes the previous state, and anything rendered from it (the table sent back
-// with the acknowledgement, most visibly) shows the operator the state they just left.
-//
-// Matching is attempted on every identifier an account carries, because the row and the
-// host entry do not necessarily populate the same fields.
-func applyPendingDisabled(accounts []workBuddyAccount) []workBuddyAccount {
-	if len(accounts) == 0 {
-		return accounts
-	}
-	out := make([]workBuddyAccount, len(accounts))
-	copy(out, accounts)
-	for i := range out {
-		for _, id := range []string{
-			out[i].AuthIndex, out[i].UID, out[i].Label,
-		} {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
-			}
-			pending, ok := pendingDisabled.Load(id)
-			if !ok {
-				continue
-			}
-			disabled, _ := pending.(bool)
-			out[i].Disabled = disabled
-			out[i].Usable = !disabled
-			break
-		}
-	}
-	return out
-}
-
-// credentialPayload returns a host entry's stored credential, fetching it when the listing
-// did not carry it.
-func credentialPayload(entry hostAuthEntry) json.RawMessage {
-	if len(entry.StorageJSON) > 0 {
-		return entry.StorageJSON
-	}
-	if strings.TrimSpace(entry.AuthIndex) != "" {
-		return fetchAuthStorage(entry.AuthIndex)
-	}
-	return nil
 }

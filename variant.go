@@ -2,12 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 	"strings"
 	"sync"
-
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 // This file is the single source of truth for WorkBuddy's two service variants
@@ -364,85 +360,87 @@ func redirectAllCnBases(url string) func() {
 	}
 }
 
-// syncVariantScopeToHost disables, at the host, the credentials the supplier switch rules
-// out — and re-enables them when the switch goes back to 自动.
+// syncVariantScopeToHost keeps the host's candidate list inside the supplier switch.
 //
-// Why this reaches for a persistent flag: the plugin's own pick honours the setting, but
-// the host keeps building its own candidate list from the same credentials and falls back
-// to it whenever the plugin does not name an account. A host-side retry after a failed pick
-// is the concrete case — with 仅国际 set, the first attempt correctly used the
-// international credential, it failed because that realm does not serve the model, and the
-// retry reached a domestic one. No response the plugin can return means "nothing is
-// acceptable", so the only lever over that path is the flag the host itself reads.
+// The plugin's pick honours 仅国内 / 仅国际, but CPA also picks from its own list — a retry
+// after a failed attempt, for instance — and that path reached the other realm. The flag CPA
+// reads for that list is the auth file's top-level "disabled", so the switch sets it on the
+// credentials it rules out.
 //
-// The cost is that this is real state, not a hint, so it is applied only for an explicit
-// cn/ai choice. 自动 clears both sides, which is what makes the switch reversible: the
-// panel's 自动 option is the undo.
+// It only ever undoes its own work. A file it disabled is recorded in regionHold; switching
+// back (or to the other realm) re-enables exactly those. A file that was already disabled —
+// by the operator, in CPA or in this panel — is neither recorded nor touched, so 自动 no
+// longer re-enables accounts someone switched off by hand. A credential whose realm cannot be
+// determined is left alone.
 func syncVariantScopeToHost(scope string) {
-	entries := listHostAuthEntries()
-	if len(entries) == 0 {
-		return
-	}
-	for _, entry := range entries {
+	// The account table caches the host's listing for a few seconds; a read right after
+	// this write must see the new flag, not the cached one.
+	defer state.accounts.invalidate()
+	for _, entry := range listHostAuthEntries() {
 		if !isWorkBuddyAuthEntry(entry) {
 			continue
 		}
-		storage := entry.StorageJSON
-		if len(storage) == 0 && entry.AuthIndex != "" {
-			storage = fetchAuthStorage(entry.AuthIndex)
-		}
-		if len(storage) == 0 {
+		path := strings.TrimSpace(entry.Path)
+		if path == "" {
 			continue
 		}
-		var doc map[string]any
-		if errUnmarshal := json.Unmarshal(storage, &doc); errUnmarshal != nil {
+		raw, ok := readAuthFile(path)
+		if !ok {
 			continue
 		}
-		realm := variantOfDomain(stringFromDoc(doc, "domain"))
-		if realm == string(variantAi) && !domainSaysInternational(stringFromDoc(doc, "domain")) {
-			// Unknown realm: not evidence that this credential belongs to the side being
-			// excluded, so it is left alone.
-			realm = ""
-		}
-		want := false
-		if scope == "cn" || scope == "ai" {
-			want = realm != "" && realm != scope
-		}
-		// Judged from the file: the payload is the host's loaded copy, which lags writes
-		// made since it read the file.
-		if raw, ok := readAuthFile(entry.Path); ok {
-			var onDisk map[string]any
-			if errDisk := json.Unmarshal(raw, &onDisk); errDisk == nil {
-				if was, _ := onDisk["disabled"].(bool); was == want && onDisk["disabled"] != nil {
+		realm := credentialRealm(raw)
+		exclude := (scope == "cn" || scope == "ai") && realm != "" && realm != scope
+		current, _ := disabledInPayload(raw)
+		held := regionHold.isHeld(path)
+
+		switch {
+		case exclude && !current:
+			if _, errWrite := setAuthFileDisabled(path, true); errWrite != nil {
+				logf("variant scope: write %s failed: %v", path, errWrite)
+				continue
+			}
+			regionHold.hold(path)
+			rememberDisabled(entry, true)
+			logf("variant scope: %s realm=%q held for scope=%q", path, realm, scope)
+		case !exclude && held:
+			if current {
+				if _, errWrite := setAuthFileDisabled(path, false); errWrite != nil {
+					logf("variant scope: write %s failed: %v", path, errWrite)
 					continue
 				}
 			}
+			// Recorded even when the file already said enabled: the pending "disabled" this
+			// switch wrote earlier would otherwise keep masking the file until it expires.
+			rememberDisabled(entry, false)
+			regionHold.release(path)
+			logf("variant scope: %s realm=%q released for scope=%q", path, realm, scope)
+		case held && !current:
+			// Re-enabled elsewhere while held: the operator took it over.
+			clearPending(authEntryKeys(entry))
+			regionHold.release(path)
 		}
-		doc["disabled"] = want
-		encoded, errMarshal := json.Marshal(doc)
-		if errMarshal != nil {
-			continue
-		}
-		// The path to write comes from the host, not from a name built here.
-		//
-		// host.auth.save is asked to persist the credential unchanged and answers with the
-		// file it wrote. That reply is the only authoritative statement of where this
-		// credential lives: the entry's AuthIndex is sometimes the bare runtime id rather
-		// than the file name, and composing a name from it created a second file for the
-		// same account — the host then listed both, and they could disagree about
-		// "disabled". Its payload is re-serialised on the way through, so the flag still
-		// cannot travel this way; only its answer is used.
-		target, errTarget := hostAuthFileFor(entry, storage)
-		if errTarget != nil {
-			logf("variant scope: cannot locate %s: %v", entry.AuthIndex, errTarget)
-			continue
-		}
-		if errWrite := os.WriteFile(target, encoded, 0o600); errWrite != nil {
-			logf("variant scope: write %s failed: %v", target, errWrite)
-			continue
-		}
-		logf("variant scope: %s realm=%q scope=%q disabled=%v → %s", entry.AuthIndex, realm, scope, want, target)
 	}
+}
+
+// credentialRealm resolves "cn" / "ai" from a credential's domain, then its token issuer.
+// Empty when neither is recognised: not evidence for either side.
+func credentialRealm(raw []byte) string {
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return ""
+	}
+	domain := stringFromDoc(doc, "domain")
+	switch {
+	case domainSaysInternational(domain):
+		return string(variantAi)
+	case domainSaysCn(domain):
+		return string(variantCn)
+	}
+	token := stringFromDoc(doc, "accessToken")
+	if token == "" {
+		token = stringFromDoc(doc, "access_token")
+	}
+	return issuerRealm(token)
 }
 
 // listHostAuthEntries reads the host's credential inventory.
@@ -458,58 +456,4 @@ func listHostAuthEntries() []hostAuthEntry {
 func stringFromDoc(doc map[string]any, key string) string {
 	s, _ := doc[key].(string)
 	return s
-}
-
-// hostAuthFileFor resolves the physical file the host keeps a credential in.
-//
-// The host reports it outright in the entry's Path, so nothing has to be inferred or probed.
-// Earlier revisions asked host.auth.save to write the credential back purely to learn where
-// it lived, which had two costs: the call re-serialises the payload, and composing a name
-// when its answer was unusable produced a second file for one account.
-func hostAuthFileFor(entry hostAuthEntry, storage json.RawMessage) (string, error) {
-	if path := strings.TrimSpace(entry.Path); path != "" {
-		rememberAuthFilePath(entry, path)
-		return path, nil
-	}
-	if len(storage) == 0 {
-		return "", fmt.Errorf("no credential payload to locate %s", entry.AuthIndex)
-	}
-	// Fallback for a host that does not report the path: ask it to persist the credential
-	// and read the location off the answer.
-	candidates := []string{entry.Name, entry.AuthIndex, entry.ID}
-	seen := map[string]bool{}
-	var lastErr error
-	for _, candidate := range candidates {
-		name := strings.TrimSpace(candidate)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		if !strings.HasSuffix(strings.ToLower(name), ".json") {
-			name += ".json"
-		}
-		raw, errCall := callHost("host.auth.save", map[string]any{
-			"name": name,
-			"json": json.RawMessage(storage),
-		})
-		if errCall != nil {
-			lastErr = errCall
-			continue
-		}
-		var saved pluginapi.HostAuthSaveResponse
-		if errUnmarshal := json.Unmarshal(raw, &saved); errUnmarshal != nil {
-			lastErr = errUnmarshal
-			continue
-		}
-		if strings.TrimSpace(saved.Path) == "" {
-			lastErr = fmt.Errorf("host reported no path for %s", name)
-			continue
-		}
-		rememberAuthFilePath(entry, saved.Path)
-		return saved.Path, nil
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no candidate file name for %s", entry.AuthIndex)
-	}
-	return "", lastErr
 }

@@ -2127,8 +2127,8 @@ func TestVariantScopeMirrorsDisabledToHostFiles(t *testing.T) {
 				return json.RawMessage(blob)
 			}
 			return mustMarshal(t, map[string]any{"files": []map[string]any{
-				{"auth_index": "codebuddy-cn-1.json", "provider": workBuddyProviderKey, "storage_json": read("codebuddy-cn-1.json")},
-				{"auth_index": "codebuddy-ai-1.json", "provider": workBuddyProviderKey, "storage_json": read("codebuddy-ai-1.json")},
+				{"auth_index": "codebuddy-cn-1.json", "provider": workBuddyProviderKey, "path": cnPath, "storage_json": read("codebuddy-cn-1.json")},
+				{"auth_index": "codebuddy-ai-1.json", "provider": workBuddyProviderKey, "path": aiPath, "storage_json": read("codebuddy-ai-1.json")},
 			}}), nil
 		}
 		return json.RawMessage(`{}`), nil
@@ -2229,24 +2229,21 @@ func TestDisabledStateFollowsOperatorChoice(t *testing.T) {
 	resetState()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codebuddy-u-1.json")
-	blob := json.RawMessage(`{"accessToken":"t","refreshToken":"r","uid":"u-1","disabled":false}`)
-	if err := os.WriteFile(path, blob, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	blob := json.RawMessage(`{"accessToken":"[REDACTED]","uid":"u-1","disabled":false}`)
+	missing := filepath.Join(dir, "unreadable.json")
 
-	// 写入侧用一套标识，读取侧用另一套 —— 正是两次宿主调用的差异。
+	// 文件读不到、宿主快照说「启用」时，刚写入的值生效；写入侧与读取侧的标识不同也要命中。
 	rememberDisabled(hostAuthEntry{Name: "codebuddy-u-1.json", AuthIndex: "idx-1"}, true)
-	if !hostDisabled(hostAuthEntry{ID: "idx-1", Path: path}, blob) {
+	if !hostDisabled(hostAuthEntry{AuthIndex: "idx-1", Path: missing}, nil) {
 		t.Error("刚写入的禁用没有立刻反映出来")
 	}
-
 	rememberDisabled(hostAuthEntry{Name: "codebuddy-u-1.json", AuthIndex: "idx-1"}, false)
-	if hostDisabled(hostAuthEntry{ID: "idx-1", Path: path}, blob) {
+	if hostDisabled(hostAuthEntry{AuthIndex: "idx-1", Path: missing}, nil) {
 		t.Error("刚写入的启用没有立刻反映出来")
 	}
 
-	// 没有待定值时，以文件为准 —— 即使条目自己的字段说反话。
-	if err := os.WriteFile(path, []byte(`{"accessToken":"t","uid":"u-1","disabled":true}`), 0o600); err != nil {
+	// 文件可读时以文件为准——即使条目字段与宿主快照说反话。
+	if err := os.WriteFile(path, []byte(`{"accessToken":"[REDACTED]","uid":"u-1","disabled":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if !hostDisabled(hostAuthEntry{Path: path, Disabled: false}, blob) {

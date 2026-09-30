@@ -72,6 +72,9 @@ type credentialLane struct {
 	DisabledReason string `json:"disabled_reason,omitempty"`
 	// DisabledAt records when that happened.
 	DisabledAt time.Time `json:"disabled_at,omitempty"`
+	// hostDisabledSeen records that the last host read found the credential disabled, so a
+	// later "enabled" can be told apart from a file that was never disabled at all.
+	hostDisabledSeen bool
 	// Variant is the credential's realm, shown in the grouped account list.
 	Variant string `json:"variant,omitempty"`
 	// Enabled mirrors W1.d.f (defaults to true in the app).
@@ -1010,10 +1013,21 @@ func (p *credentialPool) applyHostDisabledFlags(accounts []workBuddyAccount) {
 		}
 		if want {
 			lane.Disabled = true
+			lane.hostDisabledSeen = true
 			continue
 		}
-		// Enabled at the host: the plugin's own reasons to hold it back no longer apply,
-		// because the operator has just said so in the place that governs routing.
+		// Enabled at the host. Only a transition — the host said disabled on an earlier read
+		// and now says enabled — is the operator re-enabling it there, and only that lifts
+		// the plugin's own reasons as well.
+		//
+		// An automatic retirement is never written to the file, so the file reads "enabled"
+		// for it on every listing. Clearing it whenever the file said so undid the retirement
+		// on the next read, which made auto-disable a no-op.
+		reenabled := lane.hostDisabledSeen
+		lane.hostDisabledSeen = false
+		if lane.AutoDisabled && !reenabled {
+			continue
+		}
 		lane.Disabled = false
 		lane.DisabledByUser = false
 		lane.AutoDisabled = false

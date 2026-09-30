@@ -786,10 +786,7 @@ func resetState() {
 		pendingDisabled.Delete(k)
 		return true
 	})
-	authPathCache.Range(func(k, _ any) bool {
-		authPathCache.Delete(k)
-		return true
-	})
+	regionHold = newRegionHoldStore("")
 	inflight = newInflightMap()
 	streamAccumulators.mu.Lock()
 	streamAccumulators.items = make(map[string]*streamAccumulator)

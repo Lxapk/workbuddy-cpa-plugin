@@ -246,12 +246,6 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 		// not yet touched — laneFor finds nothing, and an implementation that hangs the
 		// checks off the lane silently skips them. That is how a disabled account kept
 		// serving and how the supplier switch had no effect: the lanes were empty.
-		if lane, found := state.pool.laneFor(c.ID); found {
-			if lane.Disabled || lane.DisabledByUser || lane.AutoDisabled {
-				stats.Disabled++
-				continue
-			}
-		}
 		realm := wbVariant(variantForAuthIndex(c))
 		if realm == "" {
 			if lane, found := state.pool.laneFor(c.ID); found {
@@ -266,6 +260,15 @@ func (s *schedulerState) collectCandidatesWithStats(req pluginapi.SchedulerPickR
 		if realm != "" && !variantAllowedFor(gateway.VariantOverride, realm) {
 			stats.RealmExcluded++
 			continue
+		}
+		// Checked after the realm: the supplier switch parks the other realm's credentials by
+		// setting the same host "disabled" flag, and counting those as disabled made the
+		// diagnosis say 已禁用 where the cause was the switch.
+		if lane, found := state.pool.laneFor(c.ID); found {
+			if lane.Disabled || lane.DisabledByUser || lane.AutoDisabled {
+				stats.Disabled++
+				continue
+			}
 		}
 
 		if !cand.Known {

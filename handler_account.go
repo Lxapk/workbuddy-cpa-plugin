@@ -6,7 +6,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -186,121 +185,99 @@ func authSupplierLabel(g gatewaySettings) string {
 	return "跟随调用设置（默认国内授权）"
 }
 
-// syncAccountDisabledToHost mirrors a manual disable onto the credential's auth file.
+// syncAccountDisabledToHost writes the operator's enable/disable onto the credential's auth
+// file — the top-level "disabled" CPA reads when building its own candidate list.
 //
-// The pool's own flag only governs this plugin's choices. CPA keeps its own list of
-// credentials and hands candidates from it, so an account disabled here stayed selectable
-// there — the executor could still be asked to use it, and any path that does not run
-// through this plugin's pick (a retry, a different provider key) would go straight to it.
+// Every file that belongs to the account is updated: one person can have several credentials
+// (a re-login, both realms), and leaving one of them enabled would keep the account routable
+// at the host. Only that key changes, read fresh from disk (see setAuthFileDisabled), and the
+// value is remembered for the panel only after the write succeeded.
 //
-// The auth file already carries a top-level "disabled" that CPA honours when building its
-// candidate list, so writing it is the one change that reaches the host without patching
-// it. StorageJSON is rewritten whole, which is how host.auth.save works; the credential's
-// own fields are preserved by starting from what the host already holds.
+// A manual choice also takes the file out of the supplier switch's hands: 自动 must not undo
+// it later.
 func syncAccountDisabledToHost(uid, authIndex string, disabled bool) {
-	entry, storage, errLookup := findAuthEntryForAccount(uid, authIndex)
-	if errLookup != nil || entry == nil || len(storage) == 0 {
+	// The account table caches the host's listing for a few seconds; a read right after
+	// this write must see the new flag, not the cached one.
+	defer state.accounts.invalidate()
+	entries, errLookup := findAuthEntriesForAccount(uid, authIndex)
+	if errLookup != nil || len(entries) == 0 {
 		logf("disable sync: no auth file for uid=%q index=%q err=%v", uid, authIndex, errLookup)
 		return
 	}
-	logf("disable sync: uid=%q found index=%q name=%q path=%q want=%v",
-		uid, entry.AuthIndex, entry.Name, entry.Path, disabled)
-
-	var doc map[string]any
-	if errUnmarshal := json.Unmarshal(storage, &doc); errUnmarshal != nil {
-		logf("disable sync: %s is not an object: %v", entry.AuthIndex, errUnmarshal)
-		return
-	}
-	// "Already in the requested state" is decided from the file, not from the payload the
-	// host handed over.
-	//
-	// That payload is the host's loaded copy, so it lags every write made since the host
-	// read the file — including the one this function made a moment ago. Judging by it made
-	// a second toggle in the opposite direction a no-op: the stale copy said "disabled",
-	// the caller asked for "enabled", the two disagreed, and the write was skipped,
-	// leaving the account in the state the operator had just tried to leave.
-	if raw, ok := readAuthFile(entry.Path); ok {
-		var onDisk map[string]any
-		if errDisk := json.Unmarshal(raw, &onDisk); errDisk == nil {
-			if was, _ := onDisk["disabled"].(bool); was == disabled && onDisk["disabled"] != nil {
-				rememberDisabled(*entry, disabled)
-				return
-			}
+	for _, entry := range entries {
+		path := strings.TrimSpace(entry.Path)
+		if path == "" {
+			logf("disable sync: host reported no path for %s", entry.AuthIndex)
+			continue
+		}
+		changed, errWrite := setAuthFileDisabled(path, disabled)
+		if errWrite != nil {
+			logf("disable sync: write %s failed: %v", path, errWrite)
+			continue
+		}
+		rememberDisabled(entry, disabled)
+		regionHold.release(path)
+		if changed {
+			logf("disable sync: %s disabled=%v", path, disabled)
 		}
 	}
-	doc["disabled"] = disabled
-
-	encoded, errMarshal := json.Marshal(doc)
-	if errMarshal != nil {
-		logf("disable sync: cannot encode %s: %v", entry.AuthIndex, errMarshal)
-		return
-	}
-	// Written to the file the host reports, not through host.auth.save.
-	//
-	// That call re-serialises the payload into the host's schema, and a top-level flag
-	// beside the credential is dropped on the way through — the call returns a path and
-	// the watcher fires, while the file still says disabled:false. Its answer is used for
-	// the path only.
-	target, errTarget := hostAuthFileFor(*entry, storage)
-	if errTarget != nil {
-		logf("disable sync: cannot locate %s: %v", entry.AuthIndex, errTarget)
-		return
-	}
-	rememberAuthFilePath(*entry, target)
-	rememberDisabled(*entry, disabled)
-	if errWrite := os.WriteFile(target, encoded, 0o600); errWrite != nil {
-		logf("disable sync: write %s failed: %v", target, errWrite)
-		return
-	}
-	logf("disable sync: %s disabled=%v → %s", entry.AuthIndex, disabled, target)
 }
 
-// findAuthEntryForAccount locates the host's auth entry for an account, by uid or by the
-// auth index the panel sent.
-func findAuthEntryForAccount(uid, authIndex string) (*hostAuthEntry, []byte, error) {
-	raw, errList := callHost("host.auth.list", map[string]any{})
-	if errList != nil {
-		return nil, nil, errList
+// findAuthEntriesForAccount returns the host's WorkBuddy auth entries that belong to an
+// account, matched by the identifiers the panel sent or by the uid inside the credential.
+//
+// Entries of other providers are skipped before anything is read, so a toggle never fetches
+// payloads it has no use for.
+func findAuthEntriesForAccount(uid, authIndex string) ([]hostAuthEntry, error) {
+	entries := listHostAuthEntries()
+	if entries == nil {
+		if _, errList := callHost("host.auth.list", map[string]any{}); errList != nil {
+			return nil, errList
+		}
 	}
-	entries := decodeAuthEntries(raw)
 	wanted := map[string]bool{}
-	for _, id := range []string{uid, authIndex, canonicalUID(uid), canonicalUID(authIndex)} {
-		if strings.TrimSpace(id) != "" {
+	for _, id := range []string{uid, authIndex} {
+		if id = strings.TrimSpace(id); id != "" {
 			wanted[id] = true
 		}
 	}
-	for i := range entries {
-		entry := entries[i]
-		if !wanted[entry.AuthIndex] && !wanted[entry.ID] && !wanted[entry.Name] {
-			// The panel addresses an account by its uid, while the host's entries are keyed
-			// by file name or runtime index — neither contains the uid. The credential
-			// payload does, so it is consulted before giving up: without this, a toggle
-			// by uid found no entry and the write never happened.
-			storage := credentialPayload(entry)
-			if len(storage) == 0 {
-				continue
-			}
-			recovered := recoverIdentityFromStorage(storage)
-			if !wanted[recovered.uid] && !wanted[canonicalUID(recovered.uid)] {
-				continue
-			}
-			return &entries[i], storage, nil
-		}
-		// The host reports the file's location, so read it rather than its snapshot.
-		storage := credentialPayload(entry)
-		if path := strings.TrimSpace(entry.Path); path != "" {
-			if raw, errRead := os.ReadFile(path); errRead == nil {
-				rememberAuthFilePath(entry, path)
-				return &entries[i], raw, nil
-			}
-		}
-		if len(storage) == 0 && entry.AuthIndex != "" {
-			storage = fetchAuthStorage(entry.AuthIndex)
-		}
-		if len(storage) == 0 {
+	var out []hostAuthEntry
+	for _, entry := range entries {
+		if !isWorkBuddyAuthEntry(entry) {
 			continue
 		}
-		return &entries[i], storage, nil
+		matched := false
+		for _, id := range authEntryKeys(entry) {
+			if wanted[id] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			// The panel addresses an account by its uid, which none of the entry's own
+			// identifiers carry; the credential does.
+			if payload := currentPayload(entry); len(payload) > 0 {
+				matched = wanted[recoverIdentityFromStorage(payload).uid]
+			}
+		}
+		if matched {
+			out = append(out, entry)
+		}
 	}
-	return nil, nil, nil
+	return out, nil
+}
+
+// currentPayload returns a credential's content: the file when the host reported one, the
+// host's copy otherwise.
+func currentPayload(entry hostAuthEntry) []byte {
+	if raw, ok := readAuthFile(entry.Path); ok {
+		return raw
+	}
+	if len(entry.StorageJSON) > 0 {
+		return entry.StorageJSON
+	}
+	if strings.TrimSpace(entry.AuthIndex) != "" {
+		return fetchAuthStorage(entry.AuthIndex)
+	}
+	return nil
 }
