@@ -79,7 +79,7 @@ else
     version=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
       | sed -n 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/p' | head -1)
     if [ -z "$version" ]; then
-      echo "无法确定最新版本；可显式指定，例如 VERSION=0.13.40 $0" >&2
+      echo "无法确定最新版本；可显式指定，例如 VERSION=0.1.2 $0" >&2
       exit 1
     fi
   fi

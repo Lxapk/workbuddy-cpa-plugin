@@ -250,7 +250,7 @@ func renderTasksView() string {
 	b.WriteString(`</div>`)
 	b.WriteString(renderScheduleColumns())
 	b.WriteString(`<div class="sched-foot">`)
-	b.WriteString(`<span class="note">「启动时补跑」指插件加载时若当天尚未执行则补上一次。</span>`)
+	b.WriteString(`<span class="note">补跑：加载时当天未执行则补一次</span>`)
 	b.WriteString(`<button type="button" class="xs primary" data-call="saveSchedule">保存定时</button>`)
 	b.WriteString(`</div>`)
 	b.WriteString(`</div>`)
@@ -332,8 +332,10 @@ func renderSettingsView() string {
 	b.WriteString(`<header><h3>管理密钥 <span class="hint">仅保存在本机浏览器</span></h3></header>`)
 	b.WriteString(`<div class="pad">`)
 	b.WriteString(`<div class="row"><input type="password" id="mgmtKey" placeholder="CPA management key" style="flex:1 1 300px">`)
-	b.WriteString(`<button type="button" class="ghost" data-call="clearKey">清除</button>`)
-	b.WriteString(`<button type="button" class="primary" data-call="saveKey">保存到浏览器</button></div>`)
+	// The buttons are one group pushed right, so when the row wraps on a phone they land
+	// on the right under the field instead of hugging the left edge.
+	b.WriteString(`<span class="btn-end"><button type="button" class="ghost" data-call="clearKey">清除</button>`)
+	b.WriteString(`<button type="button" class="primary" data-call="saveKey">保存到浏览器</button></span></div>`)
 	b.WriteString(`<div class="note" id="keyState" style="margin-top:9px"></div>`)
 	b.WriteString(`<div class="note" style="margin-top:9px">密钥仅存在本机 localStorage，随请求头发送，不经过插件。` +
 		`与 CPA 面板使用同一个 management key。</div>`)

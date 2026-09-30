@@ -559,6 +559,7 @@ label.field input[type=number] { width: 74px; }
 
 .row { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .row.tight { margin-bottom: 8px; }
+.btn-end { display: inline-flex; gap: 9px; margin-left: auto; }
 .grow { flex: 1; min-width: 0; }
 
 /* Radio option cards, used for the routing strategy. */
