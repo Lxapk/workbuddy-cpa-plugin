@@ -25,14 +25,20 @@ import (
 // The capability therefore behaves as an *additional* accepted credential rather
 // than a replacement:
 //
-//   - disabled by default (EnforceFrontendKey = false): the plugin never rejects
-//     anything, so CPA's own authentication decides
+//   - disabled by default (EnforceFrontendKey = false): the request is reported
+//     as unauthenticated, which CPA maps to "not handled" and passes on to its
+//     own api-keys check — so CPA's authentication decides
 //   - when enabled: a request carrying the configured api_key is accepted here;
-//     anything else is reported as unauthenticated, which CPA maps to
-//     "not handled" and passes on to the other providers
+//     anything else is reported as unauthenticated and passed on the same way
+//
+// Reporting "unauthenticated" rather than "authenticated" in the disabled case is
+// the whole point: CPA stops walking the provider chain at the first one that
+// authenticates, so returning success here switched CPA's own check off — every
+// /v1/* request was accepted without any key at all. Never report success unless
+// this provider actually verified a credential.
 //
 // That keeps the source gateway's behaviour available for a locked-down
-// deployment without breaking the host's own auth.
+// deployment without disabling the host's own auth.
 func frontendAuth(request []byte) ([]byte, error) {
 	var req pluginapi.FrontendAuthRequest
 	if len(request) > 0 {
@@ -45,26 +51,21 @@ func frontendAuth(request []byte) ([]byte, error) {
 
 	// Not enforcing: defer entirely to CPA's own authentication.
 	//
-	// Note this also covers the source app's allowNoKey=true case, which is why
-	// there is no separate branch for it below.
+	// This must NOT report success. CPA's chain stops at the first provider that
+	// authenticates (sdk/access/manager.go), so answering `Authenticated: true` here
+	// ends the chain before CPA ever checks its own api-keys list — with this plugin
+	// installed, /v1/* accepted any caller, key or no key. Reporting the request as
+	// unauthenticated maps to sdkaccess.NotHandledError
+	// (internal/pluginhost/adapters_auth.go:135) and the next provider decides, which
+	// is the behaviour the setting describes.
 	if !settings.EnforceFrontendKey {
-		return okEnvelope(pluginapi.FrontendAuthResponse{
-			Authenticated: true,
-			Principal:     principalFromHeaders(req.Headers),
-			Metadata: map[string]string{
-				"workbuddy_auth": "delegated",
-			},
-		})
+		return unauthenticated("未启用插件自带鉴权，交由 CPA 处理")
 	}
 
-	// Enforcing but no key configured: nothing to compare against, so defer
-	// rather than lock everyone out.
+	// Enforcing but no key configured: nothing to compare against, so defer to CPA
+	// rather than accept everything.
 	if settings.APIKey == "" {
-		return okEnvelope(pluginapi.FrontendAuthResponse{
-			Authenticated: true,
-			Principal:     principalFromHeaders(req.Headers),
-			Metadata:      map[string]string{"workbuddy_auth": "no_key_configured"},
-		})
+		return unauthenticated("未配置 API Key，交由 CPA 处理")
 	}
 
 	// When enforcement is on, the source app's allowNoKey still short-circuits.

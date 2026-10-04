@@ -170,11 +170,11 @@ func TestFrontendAuthDefersByDefault(t *testing.T) {
 	})
 	var out pluginapi.FrontendAuthResponse
 	mustDecode(t, res, &out)
-	if !out.Authenticated {
-		t.Fatal("default behaviour must defer to CPA's authentication")
+	if out.Authenticated {
+		t.Fatal("default behaviour must defer (report unauthenticated) to CPA's authentication")
 	}
-	if out.Metadata["workbuddy_auth"] != "delegated" {
-		t.Fatalf("metadata = %v", out.Metadata)
+	if out.Metadata["workbuddy_error"] == "" {
+		t.Fatalf("an unauthenticated response should explain why: %v", out.Metadata)
 	}
 }
 
@@ -242,8 +242,8 @@ func TestFrontendAuthOpenPaths(t *testing.T) {
 		})
 		var out pluginapi.FrontendAuthResponse
 		_ = json.Unmarshal(res, &out)
-		if !out.Authenticated {
-			t.Fatalf("%s should be open", p)
+		if out.Authenticated {
+			t.Fatalf("%s must defer to CPA's own authentication", p)
 		}
 	}
 }

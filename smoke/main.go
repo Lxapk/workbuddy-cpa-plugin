@@ -137,24 +137,30 @@ func main() {
 	}
 	ok("all expected capabilities declared")
 
-	// --- 2. frontend auth: defaults to delegation, keyless accepted ---------------
+	// --- 2. frontend auth: default must defer to CPA, never self-authorize --------
+	// CPA stops its provider chain at the first provider that authenticates, so
+	// reporting success here would skip CPA's own api-keys check entirely.
 	authResp := call(plugin, "frontend_auth.authenticate", json.RawMessage(`{"Method":"POST","Path":"/v1/chat/completions"}`))
-	if !authResp.OK {
-		die("frontend_auth.authenticate must not reject keyless requests by default")
-	}
-	ok("keyless request accepted (delegated to CPA's auth)")
-
-	// ---- 3. enable enforcement and verify ----------------------------------------
-	authResp = call(plugin, "frontend_auth.authenticate", json.RawMessage(`{"Method":"POST","Path":"/v1/chat/completions","Headers":{"Authorization":["Bearer sk-smoke"]}}`))
-	assertOK(authResp, "frontend_auth.authenticate(correct key)")
+	assertOK(authResp, "frontend_auth.authenticate(default)")
 	var authOut struct {
 		Authenticated bool `json:"authenticated"`
 	}
 	mustUnmarshal(authResp.Result, &authOut)
+	if authOut.Authenticated {
+		die("default must not authenticate: CPA's own key check would be skipped")
+	}
+	ok("keyless request deferred to CPA's auth")
+
+	// ---- 3. enforcement on: the configured key authenticates ---------------------
+	regResp2 := call(plugin, "plugin.register", json.RawMessage(`{"schema_version":6,"config_yaml":"cG9ydDogOTEwMAphcGlfa2V5OiBzay1zbW9rZQplbmZvcmNlX2Zyb250ZW5kX2tleTogdHJ1ZQphbGxvd19ub19rZXk6IGZhbHNlCmRlZmF1bHRfcHJvdmlkZXI6IHRyYWU="}`))
+	assertOK(regResp2, "plugin.register(enforce_frontend_key)")
+	authResp = call(plugin, "frontend_auth.authenticate", json.RawMessage(`{"Method":"POST","Path":"/v1/chat/completions","Headers":{"Authorization":["Bearer sk-smoke"]}}`))
+	assertOK(authResp, "frontend_auth.authenticate(correct key)")
+	mustUnmarshal(authResp.Result, &authOut)
 	if !authOut.Authenticated {
 		die("correct key was not authenticated")
 	}
-	ok("correct key authenticated")
+	ok("correct key authenticated (enforcement on)")
 
 	// --- 4. request interception: provider routing + model rewrite ------
 	reqResp := call(plugin, "request.intercept_before", json.RawMessage(`{"RequestID":"smoke-1","Body":"eyJtb2RlbCI6Im9wZW5haS9ncHQtNG8iLCJzdHJlYW0iOnRydWV9","Metadata":{"providers":["trae","openai"]}}`))

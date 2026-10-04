@@ -42,8 +42,9 @@ type gatewaySettings struct {
 	// EnforceFrontendKey makes this plugin check the client bearer token itself.
 	//
 	// Default false: CPA already authenticates /v1/* against its own api-keys
-	// before a provider is reached, so a second mandatory gate here would reject
-	// every one of the operator's existing CPA keys.
+	// before a provider is reached. While off, this plugin reports every request as
+	// unauthenticated so the chain moves on to CPA's own check; turning it on adds this
+	// plugin's key as an accepted credential *alongside* CPA's.
 	EnforceFrontendKey bool `json:"enforce_frontend_key" yaml:"enforce_frontend_key"`
 	// ExposeLAN mirrors exposeLan (bind 0.0.0.0 vs 127.0.0.1). Reported only.
 	ExposeLAN bool `json:"expose_lan" yaml:"expose_lan"`
