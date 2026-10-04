@@ -126,8 +126,8 @@ func main() {
 		Capabilities map[string]any `json:"capabilities"`
 	}
 	mustUnmarshal(regResp.Result, &reg)
-	if len(reg.Metadata.ConfigFields) != 18 {
-		die("expected 18 config fields, got %d", len(reg.Metadata.ConfigFields))
+	if len(reg.Metadata.ConfigFields) != 15 {
+		die("expected 15 config fields, got %d", len(reg.Metadata.ConfigFields))
 	}
 	ok("registered %s v%s (schema=%d, config_fields=%d)", reg.Metadata.Name, reg.Metadata.Version, reg.SchemaVersion, len(reg.Metadata.ConfigFields))
 	for _, cap := range []string{"frontend_auth_provider", "request_interceptor", "response_interceptor", "response_stream_interceptor", "usage_plugin", "management_api"} {
@@ -151,16 +151,16 @@ func main() {
 	}
 	ok("keyless request deferred to CPA's auth")
 
-	// ---- 3. enforcement on: the configured key authenticates ---------------------
-	regResp2 := call(plugin, "plugin.register", json.RawMessage(`{"schema_version":6,"config_yaml":"cG9ydDogOTEwMAphcGlfa2V5OiBzay1zbW9rZQplbmZvcmNlX2Zyb250ZW5kX2tleTogdHJ1ZQphbGxvd19ub19rZXk6IGZhbHNlCmRlZmF1bHRfcHJvdmlkZXI6IHRyYWU="}`))
-	assertOK(regResp2, "plugin.register(enforce_frontend_key)")
+	// ---- 3. it must never authenticate, even with a matching key -----------------
+	// There is no switch that lets this plugin authorize: doing so would remove CPA's
+	// own api-keys check from the provider chain.
 	authResp = call(plugin, "frontend_auth.authenticate", json.RawMessage(`{"Method":"POST","Path":"/v1/chat/completions","Headers":{"Authorization":["Bearer sk-smoke"]}}`))
-	assertOK(authResp, "frontend_auth.authenticate(correct key)")
+	assertOK(authResp, "frontend_auth.authenticate(matching key)")
 	mustUnmarshal(authResp.Result, &authOut)
-	if !authOut.Authenticated {
-		die("correct key was not authenticated")
+	if authOut.Authenticated {
+		die("the plugin must never authenticate: CPA's own key check would be skipped")
 	}
-	ok("correct key authenticated (enforcement on)")
+	ok("matching key still deferred to CPA")
 
 	// --- 4. request interception: provider routing + model rewrite ------
 	reqResp := call(plugin, "request.intercept_before", json.RawMessage(`{"RequestID":"smoke-1","Body":"eyJtb2RlbCI6Im9wZW5haS9ncHQtNG8iLCJzdHJlYW0iOnRydWV9","Metadata":{"providers":["trae","openai"]}}`))

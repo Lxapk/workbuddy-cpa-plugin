@@ -194,8 +194,6 @@ cat <<'YAML'
       aigw-reverse-proxy:
         enabled: true
         priority: 10
-        api_key: "sk-改成你自己的密钥"
-        allow_no_key: false
         default_provider: "trae"
 
 YAML

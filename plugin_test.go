@@ -95,8 +95,6 @@ func TestDefaultSettingsMatchSourceApp(t *testing.T) {
 		want any
 	}{
 		{"port", d.Port, 8790},
-		{"allow_no_key", d.AllowNoKey, true},
-		{"expose_lan", d.ExposeLAN, true},
 		{"only_usable_models", d.OnlyUsableModels, false},
 		{"refresh_skew_seconds", d.RefreshSkewSeconds, int64(86400)},
 		{"max_rotate", d.MaxRotate, 3},
@@ -137,118 +135,60 @@ func TestLifecycleConfigOverride(t *testing.T) {
 	}
 }
 
-// ---- frontend auth (port of V1/o.j) ------------------------------------
+// ---- frontend auth: always defers to CPA ---------------------------------
 
-func TestFrontendAuthAllowNoKeyBypasses(t *testing.T) {
+// The plugin must never authenticate a request, in any configuration.
+//
+// CPA stops its provider chain at the first provider reporting success
+// (sdk/access/manager.go), so an `Authenticated: true` answer here removes
+// CPA's own api-keys check from the path — which is how earlier versions ended
+// up accepting keyless /v1/* calls. Every case below, including a request that
+// carries a key matching the panel's api_key, must still report unauthenticated.
+func TestFrontendAuthAlwaysDefersToCPA(t *testing.T) {
 	resetState()
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
-		ConfigYAML: []byte("enforce_frontend_key: true\nallow_no_key: true\napi_key: sk-secret\n"),
+		ConfigYAML: []byte("api_key: sk-panel\ndefault_provider: codebuddy\n"),
 	})
-	res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-		Method: "POST", Path: "/v1/chat/completions",
-	})
-	var out pluginapi.FrontendAuthResponse
-	_ = json.Unmarshal(res, &out)
-	if !out.Authenticated {
-		t.Fatal("allow_no_key should authenticate anonymous callers")
+	cases := []pluginapi.FrontendAuthRequest{
+		{Method: http.MethodPost, Path: "/v1/chat/completions"},
+		{Method: http.MethodGet, Path: "/v1/models"},
+		{Method: http.MethodPost, Path: "/v1/chat/completions",
+			Headers: http.Header{"Authorization": []string{"Bearer sk-panel"}}},
+		{Method: http.MethodPost, Path: "/v1/chat/completions",
+			Headers: http.Header{"Authorization": []string{"Bearer wrong"}}},
+		{Method: http.MethodGet, Path: "/healthz"},
+		{Method: http.MethodGet, Path: "/authorize"},
+	}
+	for _, req := range cases {
+		raw := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, req)
+		var out pluginapi.FrontendAuthResponse
+		mustDecode(t, raw, &out)
+		if out.Authenticated {
+			t.Fatalf("%s %s：插件不得自行放行，鉴权必须交给 CPA", req.Method, req.Path)
+		}
 	}
 }
 
-// TestFrontendAuthDefersByDefault is the fix for CPA's own api-keys being
-// vetoed: with enforcement off the plugin must never reject a request, because
-// CPA has already authenticated it against the operator's api-keys list.
-func TestFrontendAuthDefersByDefault(t *testing.T) {
+// The deferral must be reported as "not handled" rather than a hard rejection:
+// CPA maps Authenticated:false to NotHandledError and moves on to its own
+// providers, which is the only way CPA's api-keys check still runs.
+func TestFrontendAuthDefersWithReason(t *testing.T) {
 	resetState()
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
-		ConfigYAML: []byte("api_key: sk-secret\n"),
+		ConfigYAML: []byte("api_key: sk-panel\n"),
 	})
-
-	// Even a request with no Authorization header must be accepted (deferred),
-	// otherwise CPA's own auth chain is short-circuited.
-	res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-		Method: "POST", Path: "/v1/chat/completions",
+	raw := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
+		Method: http.MethodPost, Path: "/v1/chat/completions",
 	})
 	var out pluginapi.FrontendAuthResponse
-	mustDecode(t, res, &out)
+	mustDecode(t, raw, &out)
 	if out.Authenticated {
-		t.Fatal("default behaviour must defer (report unauthenticated) to CPA's authentication")
+		t.Fatal("must not authenticate")
 	}
-	if out.Metadata["workbuddy_error"] == "" {
-		t.Fatalf("an unauthenticated response should explain why: %v", out.Metadata)
-	}
-}
-
-// TestFrontendAuthEnforcedRejectsWrongKey covers opt-in enforcement.
-func TestFrontendAuthEnforcedRejectsWrongKey(t *testing.T) {
-	resetState()
-	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
-		ConfigYAML: []byte("enforce_frontend_key: true\nallow_no_key: false\napi_key: sk-secret\n"),
-	})
-
-	// A missing/wrong key is reported as unauthenticated (not an error), so CPA
-	// passes the request on to its other providers rather than rejecting it.
-	for _, header := range []http.Header{
-		nil,
-		{"Authorization": []string{"Bearer sk-nope"}},
-		{"Authorization": []string{"Basic sk-secret"}},
-	} {
-		res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-			Method: "POST", Path: "/v1/chat/completions", Headers: header,
-		})
-		var out pluginapi.FrontendAuthResponse
-		mustDecode(t, res, &out)
-		if out.Authenticated {
-			t.Fatalf("header %v should not authenticate", header)
-		}
-	}
-
-	// The correct key is accepted.
-	res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-		Method: "POST", Path: "/v1/chat/completions",
-		Headers: http.Header{"Authorization": []string{"Bearer sk-secret"}},
-	})
-	var out pluginapi.FrontendAuthResponse
-	mustDecode(t, res, &out)
-	if !out.Authenticated {
-		t.Fatal("the configured key must authenticate")
+	if out.Metadata["workbuddy_auth"] != "delegated_to_cpa" {
+		t.Fatalf("metadata should record the delegation: %v", out.Metadata)
 	}
 }
-
-func TestFrontendAuthAcceptsCorrectKeyCaseInsensitiveScheme(t *testing.T) {
-	resetState()
-	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
-		ConfigYAML: []byte("enforce_frontend_key: true\nallow_no_key: false\napi_key: sk-secret\n"),
-	})
-	res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-		Method:  "POST",
-		Path:    "/v1/chat/completions",
-		Headers: http.Header{"Authorization": []string{"bEaReR sk-secret"}},
-	})
-	var out pluginapi.FrontendAuthResponse
-	_ = json.Unmarshal(res, &out)
-	if !out.Authenticated {
-		t.Fatal("correct key with mixed-case scheme should authenticate (V1/o.j uses equalsIgnoreCase)")
-	}
-}
-
-func TestFrontendAuthOpenPaths(t *testing.T) {
-	resetState()
-	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
-		ConfigYAML: []byte("allow_no_key: false\napi_key: sk-secret\n"),
-	})
-	for _, p := range []string{"/healthz", "/authorize"} {
-		res := callOK(t, pluginabi.MethodFrontendAuthAuthenticate, pluginapi.FrontendAuthRequest{
-			Method: http.MethodGet, Path: p,
-		})
-		var out pluginapi.FrontendAuthResponse
-		_ = json.Unmarshal(res, &out)
-		if out.Authenticated {
-			t.Fatalf("%s must defer to CPA's own authentication", p)
-		}
-	}
-}
-
-// ---- routing (port of V1/o.k steps 6-8) --------------------------------
 
 func TestResolveRouteExplicitPrefix(t *testing.T) {
 	s := defaultGatewaySettings()

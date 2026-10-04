@@ -97,8 +97,6 @@ plugins:
     aigw-reverse-proxy:
       enabled: true
       priority: 10
-      api_key: "sk-改成你自己的密钥"
-      allow_no_key: false
       default_provider: "trae"
 ```
 
@@ -177,7 +175,7 @@ CPA 商店里的「更新」按钮就能用。
 | `release asset checksums.txt not found` | Release 缺 checksums.txt（CI 已包含） |
 | `checksum mismatch` | zip 被改动；重新走 CI |
 | 日志没有 `plugin loaded` | 架构不匹配。容器里执行 `uname -m` 确认是 `x86_64` |
-| 请求全 401 | `api_key` 已设且 `allow_no_key: false`，但客户端没带 `Authorization: Bearer <key>` |
+| 请求全 401 | 鉴权由 CPA 负责：请确认请求带了 CPA `api-keys` 中的密钥（`Authorization: Bearer <key>`） |
 
 ---
 

@@ -33,21 +33,11 @@ import (
 type gatewaySettings struct {
 	// Port is the original gateway listen port. CPA owns its own listener, so
 	// this value is reported for parity only.
-	Port int `json:"port" yaml:"port"`
-	// APIKey is the client-facing bearer token (V1/o.j()).
+	// APIKey is reported in the panel for reference only. This plugin never checks
+	// it and never authenticates a request: see frontendauth.go. Configure credentials
+	// in CPA's own api-keys list.
 	APIKey string `json:"api_key" yaml:"api_key"`
-	// AllowNoKey mirrors allowNoKey: when true the Authorization header is not
-	// required at all. Only consulted when EnforceFrontendKey is on.
-	AllowNoKey bool `json:"allow_no_key" yaml:"allow_no_key"`
-	// EnforceFrontendKey makes this plugin check the client bearer token itself.
-	//
-	// Default false: CPA already authenticates /v1/* against its own api-keys
-	// before a provider is reached. While off, this plugin reports every request as
-	// unauthenticated so the chain moves on to CPA's own check; turning it on adds this
-	// plugin's key as an accepted credential *alongside* CPA's.
-	EnforceFrontendKey bool `json:"enforce_frontend_key" yaml:"enforce_frontend_key"`
-	// ExposeLAN mirrors exposeLan (bind 0.0.0.0 vs 127.0.0.1). Reported only.
-	ExposeLAN bool `json:"expose_lan" yaml:"expose_lan"`
+	Port   int    `json:"port" yaml:"port"`
 	// OnlyUsableModels mirrors onlyUsableModels: hide models whose provider
 	// marks them unavailable.
 	OnlyUsableModels bool `json:"only_usable_models" yaml:"only_usable_models"`
@@ -122,8 +112,6 @@ func defaultGatewaySettings() gatewaySettings {
 	return gatewaySettings{
 		Port:                8790,
 		APIKey:              "",
-		AllowNoKey:          true,
-		ExposeLAN:           true,
 		OnlyUsableModels:    false,
 		RefreshSkewSeconds:  86400,
 		MaxRotate:           3,

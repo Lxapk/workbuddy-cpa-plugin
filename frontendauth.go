@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -11,34 +10,29 @@ import (
 
 // frontendAuth is the port of V1/o.j(Session) from AI 聚合网关 0.1.18.
 //
-// # IMPORTANT — how this differs from the source gateway
+// # IMPORTANT — authentication belongs to CPA, not to this plugin
 //
-// The APK was a standalone gateway, so its bearer check was the only gate in
-// front of the proxy. CPA is different: every CPA deployment already has its own
-// front-end authentication (the `api-keys` list, plus any other access
-// providers) applied to /v1/* before a request reaches a provider. Registering a
-// second mandatory gate here means an operator's existing CPA keys stop working
-// the moment this plugin is enabled — the failure reads
-// `{"error":"Missing API key"}` with a 401, even though the key is perfectly
-// valid for CPA.
+// This plugin does exactly one job: it rewrites CPA's OpenAI-compatible endpoints
+// onto the WorkBuddy backend. Authentication is *not* its business, and it must
+// never decide that a request is allowed.
 //
-// The capability therefore behaves as an *additional* accepted credential rather
-// than a replacement:
+// The reason is how CPA's authentication chain works: it walks its providers in
+// order and stops at the first one that reports success
+// (sdk/access/manager.go). Registering a provider that answers
+// `Authenticated: true` therefore removes every check behind it — including
+// CPA's own `api-keys` list. That is exactly what an earlier version of this
+// file did, and it left /v1/* callable with no key at all.
 //
-//   - disabled by default (EnforceFrontendKey = false): the request is reported
-//     as unauthenticated, which CPA maps to "not handled" and passes on to its
-//     own api-keys check — so CPA's authentication decides
-//   - when enabled: a request carrying the configured api_key is accepted here;
-//     anything else is reported as unauthenticated and passed on the same way
+// So this function always answers `Authenticated: false`, in every
+// configuration. CPA reads that as "this provider does not handle the request"
+// (sdk/access/manager.go -> NewNotHandledError, surfaced through
+// internal/pluginhost/adapters_auth.go) and continues with its own providers,
+// whose verdict is the only one that counts.
 //
-// Reporting "unauthenticated" rather than "authenticated" in the disabled case is
-// the whole point: CPA stops walking the provider chain at the first one that
-// authenticates, so returning success here switched CPA's own check off — every
-// /v1/* request was accepted without any key at all. Never report success unless
-// this provider actually verified a credential.
-//
-// That keeps the source gateway's behaviour available for a locked-down
-// deployment without disabling the host's own auth.
+// There is deliberately no setting that changes this. A plugin that can be
+// switched into authorizing requests is a plugin that can be misconfigured into
+// disabling the host's authentication, so the ability does not exist at all.
+// Configure credentials in CPA.
 func frontendAuth(request []byte) ([]byte, error) {
 	var req pluginapi.FrontendAuthRequest
 	if len(request) > 0 {
@@ -47,85 +41,35 @@ func frontendAuth(request []byte) ([]byte, error) {
 		}
 	}
 
-	settings := state.settings.get()
-
-	// Not enforcing: defer entirely to CPA's own authentication.
-	//
-	// This must NOT report success. CPA's chain stops at the first provider that
-	// authenticates (sdk/access/manager.go), so answering `Authenticated: true` here
-	// ends the chain before CPA ever checks its own api-keys list — with this plugin
-	// installed, /v1/* accepted any caller, key or no key. Reporting the request as
-	// unauthenticated maps to sdkaccess.NotHandledError
-	// (internal/pluginhost/adapters_auth.go:135) and the next provider decides, which
-	// is the behaviour the setting describes.
-	if !settings.EnforceFrontendKey {
-		return unauthenticated("未启用插件自带鉴权，交由 CPA 处理")
-	}
-
-	// Enforcing but no key configured: nothing to compare against, so defer to CPA
-	// rather than accept everything.
-	if settings.APIKey == "" {
-		return unauthenticated("未配置 API Key，交由 CPA 处理")
-	}
-
-	// When enforcement is on, the source app's allowNoKey still short-circuits.
-	if settings.AllowNoKey {
-		return okEnvelope(pluginapi.FrontendAuthResponse{
-			Authenticated: true,
-			Principal:     principalFromHeaders(req.Headers),
-			Metadata:      map[string]string{"workbuddy_auth": "allow_no_key"},
-		})
-	}
-
-	raw := headerValue(req.Headers, "authorization")
-	if raw == "" {
-		return unauthenticated("缺少或错误的 API Key")
-	}
-
-	// V1/o.j(): case-insensitive "Bearer " prefix, then substring(7).
-	const bearer = "bearer "
-	if len(raw) < len(bearer) || !strings.EqualFold(raw[:len(bearer)], bearer) {
-		return unauthenticated("缺少或错误的 API Key")
-	}
-	token := raw[len(bearer):]
-
-	// MessageDigest.isEqual -> constant-time comparison.
-	if subtle.ConstantTimeCompare([]byte(token), []byte(settings.APIKey)) != 1 {
-		return unauthenticated("缺少或错误的 API Key")
-	}
-
-	return okEnvelope(pluginapi.FrontendAuthResponse{
-		Authenticated: true,
-		Principal:     principalFromHeaders(req.Headers),
-		Metadata:      map[string]string{"workbuddy_auth": "bearer"},
-	})
+	// Always defer. The only thing reported is why, for the log.
+	return deferToHost("鉴权由 CPA 负责")
 }
 
-// unauthenticated reports a request this provider declined to authenticate.
+// deferToHost reports that this provider declines to authenticate a request.
 //
-// CPA maps `Authenticated:false` to sdkaccess.NotHandledError
-// (internal/pluginhost/adapters_auth.go:135), so the other access providers —
-// including CPA's own api-keys list — still get their chance. Returning a hard
-// 401 here would veto the whole chain.
-func unauthenticated(message string) ([]byte, error) {
+// `Authenticated:false` becomes sdkaccess.NotHandledError, so the remaining
+// access providers — CPA's api-keys among them — still run. Returning a hard 401
+// would veto the whole chain, which is not this plugin's call to make either.
+func deferToHost(reason string) ([]byte, error) {
 	return okEnvelope(pluginapi.FrontendAuthResponse{
 		Authenticated: false,
-		Metadata:      map[string]string{"workbuddy_error": message},
+		Metadata:      map[string]string{"workbuddy_auth": "delegated_to_cpa", "workbuddy_note": reason},
 	})
 }
 
-// isOpenPath mirrors the unauthenticated routes of V1/o.e(Session):
-// GET /healthz and GET /authorize bypass V1/o.j().
+// isOpenPath mirrors the unauthenticated routes of V1/o.e(Session) in the source
+// app. It is informational only: the plugin does not grant access to these paths,
+// CPA decides.
 func isOpenPath(path string) bool {
 	p := strings.TrimSuffix(strings.TrimSpace(path), "/")
 	switch p {
 	case "/healthz", "/authorize", "":
 		return true
 	}
-	// /v1/models is authenticated by V1/o.n() in the app, so it is NOT open.
 	return false
 }
 
+// headerValue reads one header, tolerating the non-canonical maps CPA may hand over.
 func headerValue(headers http.Header, key string) string {
 	if headers == nil {
 		return ""
@@ -134,23 +78,10 @@ func headerValue(headers http.Header, key string) string {
 	if v := headers.Get(key); v != "" {
 		return v
 	}
-	// Defensive: CPA may ship a non-canonical map.
 	for k, vs := range headers {
 		if strings.EqualFold(k, key) && len(vs) > 0 {
 			return vs[0]
 		}
 	}
 	return ""
-}
-
-// principalFromHeaders names the caller for CPA's request log, preferring the
-// client-supplied identifiers the app also surfaced.
-func principalFromHeaders(headers http.Header) string {
-	if v := headerValue(headers, "X-WorkBuddy-Account"); v != "" {
-		return v
-	}
-	if v := headerValue(headers, "X-Client-Id"); v != "" {
-		return v
-	}
-	return "workbuddy-client"
 }
