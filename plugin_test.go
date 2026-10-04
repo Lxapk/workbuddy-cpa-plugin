@@ -124,9 +124,6 @@ func TestLifecycleConfigOverride(t *testing.T) {
 	if got.Port != 9100 {
 		t.Errorf("port = %d, want 9100", got.Port)
 	}
-	if got.APIKey != "sk-test" {
-		t.Errorf("api_key = %q", got.APIKey)
-	}
 	if got.DefaultProvider != "openai" {
 		t.Errorf("default_provider = %q, want lower-cased openai", got.DefaultProvider)
 	}
@@ -143,7 +140,7 @@ func TestLifecycleConfigOverride(t *testing.T) {
 // (sdk/access/manager.go), so an `Authenticated: true` answer here removes
 // CPA's own api-keys check from the path — which is how earlier versions ended
 // up accepting keyless /v1/* calls. Every case below, including a request that
-// carries a key matching the panel's api_key, must still report unauthenticated.
+// carries an Authorization header, must still report unauthenticated.
 func TestFrontendAuthAlwaysDefersToCPA(t *testing.T) {
 	resetState()
 	callOK(t, pluginabi.MethodPluginRegister, lifecycleRequest{
@@ -644,8 +641,9 @@ func TestManagementRegistrationAndStatus(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing settings: %s", mr.Body)
 	}
-	if settings["api_key"] != "[REDACTED]" {
-		t.Fatalf("api_key must be redacted, got %v", settings["api_key"])
+	// 插件不再携带任何密钥，状态输出里也不应有该字段。
+	if _, present := settings["api_key"]; present {
+		t.Fatalf("插件不应再暴露 api_key 字段: %v", settings["api_key"])
 	}
 }
 

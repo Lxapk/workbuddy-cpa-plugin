@@ -33,11 +33,7 @@ import (
 type gatewaySettings struct {
 	// Port is the original gateway listen port. CPA owns its own listener, so
 	// this value is reported for parity only.
-	// APIKey is reported in the panel for reference only. This plugin never checks
-	// it and never authenticates a request: see frontendauth.go. Configure credentials
-	// in CPA's own api-keys list.
-	APIKey string `json:"api_key" yaml:"api_key"`
-	Port   int    `json:"port" yaml:"port"`
+	Port int `json:"port" yaml:"port"`
 	// OnlyUsableModels mirrors onlyUsableModels: hide models whose provider
 	// marks them unavailable.
 	OnlyUsableModels bool `json:"only_usable_models" yaml:"only_usable_models"`
@@ -111,7 +107,6 @@ type gatewaySettings struct {
 func defaultGatewaySettings() gatewaySettings {
 	return gatewaySettings{
 		Port:                8790,
-		APIKey:              "",
 		OnlyUsableModels:    false,
 		RefreshSkewSeconds:  86400,
 		MaxRotate:           3,
@@ -173,7 +168,6 @@ func (g *gatewaySettings) applyDefaults() {
 	if g.DefaultProvider == "" {
 		g.DefaultProvider = d.DefaultProvider
 	}
-	g.APIKey = strings.TrimSpace(g.APIKey)
 
 	// The check-in block is nested, so YAML decoding replaces it wholesale with
 	// the zero value when the section is absent. Restore the defaults in that
@@ -430,7 +424,6 @@ type lifecycleRequest struct {
 //	enabled: true
 //	priority: 1
 //	port: 8790
-//	api_key: "sk-..."
 //
 // "enabled" and "priority" are host-owned and ignored here.
 func (s *settingsStore) decodeLifecycleConfig(raw []byte) error {
@@ -492,8 +485,5 @@ func (g gatewaySettings) marshalForLog() map[string]any {
 		return out
 	}
 	_ = json.Unmarshal(raw, &out)
-	if g.APIKey != "" {
-		out["api_key"] = "[REDACTED]"
-	}
 	return out
 }

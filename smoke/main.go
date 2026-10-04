@@ -126,8 +126,8 @@ func main() {
 		Capabilities map[string]any `json:"capabilities"`
 	}
 	mustUnmarshal(regResp.Result, &reg)
-	if len(reg.Metadata.ConfigFields) != 15 {
-		die("expected 15 config fields, got %d", len(reg.Metadata.ConfigFields))
+	if len(reg.Metadata.ConfigFields) != 14 {
+		die("expected 14 config fields, got %d", len(reg.Metadata.ConfigFields))
 	}
 	ok("registered %s v%s (schema=%d, config_fields=%d)", reg.Metadata.Name, reg.Metadata.Version, reg.SchemaVersion, len(reg.Metadata.ConfigFields))
 	for _, cap := range []string{"frontend_auth_provider", "request_interceptor", "response_interceptor", "response_stream_interceptor", "usage_plugin", "management_api"} {
@@ -220,7 +220,6 @@ func main() {
 		} `json:"plugin"`
 		Settings struct {
 			Port            int    `json:"port"`
-			APIKey          string `json:"api_key"`
 			DefaultProvider string `json:"default_provider"`
 		} `json:"settings"`
 		Usage struct {
@@ -235,9 +234,6 @@ func main() {
 		} `json:"accounts"`
 	}
 	mustUnmarshal(mgmt.Body, &statusDoc)
-	if statusDoc.Settings.APIKey != "[REDACTED]" {
-		die("api_key must be redacted in status output, got %q", statusDoc.Settings.APIKey)
-	}
 	if statusDoc.Settings.Port != 9100 {
 		die("port from config_yaml not applied: got %d, want 9100", statusDoc.Settings.Port)
 	}
@@ -250,8 +246,8 @@ func main() {
 	if statusDoc.Usage.TotalPrompt != 12 || statusDoc.Usage.TotalCompletion != 7 {
 		die("usage tokens = %d/%d, want 12/7", statusDoc.Usage.TotalPrompt, statusDoc.Usage.TotalCompletion)
 	}
-	ok("status: port=%d default_provider=%s api_key=%s calls=%d tokens=%d/%d accounts=%d",
-		statusDoc.Settings.Port, statusDoc.Settings.DefaultProvider, statusDoc.Settings.APIKey, statusDoc.Usage.TotalCalls,
+	ok("status: port=%d default_provider=%s calls=%d tokens=%d/%d accounts=%d",
+		statusDoc.Settings.Port, statusDoc.Settings.DefaultProvider, statusDoc.Usage.TotalCalls,
 		statusDoc.Usage.TotalPrompt, statusDoc.Usage.TotalCompletion, len(statusDoc.Accounts))
 
 	// --- 9. WorkBuddy / codebuddy login (AuthProvider) ------------------

@@ -26,7 +26,7 @@ const (
 	// lower-case because it has to be; this is the name that appears in prose, so it
 	// carries the product's capitalisation.
 	pluginDisplayName = "WorkBuddy"
-	pluginVersion     = "0.1.5"
+	pluginVersion     = "0.1.6"
 	pluginAuthor      = "BlackHawk"
 	pluginRepo        = "https://github.com/router-for-me/CLIProxyAPI"
 )
@@ -289,7 +289,6 @@ func buildRegistration() registration {
 			GitHubRepository: pluginRepo,
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "port", Type: pluginapi.ConfigFieldTypeInteger, Description: "Original gateway listen port (reported for parity; CPA owns the listener)."},
-				{Name: "api_key", Type: pluginapi.ConfigFieldTypeString, Description: "仅供面板显示。本插件不校验该值，鉴权一律由 CPA 负责。"},
 				{Name: "variant_override", Type: pluginapi.ConfigFieldTypeString, Description: "供应商切换 / supplier scope: cn = domestic accounts only, ai = international accounts only, empty = all suppliers. Scopes which accounts an operation acts on; it never changes an account's own realm."},
 				{Name: "only_usable_models", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Hide models whose provider marks them unavailable (V1/s.onlyUsableModels)."},
 				{Name: "refresh_skew_seconds", Type: pluginapi.ConfigFieldTypeInteger, Description: "Refresh credentials this far ahead of expiry (V1/s.refreshSkewSeconds)."},
